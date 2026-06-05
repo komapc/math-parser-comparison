@@ -1,0 +1,124 @@
+#include "parser/evaluator.hpp"
+#include "parser/lexer.hpp"
+
+#include <cmath>
+#include <stdexcept>
+#include <vector>
+
+namespace mp {
+namespace {
+
+// Dijkstra's original shunting-yard, evaluating to a number directly: the output
+// "stack" holds doubles rather than AST nodes. Same precedence/associativity and
+// unary-minus handling as src/shunting_yard.cpp.
+struct Op {
+    TokenType type;
+    int  prec;
+    bool rightAssoc;
+    bool unary;
+    bool lparen;
+};
+
+int binPrec(TokenType t) {
+    switch (t) {
+        case TokenType::Plus:
+        case TokenType::Minus: return 1;
+        case TokenType::Star:
+        case TokenType::Slash: return 2;
+        case TokenType::Caret: return 4;
+        default:               return -1;
+    }
+}
+
+double applyBinary(TokenType op, double l, double r) {
+    switch (op) {
+        case TokenType::Plus:  return l + r;
+        case TokenType::Minus: return l - r;
+        case TokenType::Star:  return l * r;
+        case TokenType::Slash: return l / r;
+        case TokenType::Caret: return std::pow(l, r);
+        default:               throw std::runtime_error("invalid operator");
+    }
+}
+
+class DirectShuntingYard final : public IEvaluator {
+public:
+    const char* name() const override { return "direct-shunting-yard"; }
+
+    double eval(std::string_view src) override {
+        const std::vector<Token> tokens = tokenize(src);
+        std::vector<double> vals;
+        std::vector<Op> ops;
+
+        auto fold = [&](const Op& op) {
+            if (op.lparen) throw std::runtime_error("mismatched parenthesis");
+            if (op.unary) {
+                if (vals.empty()) throw std::runtime_error("missing operand");
+                const double a = vals.back();
+                vals.back() = (op.type == TokenType::Minus) ? -a : a;
+            } else {
+                if (vals.size() < 2) throw std::runtime_error("missing operand");
+                const double r = vals.back(); vals.pop_back();
+                const double l = vals.back(); vals.pop_back();
+                vals.push_back(applyBinary(op.type, l, r));
+            }
+        };
+
+        bool expectOperand = true;
+        for (const Token& tok : tokens) {
+            switch (tok.type) {
+                case TokenType::Number:
+                    if (!expectOperand) throw std::runtime_error("unexpected number");
+                    vals.push_back(tok.value);
+                    expectOperand = false;
+                    break;
+                case TokenType::Ident:
+                    throw std::runtime_error("variables not supported by this evaluator");
+                case TokenType::LParen:
+                    ops.push_back(Op{tok.type, 0, false, false, true});
+                    expectOperand = true;
+                    break;
+                case TokenType::RParen:
+                    while (!ops.empty() && !ops.back().lparen) { Op o = ops.back(); ops.pop_back(); fold(o); }
+                    if (ops.empty()) throw std::runtime_error("mismatched parenthesis");
+                    ops.pop_back();
+                    expectOperand = false;
+                    break;
+                case TokenType::Plus:
+                case TokenType::Minus:
+                case TokenType::Star:
+                case TokenType::Slash:
+                case TokenType::Caret:
+                    if (expectOperand) {
+                        if (tok.type != TokenType::Plus && tok.type != TokenType::Minus)
+                            throw std::runtime_error("unexpected operator");
+                        ops.push_back(Op{tok.type, 3, true, true, false});
+                    } else {
+                        const int p = binPrec(tok.type);
+                        const bool ra = (tok.type == TokenType::Caret);
+                        while (!ops.empty() && !ops.back().lparen &&
+                               (ops.back().prec > p || (ops.back().prec == p && !ra))) {
+                            Op o = ops.back(); ops.pop_back(); fold(o);
+                        }
+                        ops.push_back(Op{tok.type, p, ra, false, false});
+                        expectOperand = true;
+                    }
+                    break;
+                case TokenType::End:
+                    if (expectOperand) throw std::runtime_error("unexpected end of input");
+                    break;
+            }
+        }
+        while (!ops.empty()) { Op o = ops.back(); ops.pop_back(); fold(o); }
+        if (vals.size() != 1) throw std::runtime_error("invalid expression");
+        return vals.back();
+    }
+};
+
+}  // namespace
+
+std::unique_ptr<IEvaluator> make_direct_shunting_yard() {
+    return std::make_unique<DirectShuntingYard>();
+}
+
+}  // namespace mp
