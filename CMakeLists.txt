@@ -23,6 +23,7 @@ add_library(parsers
   src/pratt.cpp
   src/multipass.cpp
   src/multipass_arena.cpp
+  src/multipass_opt.cpp
   src/arena_ast.cpp
   src/direct_recursive_descent.cpp
   src/direct_shunting_yard.cpp

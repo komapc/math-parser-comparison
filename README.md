@@ -2,7 +2,7 @@
 
 # 🧮 Math-Expression Parser & Evaluator — A Comparison
 
-**Ten ways to turn `"-2 ^ 2 + 3 * (4 - 1)"` into a number — benchmarked head-to-head**
+**Eleven ways to turn `"-2 ^ 2 + 3 * (4 - 1)"` into a number — benchmarked head-to-head**
 **(plus a five-way compile-once / evaluate-many shoot-out).**
 
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)
@@ -40,6 +40,7 @@ rpn-stack                 █████                              200 ns   
 ast-arena                 █████                              208 ns   ×1.3
 ──────────────────────────────────────── tier break: 1 allocation vs N ────
 multipass-arena           ████████                           343 ns   ×2.1   ← div-and-conquer + arena
+multipass-bfs             ████████                           330 ns   ×2.0   ← + O(1) sparse-table splits
 ──────────────────────────────────────── tier break: N allocations ────────
 ast-pratt                 ██████████                         400 ns   ×2.5
 ast-shunting-yard         ███████████                        434 ns   ×2.7
@@ -53,10 +54,9 @@ Four tiers fall out cleanly:
 - **Tier 1 (×1.0–1.3): zero or one allocation.** Direct evaluators build nothing;
   compiled flat forms and the arena AST allocate one contiguous buffer. All land within
   30% of each other — algorithm barely matters inside this tier.
-- **Tier 2 (×2.1): divide-and-conquer + arena.** `multipass-arena` achieves ×2.1 after
-  an extensive optimization series: algorithmic O(n²)→O(n log n), arena AST, O(1) paren
-  matching, and *iterator passing* (7× fewer binary searches). Faster than all
-  pointer-AST parsers.
+- **Tier 2 (×2.0–2.1): divide-and-conquer + arena.** `multipass-arena` and
+  `multipass-bfs` sit here after an extensive optimization series (see below). Both
+  are faster than all pointer-AST parsers despite being O(n log n).
 - **Tier 3 (×2.5–2.9): N allocations.** One `make_unique` per AST node. All three
   parser algorithms (Pratt, shunting-yard, recursive descent) land within 17% of each
   other — the *algorithm is irrelevant*, per-node allocation is the cost.
@@ -95,6 +95,7 @@ All one-shot strategies implement [`mp::IEvaluator`](include/parser/evaluator.hp
 | `ast-arena` | [`arena_ast.cpp`](src/arena_ast.cpp) | 114 | Recursive descent, but every node is appended to one contiguous vector and children are referenced by index, not pointer. |
 | `multipass` | [`multipass.cpp`](src/multipass.cpp) | 179 | Recursively find the lowest-precedence operator at depth 0, make it the root, and recurse on the two halves (pointer AST). |
 | `multipass-arena` | [`multipass_arena.cpp`](src/multipass_arena.cpp) | 223 | Same divide-and-conquer, but with arena AST + O(1) paren matching + iterator passing to eliminate redundant binary searches. |
+| `multipass-bfs` | [`multipass_opt.cpp`](src/multipass_opt.cpp) | — | All the arena optimisations plus a sparse-table RMQ for O(1) split-finding and pre-indexed paren ranges for O(1) paren strips. Theoretical ceiling of the divide-and-conquer family with this grammar. |
 
 ### Evaluate inline while parsing (no intermediate form)
 
@@ -162,6 +163,7 @@ Full table, ns/leaf (10 000-leaf expressions; `×` = relative to the fastest):
 | `bytecode-vm` | 193 | 1.2 | a few buffers |
 | `rpn-stack` | 200 | 1.2 | a few buffers |
 | `ast-arena` | 208 | 1.3 | **one** (node vector) |
+| `multipass-bfs` | 330 | **2.0** | one + sparse table + pre-index |
 | `multipass-arena` | 343 | **2.1** | one (node vector) + pre-scan |
 | `ast-pratt` | 400 | 2.5 | **one per node** |
 | `ast-shunting-yard` | 434 | 2.7 | **one per node** |
@@ -186,11 +188,27 @@ can go without changing the algorithm:
 | + arena AST | 568 | ×8.7 | per-node allocation gone |
 | + O(1) paren matching | ~555 | ~×8.5 | precomputed `parenMatch[]` |
 | + **iterator passing** | **343** | **×2.1** | 7× fewer binary searches |
+| + **sparse-table RMQ + paren pre-index** (`multipass-bfs`) | **~330** | **~×2.0** | O(1) findSplit + O(1) paren strips — theoretical floor |
 
 **Iterator passing** was the decisive step: instead of binary-searching for candidates
 at every recursive call, each split passes the known sub-iterator range directly to its
 children — O(1) instead of O(log n) per call. Only paren-depth changes (when stripping
-`()`) still require a binary search; everything else is free.
+`()`) still required a binary search.
+
+**`multipass-bfs`** eliminates that last binary search too, via two structures built in
+one extra O(n log n) pass during `buildAll`:
+
+- A **sparse table** (range-minimum query) over each depth's candidate list → O(1)
+  `findSplit` instead of the O(k) linear scan.
+- **Pre-indexed paren ranges** (`parenCandStart_[i]` / `parenCandEnd_[i]`) → O(1)
+  paren-depth transition instead of O(log n) binary search.
+
+The result is ~×2.0 — barely ahead of `multipass-arena` at ~×2.1. The sparse table's
+build cost (~O(n log n) extra work, larger working set, more cache pressure) almost
+exactly cancels the per-split savings at typical expression sizes. This is the
+*theoretical ceiling* of the divide-and-conquer approach: every per-call operation is
+now O(1), but the O(n log n) total work of the algorithm itself cannot be improved
+without changing the strategy entirely.
 
 #### 🚀 Bracket-free expressions: multipass-arena's best case
 
@@ -292,7 +310,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 
 ctest --test-dir build --output-on-failure   # 250 checks: all strategies incl. variables
-./build/bench                                 # one-shot comparison (10 strategies)
+./build/bench                                 # one-shot comparison (11 strategies)
 ./build/reeval                                # compile-once / eval-many comparison
 ```
 

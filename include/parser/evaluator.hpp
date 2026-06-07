@@ -31,6 +31,12 @@ std::unique_ptr<IEvaluator> make_ast_multipass();
 // Same algorithm, arena-allocated (no per-node heap allocation).
 std::unique_ptr<IEvaluator> make_ast_multipass_arena();
 
+// Optimised multipass variants (paren pre-indexing + sparse RMQ + Cartesian skeleton + BFS).
+std::unique_ptr<IEvaluator> make_multipass_paren_idx();
+std::unique_ptr<IEvaluator> make_multipass_sparse();
+std::unique_ptr<IEvaluator> make_multipass_cartesian();
+std::unique_ptr<IEvaluator> make_multipass_bfs();
+
 // Direct evaluators: compute the value while parsing, no intermediate form.
 std::unique_ptr<IEvaluator> make_direct_recursive_descent();
 std::unique_ptr<IEvaluator> make_direct_shunting_yard();
