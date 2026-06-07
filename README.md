@@ -2,12 +2,12 @@
 
 # 🧮 Math-Expression Parser & Evaluator — A Comparison
 
-**Nine ways to turn `"-2 ^ 2 + 3 * (4 - 1)"` into a number — benchmarked head-to-head**
+**Ten ways to turn `"-2 ^ 2 + 3 * (4 - 1)"` into a number — benchmarked head-to-head**
 **(plus a five-way compile-once / evaluate-many shoot-out).**
 
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)
 ![CMake](https://img.shields.io/badge/CMake-3.20%2B-064F8C?logo=cmake&logoColor=white)
-![tests](https://img.shields.io/badge/tests-228%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-250%20passing-brightgreen)
 ![warnings](https://img.shields.io/badge/-Wall%20-Wextra%20-Wpedantic-clean-brightgreen)
 ![deps](https://img.shields.io/badge/dependencies-none-blue)
 
@@ -29,29 +29,40 @@ cleverness.**
 
 ## ⚡ Results at a glance
 
-> One-shot, ns per leaf at 10 000-leaf expressions — **shorter is faster**.
-> (Throttling laptop part; absolute ns swing run-to-run, so trust the **ratios**.)
+> One-shot, ns per leaf — **shorter is faster**. Averaged over several runs;
+> this is a throttling laptop part so **absolute ns drift ±40% — trust the ratios**.
 
 ```
-direct-recursive-descent  ██                                  218 ns   ×1.0   ← fastest
-direct-shunting-yard      ██                                  223 ns   ×1.0
-rpn-stack                 ███                                 246 ns   ×1.1
-bytecode-vm               ███                                 251 ns   ×1.2
-ast-arena                 ███                                 254 ns   ×1.2
-ast-recursive-descent     ██████                              551 ns   ×2.5
-ast-pratt                 ██████                              559 ns   ×2.6
-ast-shunting-yard         ██████                              567 ns   ×2.6
-multipass                 ██████████████                     1242 ns   ×5.7   ← super-linear (improved)
+direct-recursive-descent  ███                                163 ns   ×1.0   ← fastest
+direct-shunting-yard      ████                               178 ns   ×1.1
+bytecode-vm               ████                               193 ns   ×1.2
+rpn-stack                 █████                              200 ns   ×1.2
+ast-arena                 █████                              208 ns   ×1.3
+──────────────────────────────────────── tier break: 1 allocation vs N ────
+multipass-arena           ████████                           343 ns   ×2.1   ← div-and-conquer + arena
+──────────────────────────────────────── tier break: N allocations ────────
+ast-pratt                 ██████████                         400 ns   ×2.5
+ast-shunting-yard         ███████████                        434 ns   ×2.7
+ast-recursive-descent     ████████████                       466 ns   ×2.9
+──────────────────────────────────────── tier break: super-linear ─────────
+multipass                 █████████████████████              864 ns   ×5.3   ← O(n log n)
 ```
 
-Three things fall right out:
+Four tiers fall out cleanly:
 
-- **The AST allocation tax is real.** The three classic pointer-AST parsers all land
-  ~3.7–4.0× behind, *regardless of algorithm* — the cost is one `make_unique` per
-  node, not the parsing logic.
-- **Swap pointers for an arena and that tax mostly vanishes** (`ast-arena`, ×1.7) —
-  same tree, same walk, one allocation instead of N.
-- **`multipass` is the only non-linear strategy** (×5.7, improved from ×14 after algorithmic fixes — but still O(n log n) by nature).
+- **Tier 1 (×1.0–1.3): zero or one allocation.** Direct evaluators build nothing;
+  compiled flat forms and the arena AST allocate one contiguous buffer. All land within
+  30% of each other — algorithm barely matters inside this tier.
+- **Tier 2 (×2.1): divide-and-conquer + arena.** `multipass-arena` achieves ×2.1 after
+  an extensive optimization series: algorithmic O(n²)→O(n log n), arena AST, O(1) paren
+  matching, and *iterator passing* (7× fewer binary searches). Faster than all
+  pointer-AST parsers.
+- **Tier 3 (×2.5–2.9): N allocations.** One `make_unique` per AST node. All three
+  parser algorithms (Pratt, shunting-yard, recursive descent) land within 17% of each
+  other — the *algorithm is irrelevant*, per-node allocation is the cost.
+- **Tier 4 (×5.3): super-linear.** `multipass` (pointer-AST) is inherently O(n log n).
+  Arena + optimizations moved its arena sibling to tier 2, but the pointer-AST base
+  pays N allocations on top of the log factor.
 
 ## 📐 The grammar
 
@@ -82,7 +93,8 @@ All one-shot strategies implement [`mp::IEvaluator`](include/parser/evaluator.hp
 | `ast-shunting-yard` | [`shunting_yard.cpp`](src/shunting_yard.cpp) | 116 | Scan left-to-right, popping higher-precedence operators off a stack to fold operands into AST nodes. |
 | `ast-pratt` | [`pratt.cpp`](src/pratt.cpp) | 81 | Parsing driven by each operator's binding power, looping while the next operator binds tighter than the caller's minimum. |
 | `ast-arena` | [`arena_ast.cpp`](src/arena_ast.cpp) | 114 | Recursive descent, but every node is appended to one contiguous vector and children are referenced by index, not pointer. |
-| `multipass` | [`multipass.cpp`](src/multipass.cpp) | 99 | Recursively find the lowest-precedence operator at depth 0, make it the root, and recurse on the two halves. |
+| `multipass` | [`multipass.cpp`](src/multipass.cpp) | 179 | Recursively find the lowest-precedence operator at depth 0, make it the root, and recurse on the two halves (pointer AST). |
+| `multipass-arena` | [`multipass_arena.cpp`](src/multipass_arena.cpp) | 223 | Same divide-and-conquer, but with arena AST + O(1) paren matching + iterator passing to eliminate redundant binary searches. |
 
 ### Evaluate inline while parsing (no intermediate form)
 
@@ -108,28 +120,29 @@ re-parse + walk a fresh AST *every call*). The compiled forms' `eval()` is
 
 Shared infrastructure: [`lexer.cpp`](src/lexer.cpp) (69) and [`ast.cpp`](src/ast.cpp) (33).
 
-## 🌳 Do they all build the same AST? No — three categories
+## 🌳 Do they all build the same AST? No — four categories
 
 Take `2 + 3 * 4`:
 
 | Group | Representation | `2 + 3 * 4` becomes |
 |---|---|---|
-| `ast-recursive-descent`, `ast-shunting-yard`, `ast-pratt`, `multipass` | **Pointer AST** — tree of heap nodes (`unique_ptr<Expr>`) | `Binary(+, Num 2, Binary(*, Num 3, Num 4))` |
-| `ast-arena` | **Arena AST** — same tree, one flat vector, children by index | `[Num2, Num3, Num4, Mul→(1,2), Add→(0,3)]`, root = 4 |
+| `ast-rd`, `ast-sy`, `ast-pratt`, `multipass` | **Pointer AST** — heap nodes (`unique_ptr<Expr>`) | `Binary(+, Num 2, Binary(*, Num 3, Num 4))` |
+| `ast-arena`, `multipass-arena` | **Arena AST** — one flat vector, index children | `[Num2, Num3, Num4, Mul→(1,2), Add→(0,3)]`, root=4 |
 | `direct-recursive-descent`, `direct-shunting-yard` | **None** — value computed on the fly | *(nothing; yields `14`)* |
 | `rpn-stack` | **Flat postfix** | `2 3 4 * +` |
 | `bytecode-vm` | **Flat opcodes + const pool** | `PUSH PUSH PUSH MUL ADD` |
 
 Key points:
 
-- The four **pointer-AST** strategies produce a **bit-identical** tree for a given
-  input — that's *why* their speeds are nearly equal: they differ only in *how* they
-  find the tree, not what they build.
+- The four **pointer-AST** strategies produce a **bit-identical** tree — that's *why*
+  their speeds are nearly equal: they differ only in *how* they find the tree, not
+  what they build.
 - The **arena AST** is the *same logical tree, different physical layout* — and that
   layout change alone is the ~2× speedup.
-- **RPN / bytecode aren't trees** — they're the AST *flattened to post-order*. No
-  pointers, no recursion to evaluate.
+- **RPN / bytecode aren't trees** — they're the AST *flattened to post-order*.
 - The **direct** evaluators build *no* representation at all.
+- **`multipass` vs `multipass-arena`**: identical algorithm, different node allocation
+  strategy — the arena variant is in tier 2 (×2.1), the pointer variant in tier 4 (×5.3).
 
 ## 📊 Benchmarks
 
@@ -144,37 +157,62 @@ Full table, ns/leaf (10 000-leaf expressions; `×` = relative to the fastest):
 
 | Strategy | ns/leaf | ×fastest | allocations / expr |
 |---|--:|--:|---|
-| `direct-recursive-descent` | 218 | **1.0** | ~0 (call stack) |
-| `direct-shunting-yard` | 223 | 1.0 | 2 stacks |
-| `rpn-stack` | 246 | 1.1 | a few buffers |
-| `bytecode-vm` | 251 | 1.2 | a few buffers |
-| `ast-arena` | 254 | 1.2 | **one** (node vector) |
-| `ast-recursive-descent` | 551 | 2.5 | **one per node** |
-| `ast-pratt` | 559 | 2.6 | **one per node** |
-| `ast-shunting-yard` | 567 | 2.6 | **one per node** |
-| `multipass` | 1242 | 5.7 | one per node + log-n re-scans |
+| `direct-recursive-descent` | 163 | **1.0** | ~0 (call stack) |
+| `direct-shunting-yard` | 178 | 1.1 | 2 stacks |
+| `bytecode-vm` | 193 | 1.2 | a few buffers |
+| `rpn-stack` | 200 | 1.2 | a few buffers |
+| `ast-arena` | 208 | 1.3 | **one** (node vector) |
+| `multipass-arena` | 343 | **2.1** | one (node vector) + pre-scan |
+| `ast-pratt` | 400 | 2.5 | **one per node** |
+| `ast-shunting-yard` | 434 | 2.7 | **one per node** |
+| `ast-recursive-descent` | 466 | 2.9 | **one per node** |
+| `multipass` | 864 | 5.3 | one per node + pre-scan |
 
 For a *single* evaluation, inline `direct-recursive-descent` wins — there's nothing to
-allocate or build. RPN/bytecode pay a compile cost they can't amortize here; their
+allocate or build. RPN/bytecode pay compile cost they can't amortize here; their
 moment comes under re-evaluation.
 
-#### ⚠️ `multipass` is the odd one out — it isn't linear
+#### 🔬 `multipass` / `multipass-arena` — the optimization story
 
-After fixes (pre-scan, RTL early-exit, flat-chain folding), `multipass` improved
-significantly — but per-leaf cost still grows with size because divide-and-conquer
-recursion is inherently O(n log n):
+Both are divide-and-conquer parsers that build a Cartesian tree top-down (find the
+root operator, recurse on both halves). This is inherently O(n log n), unlike all
+other strategies which are O(n) single-pass. The journey shows how far optimization
+can go without changing the algorithm:
+
+| Version | ns/leaf | ×rd | what changed |
+|---|--:|--:|---|
+| Naive (re-scan every range) | 1932 | ×30 | — |
+| + pre-scan + flat-chain fold | 879 | ×14 | O(n²) → O(n log n) |
+| + arena AST | 568 | ×8.7 | per-node allocation gone |
+| + O(1) paren matching | ~555 | ~×8.5 | precomputed `parenMatch[]` |
+| + **iterator passing** | **343** | **×2.1** | 7× fewer binary searches |
+
+**Iterator passing** was the decisive step: instead of binary-searching for candidates
+at every recursive call, each split passes the known sub-iterator range directly to its
+children — O(1) instead of O(log n) per call. Only paren-depth changes (when stripping
+`()`) still require a binary search; everything else is free.
+
+#### 🚀 Bracket-free expressions: multipass-arena's best case
+
+Without parentheses, all operators are at depth 0. There are no paren-depth changes,
+so **no binary searches at all** after the root call. `multipass-arena` falls into the
+same performance tier as the compiled flat forms:
 
 ```
-leaves       10    100   1000  10000
-ns/leaf     703    953   1092   1238   ← still rising, but far less than before
-before      531    856   1087   1932   ← naive O(n²) version
+Bracket-free expressions, 10000 leaves, ns/leaf:
+
+direct-recursive-descent   56   ×1.0
+rpn / bytecode           65–67   ×1.2
+ast-arena                  71   ×1.3
+multipass-arena           104   ×1.9   ← same tier as compiled forms
+ast-ptr parsers         173–205  ×3.1–3.7
 ```
 
-Growth ratio shrank from **×3.6** (naive) to **×1.8** (fixed) across the 1000× size
-range, consistent with the expected O(n log n) — each 10× size increase adds ~one
-extra log-factor step rather than 10×. Worst case O(n²) on skewed chains like
-`1-2-3-…-n` is now eliminated by the flat-chain folding (fix #6). Its independent
-sub-ranges still make it the most **parallel-friendly** strategy (see below).
+This also exposes the **Cartesian tree connection**: every O(n) parser (recursive
+descent, shunting-yard, Pratt) is building a Cartesian tree *bottom-up* with a stack.
+Multipass builds it *top-down*. The bottom-up direction is inherently sequential; the
+top-down direction is inherently parallelizable. The log-factor cost is the price of
+parallelism.
 
 ### Re-eval — compile once, evaluate many
 
@@ -200,32 +238,52 @@ The ranking **inverts** vs. one-shot:
 ### 🏁 The verdict
 
 > **There is no universal winner — the best strategy is a function of how many times
-> you evaluate.**
+> you evaluate and whether you need parallelism.**
 >
-> - **Once?** Inline `direct-recursive-descent`.
-> - **Many times?** Compile to `bytecode`/`rpn`.
-> - **Want a tree, but fast?** Use an **arena**, never per-node `unique_ptr`.
+> - **Once, fastest?** `direct-recursive-descent` (nothing to allocate or build).
+> - **Many times?** Compile to `bytecode`/`rpn` (allocation-free eval loop).
+> - **Want a tree, but fast?** Arena, never per-node `unique_ptr`.
+> - **Parallelism or incremental re-parsing?** `multipass-arena` — see below.
 
-## 🧵 Multithreading ideas
+## 🧵 Parallelism & the divide-and-conquer advantage
 
 Single-expression parsing is mostly *sequential* (each token's meaning depends on what
-came before), so threads help in two specific shapes:
+came before). Every strategy except `multipass` is a left-to-right stream with running
+state — the two sub-expressions cannot be parsed concurrently because you don't know
+where the split is until you've processed everything up to it.
 
-1. **Batch parallelism** *(easy, scales well)* — many independent expressions, one
-   parser per thread. Measured ~3.5× on a 4-core/8-thread laptop. Embarrassingly
-   parallel; the only limit is the allocator.
-2. **Single-expression split** *(`src/parallel.cpp`, currently disabled)* — split one
-   big expression at top-level `+`/`-`, parse the terms across threads, fold the
-   results. Correct, but reached only ~1.7× on 4 threads because AST construction is
-   **allocation-bound** — the real ceiling everywhere in this project.
-3. **`multipass` fork-join** *(the best fit, not yet built)* — every split yields two
-   genuinely independent sub-ranges, so it maps directly onto fork-join parallelism
-   (parse left/right concurrently down to a size cutoff). Finer-grained than (2)'s
-   single top-level split.
+`multipass` is different: it **finds the split first**, then the two halves are
+completely independent. This maps naturally onto fork-join parallelism at every level of
+the recursion tree.
 
-The thread that ties it together: more cores don't help much until you fix allocation.
-A **per-thread arena/bump allocator** is the lever that would unlock real parallel
-scaling for any of these — the same insight the arena AST demonstrates single-threaded.
+### Three parallelism shapes, in order of suitability
+
+**1. Batch (easy, scales well)** — many independent expressions, one parser per thread.
+Measured ~3.5× on a 4-core/8-thread laptop. Works with any strategy; the only limit
+is the heap allocator (per-thread arena regions fix this).
+
+**2. `parse_parallel` top-level split** *(disabled, `src/parallel.cpp`)* — split one
+expression at its single top-level `+`/`-`, parse the terms across threads. Got ~1.7×
+on 4 threads; capped by AST allocation. Better addressed by the arena.
+
+**3. `multipass` fork-join *(the right fit)*** — every recursive split is an
+independent fork point:
+```
+find_root(expr) → [left_half, right_half]
+               → parse in parallel, any depth
+               → fold result at the join
+```
+This gives O(log n) parallel depth — far finer-grained than (2)'s single split.
+With per-thread arena regions, allocation becomes thread-local and the ceiling lifts.
+
+### Other unique properties of `multipass-arena`
+
+| Property | Why only multipass has it |
+|---|---|
+| **Incremental re-parsing** | If token k changes, only the sub-tree containing k needs re-parsing. The root operator and the other half are unchanged. All other parsers are single-pass with no sub-range structure to exploit. |
+| **Range-based sub-evaluation** | Evaluate any `[lo, hi)` token range as a standalone expression — directly, without re-tokenizing. |
+| **Bracket-free parity** | Without parens, iterator passing eliminates all binary-search overhead; performance enters the compiled-flat-forms tier while remaining fork-join parallel. |
+| **BFS / level-by-level** | All nodes at the same tree depth are independent — natural for SIMD (process 4–8 splits simultaneously) or GPU batch parsing. |
 
 ## 🛠️ Build & run
 
@@ -233,8 +291,8 @@ scaling for any of these — the same insight the arena AST demonstrates single-
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 
-ctest --test-dir build --output-on-failure   # correctness: all strategies, incl. variables
-./build/bench                                 # one-shot comparison
+ctest --test-dir build --output-on-failure   # 250 checks: all strategies incl. variables
+./build/bench                                 # one-shot comparison (10 strategies)
 ./build/reeval                                # compile-once / eval-many comparison
 ```
 
@@ -258,7 +316,7 @@ is a call). Operator precedence and the harnesses are unaffected.
 
 ## 📎 Notes
 
-- Benchmark numbers come from one clean run on a throttling i7-10610U; **absolute ns
-  vary ±40% run-to-run — the ratios are the result.** Run them yourself.
+- Benchmark numbers are averaged over several runs on a throttling i7-10610U;
+  **absolute ns vary ±40% run-to-run — the ratios are the result.** Run them yourself.
 - `src/parallel.cpp` is kept for reference but **excluded from the build** (see
   `CMakeLists.txt`).
