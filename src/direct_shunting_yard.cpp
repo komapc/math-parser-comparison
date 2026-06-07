@@ -8,6 +8,9 @@
 namespace mp {
 namespace {
 
+// In one sentence: shunting-yard whose operand stack holds running numeric values,
+// computing the result during the single scan with no AST.
+//
 // Dijkstra's original shunting-yard, evaluating to a number directly: the output
 // "stack" holds doubles rather than AST nodes. Same precedence/associativity and
 // unary-minus handling as src/shunting_yard.cpp.

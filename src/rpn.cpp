@@ -8,6 +8,9 @@
 namespace mp {
 namespace {
 
+// In one sentence: shunting-yard emits a flat postfix (RPN) token sequence, then
+// a value stack walks that sequence to produce the result.
+//
 // RPN / postfix + stack machine. Phase 1: shunting-yard emits a flat postfix
 // sequence of tagged tokens (instead of folding into an AST or a value).
 // Phase 2: a value stack walks that sequence. One allocation for the output

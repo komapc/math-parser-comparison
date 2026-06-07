@@ -7,6 +7,9 @@
 namespace mp {
 namespace {
 
+// In one sentence: scan left-to-right, pushing operands and popping
+// higher-or-equal-precedence operators off a stack to fold them into AST nodes.
+//
 // Strategy 2: Dijkstra's shunting-yard, building the shared AST.
 // Two stacks (operands + operators); precedence lives in a table; unary minus
 // is detected by context ("expecting operand"). Precedence:

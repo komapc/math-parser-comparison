@@ -5,7 +5,7 @@ parsing/evaluating arithmetic expressions. All share one tokenizer
 (`src/lexer.cpp`) and grammar, so the comparison measures the strategy rather
 than incidental differences. There are two benchmarks:
 
-- **`bench`** — *one-shot*: source text → value, in a single call (8 strategies).
+- **`bench`** — *one-shot*: source text → value, in a single call (9 strategies).
 - **`reeval`** — *compile once, evaluate many*: how the strategies behave under
   repeated evaluation with changing variable bindings (5 strategies).
 
@@ -39,6 +39,7 @@ Build an AST, then walk it:
 | `ast-shunting-yard` | `src/shunting_yard.cpp` | Two-stack; folds operands into AST nodes. |
 | `ast-pratt` | `src/pratt.cpp` | Binding powers + `nud`/infix. |
 | `ast-arena` | `src/arena_ast.cpp` | **Arena AST**: all nodes in one contiguous vector, children by index — one allocation instead of N. |
+| `multipass` | `src/multipass.cpp` | **Divide-and-conquer**: recursively split on the lowest-precedence operator (the naive, re-scanning sibling of recursive descent). Super-linear. |
 
 Evaluate inline while parsing (no intermediate form):
 
@@ -80,18 +81,28 @@ result, not the absolutes.** Run `./build/bench` and `./build/reeval` yourself.
 
 ### One-shot (string → value once)
 
+ns/leaf at 10000 leaves (lower is better):
+
 | Strategy | ~ns/leaf | allocations/expr |
 |---|---|---|
-| `direct-recursive-descent` | **185** | ~0 (call stack) |
-| `direct-shunting-yard` / `rpn` / `bytecode` | 198–209 | a few buffers |
-| `ast-arena` | 244 | **one** (the node vector) |
-| `ast-*` (pointer) | 513–559 | **one per node** |
+| `direct-recursive-descent` | **135–185** | ~0 (call stack) |
+| `direct-shunting-yard` / `rpn` / `bytecode` | 160–210 | a few buffers |
+| `ast-arena` | 245 | **one** (the node vector) |
+| `ast-*` (pointer) | 500–550 | **one per node** |
+| `multipass` | **1950** (and rising) | one per node + re-scans |
 
-- Avoiding per-node allocation is a ~2× win: `ast-arena` (244) vs pointer ASTs
-  (~535) — same tree walk, only the allocation strategy differs.
+- Avoiding per-node allocation is a ~2× win: `ast-arena` (~245) vs pointer ASTs
+  (~520) — same tree walk, only the allocation strategy differs.
 - For a single evaluation, inline `direct-recursive-descent` wins (nothing to
   allocate or build). RPN/bytecode pay compile cost they can't amortize here —
   their advantage shows up only under re-evaluation, below.
+- **`multipass` is the only strategy that is *not* linear.** Its per-leaf cost
+  *grows* with expression size (≈629 → 925 → 1148 → 1946 ns/leaf at
+  10 / 100 / 1000 / 10000 leaves) because it re-scans every sub-range to find its
+  split operator — average ≈ O(n log n) on random inputs, worst case O(n²) on
+  skewed chains. Every other strategy has ~constant ns/leaf (linear). The upside:
+  its independent sub-ranges make it the most naturally **fork-join parallel**
+  strategy (see below), unlike the inherently sequential single-pass parsers.
 
 ### Re-eval (compile once, evaluate many)
 
@@ -125,6 +136,13 @@ form (or at least an arena AST).
 but only reached ~1.7× on 4 threads because AST construction was allocation-bound
 (the arena AST above is the better lever). It is **excluded from the build** (see
 `CMakeLists.txt`); the file is kept for reference.
+
+The `multipass` strategy would be the better parallelization target: every split
+yields two independent sub-ranges, so it maps directly onto **fork-join**
+parallelism (parse left/right concurrently down to a size cutoff) — finer-grained
+than `parse_parallel`'s single top-level split. It would still be allocation-bound
+(per-thread arena regions would be the fix), but it is the most parallel-friendly
+of the strategies here.
 
 ## Extending to functions
 

@@ -9,6 +9,9 @@
 namespace mp {
 namespace {
 
+// In one sentence: recursive descent whose rules return the computed number
+// directly, so no AST is ever built.
+//
 // Direct recursive descent: same grammar as src/recursive_descent.cpp, but each
 // rule returns a double computed inline -- no AST is ever built.
 class DirectRecursiveDescent final : public IEvaluator {

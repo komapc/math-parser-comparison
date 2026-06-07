@@ -25,6 +25,9 @@ std::unique_ptr<IEvaluator> make_ast_pratt();
 // Arena-allocated AST (one contiguous buffer instead of per-node allocation).
 std::unique_ptr<IEvaluator> make_ast_arena();
 
+// Divide-and-conquer: recursively split on the lowest-precedence operator.
+std::unique_ptr<IEvaluator> make_ast_multipass();
+
 // Direct evaluators: compute the value while parsing, no intermediate form.
 std::unique_ptr<IEvaluator> make_direct_recursive_descent();
 std::unique_ptr<IEvaluator> make_direct_shunting_yard();

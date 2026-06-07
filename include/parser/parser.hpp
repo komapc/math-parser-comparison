@@ -25,5 +25,6 @@ public:
 std::unique_ptr<IParser> make_recursive_descent();
 std::unique_ptr<IParser> make_shunting_yard();
 std::unique_ptr<IParser> make_pratt();
+std::unique_ptr<IParser> make_multipass();
 
 }  // namespace mp

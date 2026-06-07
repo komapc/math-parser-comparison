@@ -8,6 +8,9 @@
 namespace mp {
 namespace {
 
+// In one sentence: parsing driven by each operator's binding power, looping while
+// the next operator binds tighter than the caller's minimum.
+//
 // Strategy 3: Pratt / precedence climbing.
 // Each token has a binding power; nud() starts an expression (number, prefix
 // +/-, parens), led-style infix handling lives in parseExpr(minbp). Associativity

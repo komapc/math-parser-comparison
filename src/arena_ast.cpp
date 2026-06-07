@@ -10,6 +10,9 @@
 namespace mp {
 namespace {
 
+// In one sentence: ordinary recursive descent, but every AST node is appended to
+// one contiguous vector and children are referenced by index instead of pointer.
+//
 // Recursive-descent builder that emits nodes into a flat vector and returns the
 // index of each subtree's root. Same grammar as src/recursive_descent.cpp.
 class Builder {

@@ -8,6 +8,9 @@
 namespace mp {
 namespace {
 
+// In one sentence: a function per grammar rule calls down the precedence ladder,
+// building an AST as the recursion returns.
+//
 // Strategy 1: recursive descent.
 // One function per grammar rule; precedence is encoded in the call hierarchy.
 //   expr    := term (('+'|'-') term)*

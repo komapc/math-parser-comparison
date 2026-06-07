@@ -35,7 +35,8 @@ int binPrec(TokenType t) {
 }
 
 // ============================================================ reparse baseline
-// Stores the source and re-lexes + re-parses + walks the AST on *every* eval.
+// In one sentence: the no-compile baseline — re-lex, re-parse and walk a fresh
+// AST on every single evaluation.
 // This is what having no reusable compiled form costs.
 class ReparseCompiled final : public ICompiledExpr {
 public:
@@ -58,6 +59,8 @@ public:
 };
 
 // ================================================================ AST (unique_ptr)
+// In one sentence: parse to a pointer-linked AST once, then walk that tree on
+// each evaluation.
 class AstPtrCompiled final : public ICompiledExpr {
 public:
     explicit AstPtrCompiled(ExprPtr ast) : ast_(std::move(ast)) {}
@@ -77,6 +80,8 @@ private:
 };
 
 // ===================================================================== AST (arena)
+// In one sentence: parse to a flat arena AST once, then walk its contiguous nodes
+// on each evaluation.
 class ArenaCompiled final : public ICompiledExpr {
 public:
     explicit ArenaCompiled(ArenaAst ast) : ast_(std::move(ast)) {}
@@ -94,6 +99,8 @@ public:
 };
 
 // ============================================================================ RPN
+// In one sentence: compile to postfix once, then re-run that flat sequence on a
+// reused (allocation-free) value stack each evaluation.
 enum class RKind { Num, Var, Add, Sub, Mul, Div, Pow, Neg };
 
 struct RTok {
@@ -221,6 +228,8 @@ public:
 };
 
 // ======================================================================= bytecode
+// In one sentence: compile to a bytecode opcode stream once, then re-run it on a
+// reused (allocation-free) stack VM each evaluation.
 enum class Bc : std::uint8_t { Push, Load, Add, Sub, Mul, Div, Pow, Neg };
 
 Bc binBc(TokenType t) {

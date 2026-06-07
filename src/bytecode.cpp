@@ -9,6 +9,9 @@
 namespace mp {
 namespace {
 
+// In one sentence: shunting-yard compiles to a compact opcode stream + constant
+// pool, then a switch-dispatch stack VM executes it.
+//
 // Bytecode + stack VM. Phase 1: shunting-yard compiles to a compact opcode byte
 // stream plus a separate constant pool (denser than the tagged-token RPN form).
 // Phase 2: a switch-dispatch VM executes the byte stream over a value stack.
