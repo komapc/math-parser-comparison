@@ -57,17 +57,19 @@ public:
     const char* name() const override { return "rpn-stack"; }
 
     double eval(std::string_view src) override {
-        const std::vector<RTok> code = compile(src);
+        tokens_ = tokenize(src);
+        out_.clear();
+        ops_.clear();
+        compile();
 
-        std::vector<double> st;
-        st.reserve(code.size());
-        for (const RTok& t : code) {
+        st_.clear();
+        for (const RTok& t : out_) {
             switch (t.kind) {
-                case RKind::Num: st.push_back(t.value); break;
-                case RKind::Neg: st.back() = -st.back(); break;
+                case RKind::Num: st_.push_back(t.value); break;
+                case RKind::Neg: st_.back() = -st_.back(); break;
                 default: {
-                    const double r = st.back(); st.pop_back();
-                    double& l = st.back();
+                    const double r = st_.back(); st_.pop_back();
+                    double& l = st_.back();
                     switch (t.kind) {
                         case RKind::Add: l = l + r; break;
                         case RKind::Sub: l = l - r; break;
@@ -79,43 +81,43 @@ public:
                 }
             }
         }
-        return st.back();
+        return st_.back();
     }
 
 private:
-    static std::vector<RTok> compile(std::string_view src) {
-        const std::vector<Token> tokens = tokenize(src);
-        std::vector<RTok> out;
-        std::vector<Op> ops;
+    std::vector<Token> tokens_;
+    std::vector<RTok>  out_;
+    std::vector<Op>    ops_;
+    std::vector<double> st_;
 
+    void compile() {
         auto emit = [&](const Op& op) {
             if (op.lparen) throw std::runtime_error("mismatched parenthesis");
             if (op.unary) {
-                // unary plus is identity -> emit nothing; only minus negates
-                if (op.type == TokenType::Minus) out.push_back(RTok{RKind::Neg, 0.0});
+                if (op.type == TokenType::Minus) out_.push_back(RTok{RKind::Neg, 0.0});
             } else {
-                out.push_back(RTok{binKind(op.type), 0.0});
+                out_.push_back(RTok{binKind(op.type), 0.0});
             }
         };
 
         bool expectOperand = true;
-        for (const Token& tok : tokens) {
+        for (const Token& tok : tokens_) {
             switch (tok.type) {
                 case TokenType::Number:
                     if (!expectOperand) throw std::runtime_error("unexpected number");
-                    out.push_back(RTok{RKind::Num, tok.value});
+                    out_.push_back(RTok{RKind::Num, tok.value});
                     expectOperand = false;
                     break;
                 case TokenType::Ident:
                     throw std::runtime_error("variables not supported by this evaluator");
                 case TokenType::LParen:
-                    ops.push_back(Op{tok.type, 0, false, false, true});
+                    ops_.push_back(Op{tok.type, 0, false, false, true});
                     expectOperand = true;
                     break;
                 case TokenType::RParen:
-                    while (!ops.empty() && !ops.back().lparen) { Op o = ops.back(); ops.pop_back(); emit(o); }
-                    if (ops.empty()) throw std::runtime_error("mismatched parenthesis");
-                    ops.pop_back();
+                    while (!ops_.empty() && !ops_.back().lparen) { Op o = ops_.back(); ops_.pop_back(); emit(o); }
+                    if (ops_.empty()) throw std::runtime_error("mismatched parenthesis");
+                    ops_.pop_back();
                     expectOperand = false;
                     break;
                 case TokenType::Plus:
@@ -126,15 +128,15 @@ private:
                     if (expectOperand) {
                         if (tok.type != TokenType::Plus && tok.type != TokenType::Minus)
                             throw std::runtime_error("unexpected operator");
-                        ops.push_back(Op{tok.type, 3, true, true, false});
+                        ops_.push_back(Op{tok.type, 3, true, true, false});
                     } else {
                         const int p = binPrec(tok.type);
                         const bool ra = (tok.type == TokenType::Caret);
-                        while (!ops.empty() && !ops.back().lparen &&
-                               (ops.back().prec > p || (ops.back().prec == p && !ra))) {
-                            Op o = ops.back(); ops.pop_back(); emit(o);
+                        while (!ops_.empty() && !ops_.back().lparen &&
+                               (ops_.back().prec > p || (ops_.back().prec == p && !ra))) {
+                            Op o = ops_.back(); ops_.pop_back(); emit(o);
                         }
-                        ops.push_back(Op{tok.type, p, ra, false, false});
+                        ops_.push_back(Op{tok.type, p, ra, false, false});
                         expectOperand = true;
                     }
                     break;
@@ -143,9 +145,8 @@ private:
                     break;
             }
         }
-        while (!ops.empty()) { Op o = ops.back(); ops.pop_back(); emit(o); }
-        if (out.empty()) throw std::runtime_error("invalid expression");
-        return out;
+        while (!ops_.empty()) { Op o = ops_.back(); ops_.pop_back(); emit(o); }
+        if (out_.empty()) throw std::runtime_error("invalid expression");
     }
 };
 

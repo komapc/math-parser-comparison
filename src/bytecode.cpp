@@ -57,18 +57,21 @@ public:
     const char* name() const override { return "bytecode-vm"; }
 
     double eval(std::string_view src) override {
-        const Program prog = compile(src);
+        tokens_ = tokenize(src);
+        code_.clear();
+        consts_.clear();
+        ops_.clear();
+        compile();
 
-        std::vector<double> st;
-        st.reserve(prog.consts.size() + 1);
+        st_.clear();
         std::size_t ci = 0;
-        for (const std::uint8_t opc : prog.code) {
+        for (const std::uint8_t opc : code_) {
             switch (static_cast<Bc>(opc)) {
-                case Bc::Push: st.push_back(prog.consts[ci++]); break;
-                case Bc::Neg:  st.back() = -st.back(); break;
+                case Bc::Push: st_.push_back(consts_[ci++]); break;
+                case Bc::Neg:  st_.back() = -st_.back(); break;
                 default: {
-                    const double r = st.back(); st.pop_back();
-                    double& l = st.back();
+                    const double r = st_.back(); st_.pop_back();
+                    double& l = st_.back();
                     switch (static_cast<Bc>(opc)) {
                         case Bc::Add: l = l + r; break;
                         case Bc::Sub: l = l - r; break;
@@ -80,45 +83,46 @@ public:
                 }
             }
         }
-        return st.back();
+        return st_.back();
     }
 
 private:
-    static Program compile(std::string_view src) {
-        const std::vector<Token> tokens = tokenize(src);
-        Program p;
-        std::vector<Op> ops;
+    std::vector<Token>        tokens_;
+    std::vector<std::uint8_t> code_;
+    std::vector<double>       consts_;
+    std::vector<Op>           ops_;
+    std::vector<double>       st_;
 
+    void compile() {
         auto emit = [&](const Op& op) {
             if (op.lparen) throw std::runtime_error("mismatched parenthesis");
             if (op.unary) {
                 if (op.type == TokenType::Minus)
-                    p.code.push_back(static_cast<std::uint8_t>(Bc::Neg));
-                // unary plus: identity
+                    code_.push_back(static_cast<std::uint8_t>(Bc::Neg));
             } else {
-                p.code.push_back(static_cast<std::uint8_t>(binOpcode(op.type)));
+                code_.push_back(static_cast<std::uint8_t>(binOpcode(op.type)));
             }
         };
 
         bool expectOperand = true;
-        for (const Token& tok : tokens) {
+        for (const Token& tok : tokens_) {
             switch (tok.type) {
                 case TokenType::Number:
                     if (!expectOperand) throw std::runtime_error("unexpected number");
-                    p.code.push_back(static_cast<std::uint8_t>(Bc::Push));
-                    p.consts.push_back(tok.value);
+                    code_.push_back(static_cast<std::uint8_t>(Bc::Push));
+                    consts_.push_back(tok.value);
                     expectOperand = false;
                     break;
                 case TokenType::Ident:
                     throw std::runtime_error("variables not supported by this evaluator");
                 case TokenType::LParen:
-                    ops.push_back(Op{tok.type, 0, false, false, true});
+                    ops_.push_back(Op{tok.type, 0, false, false, true});
                     expectOperand = true;
                     break;
                 case TokenType::RParen:
-                    while (!ops.empty() && !ops.back().lparen) { Op o = ops.back(); ops.pop_back(); emit(o); }
-                    if (ops.empty()) throw std::runtime_error("mismatched parenthesis");
-                    ops.pop_back();
+                    while (!ops_.empty() && !ops_.back().lparen) { Op o = ops_.back(); ops_.pop_back(); emit(o); }
+                    if (ops_.empty()) throw std::runtime_error("mismatched parenthesis");
+                    ops_.pop_back();
                     expectOperand = false;
                     break;
                 case TokenType::Plus:
@@ -129,15 +133,15 @@ private:
                     if (expectOperand) {
                         if (tok.type != TokenType::Plus && tok.type != TokenType::Minus)
                             throw std::runtime_error("unexpected operator");
-                        ops.push_back(Op{tok.type, 3, true, true, false});
+                        ops_.push_back(Op{tok.type, 3, true, true, false});
                     } else {
                         const int prec = binPrec(tok.type);
                         const bool ra = (tok.type == TokenType::Caret);
-                        while (!ops.empty() && !ops.back().lparen &&
-                               (ops.back().prec > prec || (ops.back().prec == prec && !ra))) {
-                            Op o = ops.back(); ops.pop_back(); emit(o);
+                        while (!ops_.empty() && !ops_.back().lparen &&
+                               (ops_.back().prec > prec || (ops_.back().prec == prec && !ra))) {
+                            Op o = ops_.back(); ops_.pop_back(); emit(o);
                         }
-                        ops.push_back(Op{tok.type, prec, ra, false, false});
+                        ops_.push_back(Op{tok.type, prec, ra, false, false});
                         expectOperand = true;
                     }
                     break;
@@ -146,9 +150,8 @@ private:
                     break;
             }
         }
-        while (!ops.empty()) { Op o = ops.back(); ops.pop_back(); emit(o); }
-        if (p.code.empty()) throw std::runtime_error("invalid expression");
-        return p;
+        while (!ops_.empty()) { Op o = ops_.back(); ops_.pop_back(); emit(o); }
+        if (code_.empty()) throw std::runtime_error("invalid expression");
     }
 };
 

@@ -41,55 +41,55 @@ public:
     const char* name() const override { return "shunting-yard"; }
 
     ExprPtr parse(std::string_view src) override {
-        const std::vector<Token> tokens = tokenize(src);
-        std::vector<ExprPtr> operands;
-        std::vector<Op> ops;
+        tokens_ = tokenize(src);
+        operands_.clear();
+        ops_.clear();
 
         auto fold = [&](const Op& op) {
             if (op.lparen) throw std::runtime_error("mismatched parenthesis");
             if (op.unary) {
-                if (operands.empty()) throw std::runtime_error("missing operand");
-                ExprPtr e = std::move(operands.back());
-                operands.pop_back();
-                operands.push_back(unary(op.type, std::move(e)));
+                if (operands_.empty()) throw std::runtime_error("missing operand");
+                ExprPtr e = std::move(operands_.back());
+                operands_.pop_back();
+                operands_.push_back(unary(op.type, std::move(e)));
             } else {
-                if (operands.size() < 2) throw std::runtime_error("missing operand");
-                ExprPtr r = std::move(operands.back());
-                operands.pop_back();
-                ExprPtr l = std::move(operands.back());
-                operands.pop_back();
-                operands.push_back(binary(op.type, std::move(l), std::move(r)));
+                if (operands_.size() < 2) throw std::runtime_error("missing operand");
+                ExprPtr r = std::move(operands_.back());
+                operands_.pop_back();
+                ExprPtr l = std::move(operands_.back());
+                operands_.pop_back();
+                operands_.push_back(binary(op.type, std::move(l), std::move(r)));
             }
         };
 
         bool expectOperand = true;
-        for (const Token& tok : tokens) {
+        for (const Token& tok : tokens_) {
             switch (tok.type) {
                 case TokenType::Number:
                     if (!expectOperand) throw std::runtime_error("unexpected number");
-                    operands.push_back(number(tok.value));
+                    operands_.push_back(number(tok.value));
                     expectOperand = false;
                     break;
 
                 case TokenType::Ident:
                     if (!expectOperand) throw std::runtime_error("unexpected variable");
-                    operands.push_back(variable(static_cast<int>(tok.value)));
+                    operands_.push_back(variable(static_cast<int>(tok.value)));
                     expectOperand = false;
                     break;
 
                 case TokenType::LParen:
-                    ops.push_back(Op{tok.type, 0, false, false, true});
+                    ops_.push_back(Op{tok.type, 0, false, false, true});
                     expectOperand = true;
                     break;
 
                 case TokenType::RParen:
-                    while (!ops.empty() && !ops.back().lparen) {
-                        Op o = ops.back();
-                        ops.pop_back();
+                    while (!ops_.empty() && !ops_.back().lparen) {
+                        Op o = ops_.back();
+                        ops_.pop_back();
                         fold(o);
                     }
-                    if (ops.empty()) throw std::runtime_error("mismatched parenthesis");
-                    ops.pop_back();  // discard the matching '('
+                    if (ops_.empty()) throw std::runtime_error("mismatched parenthesis");
+                    ops_.pop_back();
                     expectOperand = false;
                     break;
 
@@ -99,23 +99,20 @@ public:
                 case TokenType::Slash:
                 case TokenType::Caret:
                     if (expectOperand) {
-                        // Operator in operand position => prefix unary (+/- only).
-                        if (tok.type != TokenType::Plus && tok.type != TokenType::Minus) {
+                        if (tok.type != TokenType::Plus && tok.type != TokenType::Minus)
                             throw std::runtime_error("unexpected operator");
-                        }
-                        ops.push_back(Op{tok.type, 3, true, true, false});
-                        // still expecting an operand
+                        ops_.push_back(Op{tok.type, 3, true, true, false});
                     } else {
                         const int p = binPrec(tok.type);
                         const bool ra = (tok.type == TokenType::Caret);
-                        while (!ops.empty() && !ops.back().lparen &&
-                               (ops.back().prec > p ||
-                                (ops.back().prec == p && !ra))) {
-                            Op o = ops.back();
-                            ops.pop_back();
+                        while (!ops_.empty() && !ops_.back().lparen &&
+                               (ops_.back().prec > p ||
+                                (ops_.back().prec == p && !ra))) {
+                            Op o = ops_.back();
+                            ops_.pop_back();
                             fold(o);
                         }
-                        ops.push_back(Op{tok.type, p, ra, false, false});
+                        ops_.push_back(Op{tok.type, p, ra, false, false});
                         expectOperand = true;
                     }
                     break;
@@ -126,14 +123,19 @@ public:
             }
         }
 
-        while (!ops.empty()) {
-            Op o = ops.back();
-            ops.pop_back();
-            fold(o);  // throws on a leftover '('
+        while (!ops_.empty()) {
+            Op o = ops_.back();
+            ops_.pop_back();
+            fold(o);
         }
-        if (operands.size() != 1) throw std::runtime_error("invalid expression");
-        return std::move(operands.back());
+        if (operands_.size() != 1) throw std::runtime_error("invalid expression");
+        return std::move(operands_.back());
     }
+
+private:
+    std::vector<Token>  tokens_;
+    std::vector<ExprPtr> operands_;
+    std::vector<Op>     ops_;
 };
 
 }  // namespace

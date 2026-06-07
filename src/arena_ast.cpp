@@ -67,8 +67,8 @@ private:
         if (check(TokenType::Plus) || check(TokenType::Minus)) {
             const TokenType op = tokens_[pos_++].type;
             const int operand = unaryRule();
-            return emit({op == TokenType::Minus ? ArenaAst::K::Neg : ArenaAst::K::Pos,
-                         operand, -1, 0, 0.0});
+            if (op == TokenType::Plus) return operand;  // identity: no node needed
+            return emit({ArenaAst::K::Neg, operand, -1, 0, 0.0});
         }
         return power();
     }
