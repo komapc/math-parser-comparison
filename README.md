@@ -33,42 +33,43 @@ cleverness.**
 > this is a throttling laptop part so **absolute ns drift ±40% — trust the ratios**.
 
 ```
-direct-recursive-descent  ███                                179 ns   ×1.0   ← fastest
-direct-shunting-yard      ███                                201 ns   ×1.1
-ast-arena                 ████                               211 ns   ×1.2
-rpn-stack                 ████                               224 ns   ×1.3
-bytecode-vm               ████                               228 ns   ×1.3
+direct-recursive-descent  ███                                162 ns   ×1.0   ← fastest
+direct-shunting-yard      ███                                179 ns   ×1.1
+bytecode-vm               ███                                192 ns   ×1.2
+rpn-stack                 ███                                193 ns   ×1.2
+ast-arena                 ███                                195 ns   ×1.2
 ──────────────────────────────── tier break: 1 allocation vs pre-scan ────
-direct-mp                 █████                              267 ns   ×1.5   ← div-and-conquer, no AST
-direct-mp-simd            █████                              269 ns   ×1.5   ←   + AVX2 SIMD scan
-direct-mp-full            █████                              306 ns   ×1.7   ←   + operator-only filter
+direct-mp-simd            █████                              273 ns   ×1.7   ← div-and-conquer, no AST
+direct-mp                 █████                              293 ns   ×1.8   ←   linear RTL scan
+direct-mp-full            █████                              304 ns   ×1.9   ←   + operator-only filter
 ──────────────────────────────── tier break: pre-scan + AST build ─────────
-multipass-arena           ██████                             328 ns   ×1.8   ← div-and-conquer + arena
-multipass-bfs             ████████                           427 ns   ×2.4   ← div-and-conquer + sparse-table
+multipass-arena           ██████                             378 ns   ×2.3   ← div-and-conquer + arena
+multipass-bfs             ██████                             384 ns   ×2.4   ← div-and-conquer + sparse-table
 ──────────────────────────────── tier break: N allocations ────────────────
-ast-pratt                 ████████                           479 ns   ×2.7
-ast-shunting-yard         █████████                          506 ns   ×2.8
-ast-recursive-descent     █████████                          524 ns   ×2.9
+ast-pratt                 ████████                           456 ns   ×2.8
+ast-recursive-descent     ████████                           488 ns   ×3.0
+ast-shunting-yard         ████████                           500 ns   ×3.1
 ──────────────────────────────── tier break: super-linear ─────────────────
-multipass                 ████████████████                   929 ns   ×5.2   ← O(n log n)
+multipass                 ██████████████                     839 ns   ×5.2   ← O(n log n)
 ```
 
 Five tiers fall out cleanly:
 
-- **Tier 1 (×1.0–1.3): zero or one allocation.** Direct evaluators build nothing;
-  compiled flat forms and the arena AST allocate one contiguous buffer. All land within
-  30% of each other — algorithm barely matters inside this tier.
-- **Tier 1.5 (×1.5–1.7): divide-and-conquer, no AST.** `direct-mp` variants apply the
+- **Tier 1 (×1.0–1.2): zero or one allocation.** All five strategies land within 20%
+  of each other — once allocation is equalized, algorithm barely matters inside this
+  tier. `direct-rd` builds nothing; `direct-sy` and `ast-arena` allocate one structure;
+  `rpn`/`bytecode` reuse member vectors across calls.
+- **Tier 1.5 (×1.7–1.9): divide-and-conquer, no AST.** `direct-mp` variants apply the
   same D&C split-find as `multipass-arena`, but the recursion returns `double` directly
   — no AST is built, no eval-walk pass. The O(n) pre-scan (prec array + paren matching)
   is the main cost. A new tier between tier 1 and tier 2.
-- **Tier 2 (×1.8–2.4): divide-and-conquer + arena AST.** `multipass-arena` and
+- **Tier 2 (×2.3–2.4): divide-and-conquer + arena AST.** `multipass-arena` and
   `multipass-bfs` sit here after an extensive optimization series (see below). Both
-  are faster than all pointer-AST parsers despite being O(n log n). `multipass-bfs`
-  sits toward the high end of the tier: its sparse table adds cache pressure that
-  can outweigh the per-split savings (±40% run-to-run; see notes).
-- **Tier 3 (×2.7–2.9): N allocations.** One `make_unique` per AST node. All three
-  parser algorithms (Pratt, shunting-yard, recursive descent) land within 10% of each
+  beat all pointer-AST parsers despite being O(n log n). `multipass-bfs` and
+  `multipass-arena` trade places run-to-run: the sparse table adds cache pressure
+  that can cancel its per-split savings (±40% run-to-run; see notes).
+- **Tier 3 (×2.8–3.1): N allocations.** One `make_unique` per AST node. All three
+  parser algorithms (Pratt, shunting-yard, recursive descent) land within 11% of each
   other — the *algorithm is irrelevant*, per-node allocation is the cost.
 - **Tier 4 (×5.2): super-linear.** `multipass` (pointer-AST) is inherently O(n log n).
   Arena + optimizations moved its arena sibling to tier 2, but the pointer-AST base
@@ -167,28 +168,30 @@ Key points:
 
 ### One-shot — string → value, once
 
-Full table, ns/leaf (10 000-leaf expressions; `×` = relative to the fastest):
+Full table, ns/leaf (1 000-leaf expressions, 100 reps; `×` = relative to the fastest):
 
 | Strategy | ns/leaf | ×fastest | allocations / expr |
 |---|--:|--:|---|
-| `direct-recursive-descent` | 179 | **1.0** | ~0 (call stack) |
-| `direct-shunting-yard` | 201 | 1.1 | 2 stacks |
-| `ast-arena` | 211 | 1.2 | **one** (node vector) |
-| `rpn-stack` | 224 | 1.3 | a few buffers |
-| `bytecode-vm` | 228 | 1.3 | a few buffers |
-| `direct-mp` | 267 | **1.5** | pre-scan vectors (no AST) |
-| `direct-mp-simd` | 269 | **1.5** | pre-scan vectors (no AST) |
-| `direct-mp-full` | 306 | **1.7** | pre-scan vectors (no AST) |
-| `multipass-arena` | 328 | **1.8** | one (node vector) + pre-scan |
-| `multipass-bfs` | 427 | **2.4** | one + sparse table + pre-index |
-| `ast-pratt` | 479 | 2.7 | **one per node** |
-| `ast-shunting-yard` | 506 | 2.8 | **one per node** |
-| `ast-recursive-descent` | 524 | 2.9 | **one per node** |
-| `multipass` | 929 | 5.2 | one per node + pre-scan |
+| `direct-recursive-descent` | 162 | **1.0** | ~0 (call stack) |
+| `direct-shunting-yard` | 179 | 1.1 | member vectors, reused |
+| `bytecode-vm` | 192 | 1.2 | member vectors, reused |
+| `rpn-stack` | 193 | 1.2 | member vectors, reused |
+| `ast-arena` | 195 | 1.2 | **one** (node vector) |
+| `direct-mp-simd` | 273 | **1.7** | pre-scan vectors (no AST) |
+| `direct-mp` | 293 | **1.8** | pre-scan vectors (no AST) |
+| `direct-mp-full` | 304 | **1.9** | pre-scan vectors (no AST) |
+| `multipass-arena` | 378 | **2.3** | one (node vector) + pre-scan |
+| `multipass-bfs` | 384 | **2.4** | one + sparse table + pre-index |
+| `ast-pratt` | 456 | 2.8 | **one per node** |
+| `ast-recursive-descent` | 488 | 3.0 | **one per node** |
+| `ast-shunting-yard` | 500 | 3.1 | **one per node** |
+| `multipass` | 839 | 5.2 | one per node + pre-scan |
 
 For a *single* evaluation, inline `direct-recursive-descent` wins — there's nothing to
-allocate or build. RPN/bytecode pay compile cost they can't amortize here; their
-moment comes under re-evaluation.
+allocate or build. `direct-shunting-yard`, `rpn-stack`, and `bytecode-vm` keep all
+working vectors as class members and `.clear()` them each call, so after the first
+evaluation they pay zero allocation too. Their gap vs `direct-rd` is purely algorithmic:
+one or two passes over the token stream instead of one.
 
 #### 🔬 `multipass` / `multipass-arena` — the optimization story
 
@@ -234,10 +237,10 @@ tests three stacked ideas — direct eval, AVX2 SIMD scan, and operator-only tok
 
 | Version | ns/leaf | ×rd | what changed |
 |---|--:|--:|---|
-| `multipass-bfs` | ~427 | ×2.4 | baseline (O(1) split + arena AST + eval walk) |
-| `direct-mp` | ~267 | **×1.5** | drop AST — recurse directly to `double` |
-| `direct-mp-simd` | ~269 | ×1.5 | + AVX2 `_mm256_min_epi8` prec scan |
-| `direct-mp-full` | ~306 | ×1.7 | + operator-only `buildAll` (skip Number/Ident) |
+| `multipass-bfs` | ~384 | ×2.4 | baseline (O(1) split + arena AST + eval walk) |
+| `direct-mp-simd` | ~273 | **×1.7** | drop AST + AVX2 `_mm256_min_epi8` prec scan |
+| `direct-mp` | ~293 | ×1.8 | drop AST — linear RTL split scan |
+| `direct-mp-full` | ~304 | ×1.9 | + operator-only `buildAll` (skip Number/Ident) |
 
 **Direct evaluation** is the decisive step — eliminating the AST build and eval-walk
 cuts ~35% from `multipass-bfs`. Both the O(n) pre-scan (building prec arrays and paren
