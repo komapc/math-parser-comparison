@@ -33,15 +33,15 @@ cleverness.**
 > (Throttling laptop part; absolute ns swing run-to-run, so trust the **ratios**.)
 
 ```
-direct-recursive-descent  ██                                 134 ns   ×1.0   ← fastest
-direct-shunting-yard      ███                                167 ns   ×1.2
-bytecode-vm               ███                                172 ns   ×1.3
-rpn-stack                 ███                                187 ns   ×1.4
-ast-arena                 ████                               229 ns   ×1.7
-ast-recursive-descent     ████████                           502 ns   ×3.7
-ast-shunting-yard         █████████                          528 ns   ×3.9
-ast-pratt                 █████████                          538 ns   ×4.0
-multipass                 ████████████████████████████████  1932 ns   ×14    ← super-linear
+direct-recursive-descent  ██                                  218 ns   ×1.0   ← fastest
+direct-shunting-yard      ██                                  223 ns   ×1.0
+rpn-stack                 ███                                 246 ns   ×1.1
+bytecode-vm               ███                                 251 ns   ×1.2
+ast-arena                 ███                                 254 ns   ×1.2
+ast-recursive-descent     ██████                              551 ns   ×2.5
+ast-pratt                 ██████                              559 ns   ×2.6
+ast-shunting-yard         ██████                              567 ns   ×2.6
+multipass                 ██████████████                     1242 ns   ×5.7   ← super-linear (improved)
 ```
 
 Three things fall right out:
@@ -51,7 +51,7 @@ Three things fall right out:
   node, not the parsing logic.
 - **Swap pointers for an arena and that tax mostly vanishes** (`ast-arena`, ×1.7) —
   same tree, same walk, one allocation instead of N.
-- **`multipass` is the only non-linear strategy** and pays for it (×14, and growing).
+- **`multipass` is the only non-linear strategy** (×5.7, improved from ×14 after algorithmic fixes — but still O(n log n) by nature).
 
 ## 📐 The grammar
 
@@ -144,15 +144,15 @@ Full table, ns/leaf (10 000-leaf expressions; `×` = relative to the fastest):
 
 | Strategy | ns/leaf | ×fastest | allocations / expr |
 |---|--:|--:|---|
-| `direct-recursive-descent` | 134 | **1.0** | ~0 (call stack) |
-| `direct-shunting-yard` | 167 | 1.2 | 2 stacks |
-| `bytecode-vm` | 172 | 1.3 | a few buffers |
-| `rpn-stack` | 187 | 1.4 | a few buffers |
-| `ast-arena` | 229 | 1.7 | **one** (node vector) |
-| `ast-recursive-descent` | 502 | 3.7 | **one per node** |
-| `ast-shunting-yard` | 528 | 3.9 | **one per node** |
-| `ast-pratt` | 538 | 4.0 | **one per node** |
-| `multipass` | 1932 | 14.4 | one per node + re-scans |
+| `direct-recursive-descent` | 218 | **1.0** | ~0 (call stack) |
+| `direct-shunting-yard` | 223 | 1.0 | 2 stacks |
+| `rpn-stack` | 246 | 1.1 | a few buffers |
+| `bytecode-vm` | 251 | 1.2 | a few buffers |
+| `ast-arena` | 254 | 1.2 | **one** (node vector) |
+| `ast-recursive-descent` | 551 | 2.5 | **one per node** |
+| `ast-pratt` | 559 | 2.6 | **one per node** |
+| `ast-shunting-yard` | 567 | 2.6 | **one per node** |
+| `multipass` | 1242 | 5.7 | one per node + log-n re-scans |
 
 For a *single* evaluation, inline `direct-recursive-descent` wins — there's nothing to
 allocate or build. RPN/bytecode pay a compile cost they can't amortize here; their
@@ -160,17 +160,21 @@ moment comes under re-evaluation.
 
 #### ⚠️ `multipass` is the odd one out — it isn't linear
 
-Every other strategy has ~constant ns/leaf. `multipass` re-scans each sub-range to
-locate its split operator, so its **per-leaf cost grows with size**:
+After fixes (pre-scan, RTL early-exit, flat-chain folding), `multipass` improved
+significantly — but per-leaf cost still grows with size because divide-and-conquer
+recursion is inherently O(n log n):
 
 ```
 leaves       10    100   1000  10000
-ns/leaf     531    856   1087   1932     ← rising = super-linear
+ns/leaf     703    953   1092   1238   ← still rising, but far less than before
+before      531    856   1087   1932   ← naive O(n²) version
 ```
 
-Average ≈ **O(n log n)** on random inputs; **worst case O(n²)** on skewed chains like
-`1-2-3-…-n`. It's the naive, re-scanning sibling of recursive descent — but its
-independent sub-ranges make it the most **parallel-friendly** strategy (see below).
+Growth ratio shrank from **×3.6** (naive) to **×1.8** (fixed) across the 1000× size
+range, consistent with the expected O(n log n) — each 10× size increase adds ~one
+extra log-factor step rather than 10×. Worst case O(n²) on skewed chains like
+`1-2-3-…-n` is now eliminated by the flat-chain folding (fix #6). Its independent
+sub-ranges still make it the most **parallel-friendly** strategy (see below).
 
 ### Re-eval — compile once, evaluate many
 
