@@ -51,6 +51,7 @@ std::unique_ptr<IEvaluator> make_ast_arena() {
 std::unique_ptr<IEvaluator> make_ast_multipass() {
     return std::make_unique<AstEvaluator>("multipass", make_multipass());
 }
+// make_ast_multipass_arena() is defined in multipass_arena.cpp
 
 std::vector<std::unique_ptr<IEvaluator>> all_evaluators() {
     std::vector<std::unique_ptr<IEvaluator>> v;
@@ -59,6 +60,7 @@ std::vector<std::unique_ptr<IEvaluator>> all_evaluators() {
     v.push_back(make_ast_pratt());
     v.push_back(make_ast_arena());
     v.push_back(make_ast_multipass());
+    v.push_back(make_ast_multipass_arena());
     v.push_back(make_direct_recursive_descent());
     v.push_back(make_direct_shunting_yard());
     v.push_back(make_rpn());

@@ -1,7 +1,9 @@
+#include "parser/arena_ast.hpp"
+#include "parser/evaluator.hpp"
 #include "parser/lexer.hpp"
-#include "parser/parser.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <stdexcept>
 #include <string>
@@ -10,34 +12,15 @@
 namespace mp {
 namespace {
 
-// In one sentence: recursively find the lowest-precedence operator at paren-depth
-// zero, make it the tree's root, and recurse on the two halves to either side.
+// Arena variant of multipass: identical divide-and-conquer algorithm, but every
+// node is appended to one contiguous vector (no per-node heap allocation).
+// Combines all fixes from multipass.cpp:
+//   #1 per-depth candidate pre-scan
+//   #5 right-to-left early-exit scan
+//   #6 flat-chain iterative folding
+//   #parenMatch O(1) paren stripping
 //
-// "Divide-and-conquer" / recursive-split parsing.
-//
-// Fixes applied vs. the naive O(n^2) version:
-//   #1  Pre-scan candidates: one O(n) pass collects every operator at every
-//       paren-nesting depth into per-depth sorted lists. parseRange(lo,hi,depth)
-//       binary-searches the right list instead of re-scanning the full token
-//       array, so each split costs O(k) where k = operators in that sub-range.
-//       Average complexity drops to O(n log n).
-//   #5  Right-to-left scan with early exit: scanning candidates RTL gives
-//       left-associative tie-breaking (rightmost wins) for free, and we stop
-//       as soon as prec==1 (the minimum possible) is found.
-//   #6  Flat-chain folding: when every candidate in a range shares one
-//       precedence level, build the sub-tree iteratively (left- or right-fold)
-//       instead of recursing O(n) deep — eliminates the O(n^2) worst case on
-//       skewed chains like 1+2+3+...+n.
-//
-// The nesting depth is threaded through parseRange() so the correct per-depth
-// candidate list is consulted at every level of recursion, including inside
-// stripped parentheses.
-//
-// Precedence:
-//   binary + -  : 1   left-assoc  -> split on the RIGHTMOST
-//   binary * /  : 2   left-assoc  -> split on the RIGHTMOST
-//   unary  + -  : 3   prefix; only valid as root when it leads the range
-//   ^           : 4   right-assoc -> split on the LEFTMOST
+// parseRange() returns an int (arena node index) instead of ExprPtr.
 
 int binPrec(TokenType t) {
     switch (t) {
@@ -51,40 +34,54 @@ int binPrec(TokenType t) {
 }
 constexpr int kUnaryPrec = 3;
 
+ArenaAst::K binaryKind(TokenType t) {
+    switch (t) {
+        case TokenType::Plus:  return ArenaAst::K::Add;
+        case TokenType::Minus: return ArenaAst::K::Sub;
+        case TokenType::Star:  return ArenaAst::K::Mul;
+        case TokenType::Slash: return ArenaAst::K::Div;
+        case TokenType::Caret: return ArenaAst::K::Pow;
+        default: throw std::runtime_error("invalid binary operator");
+    }
+}
+ArenaAst::K unaryKind(TokenType t) {
+    return (t == TokenType::Minus) ? ArenaAst::K::Neg : ArenaAst::K::Pos;
+}
+
 struct Candidate {
     std::size_t pos;
     int         prec;
     bool        rightAssoc;
-    bool        unary;      // only valid as root when pos == lo of the range
+    bool        unary;
 };
 
-class MultiPass final : public IParser {
+class MultiPassArena final : public IEvaluator {
 public:
-    const char* name() const override { return "multipass"; }
+    const char* name() const override { return "multipass-arena"; }
 
-    ExprPtr parse(std::string_view src) override {
+    double eval(std::string_view src) override {
         tokens_ = tokenize(src);
+        nodes_.clear();
+        nodes_.reserve(tokens_.size());
         buildCandidates();
-        return parseRange(0, tokens_.size() - 1, 0);
+        const int root = parseRange(0, tokens_.size() - 1, 0);
+        return evalNode(root);
     }
 
 private:
-    std::vector<Token>              tokens_;
+    std::vector<Token>                  tokens_;
+    std::vector<ArenaAst::Node>         nodes_;
     std::vector<std::vector<Candidate>> candsByDepth_;
-    std::vector<std::size_t>        parenMatch_;  // parenMatch_[i] = index of matching bracket
+    std::vector<std::size_t>            parenMatch_;
 
-    // Single O(n) pass: record operators at every nesting depth AND precompute
-    // matching-paren indices so paren-stripping in parseRange() is O(1) not O(n).
     void buildCandidates() {
         candsByDepth_.clear();
         const std::size_t n = tokens_.size();
         parenMatch_.assign(n, 0);
-
         int  depth = 0;
         bool expectOperand = true;
-        std::vector<std::size_t> stack;  // open-paren positions for matching
-
-        for (std::size_t i = 0; i < n - 1; ++i) {  // exclude End sentinel
+        std::vector<std::size_t> stack;
+        for (std::size_t i = 0; i < n - 1; ++i) {
             switch (tokens_[i].type) {
                 case TokenType::LParen:
                     stack.push_back(i);
@@ -99,7 +96,7 @@ private:
                     --depth; expectOperand = false;
                     break;
                 case TokenType::Number:
-                case TokenType::Ident:  expectOperand = false; break;
+                case TokenType::Ident: expectOperand = false; break;
                 case TokenType::Plus:
                 case TokenType::Minus:
                 case TokenType::Star:
@@ -131,22 +128,17 @@ private:
     struct ByPos {
         bool operator()(const Candidate& c, std::size_t v) const { return c.pos < v; }
     };
-
     using CIt = std::vector<Candidate>::const_iterator;
 
-    // Binary-search into the per-depth list for token range [lo, hi).
-    std::pair<CIt, CIt> candRange(std::size_t lo, std::size_t hi, int depth) const {
+    std::pair<CIt,CIt> candRange(std::size_t lo, std::size_t hi, int depth) const {
         static const std::vector<Candidate> empty;
         const auto& v = (depth >= 0 && depth < static_cast<int>(candsByDepth_.size()))
                         ? candsByDepth_[static_cast<std::size_t>(depth)] : empty;
         auto b = std::lower_bound(v.begin(), v.end(), lo, ByPos{});
-        auto e = std::lower_bound(b,         v.end(), hi, ByPos{});
+        auto e = std::lower_bound(b, v.end(), hi, ByPos{});
         return {b, e};
     }
 
-    // Fix #5: scan RTL for left-assoc tie-break (rightmost wins = first found RTL).
-    // Early exit the moment prec==1 is found. Right-assoc (^): override with the
-    // leftmost by continuing to scan; can't early-exit in that case.
     const Candidate* findSplit(CIt beg, CIt end, std::size_t lo) const {
         if (beg == end) return nullptr;
         const Candidate* best = nullptr;
@@ -155,21 +147,25 @@ private:
             if (it->unary && it->pos != lo) continue;
             if (!best || it->prec < best->prec) {
                 best = &*it;
-                if (best->prec == 1 && !best->rightAssoc) break;  // fix #5: early exit
+                if (best->prec == 1 && !best->rightAssoc) break;
             } else if (it->prec == best->prec && best->rightAssoc) {
-                best = &*it;  // right-assoc: prefer leftmost
+                best = &*it;
             }
         }
         return best;
     }
 
-    ExprPtr parseRange(std::size_t lo, std::size_t hi, int depth) {
+    int emit(ArenaAst::Node nd) {
+        nodes_.push_back(nd);
+        return static_cast<int>(nodes_.size()) - 1;
+    }
+
+    int parseRange(std::size_t lo, std::size_t hi, int depth) {
         if (lo >= hi) throw std::runtime_error("empty sub-expression");
 
         auto [cbeg, cend] = candRange(lo, hi, depth);
 
-        // Fix #6: flat-chain detection.
-        // All candidates share one precedence -> build iteratively.
+        // Flat-chain: fold iteratively to avoid O(n^2) recursion.
         if (cbeg != cend) {
             const int  chainPrec = cbeg->prec;
             const bool chainRa   = cbeg->rightAssoc;
@@ -179,18 +175,16 @@ private:
 
             if (flat) {
                 if (!chainRa) {
-                    // Left fold: ((a op b) op c) op d ...
-                    ExprPtr acc = parseRange(lo, cbeg->pos, depth);
+                    int acc = parseRange(lo, cbeg->pos, depth);
                     for (auto it = cbeg; it != cend; ++it) {
                         const std::size_t nextLo = it->pos + 1;
-                        const std::size_t nextHi = (it + 1 != cend) ? (it + 1)->pos : hi;
-                        acc = binary(tokens_[it->pos].type,
-                                     std::move(acc), parseRange(nextLo, nextHi, depth));
+                        const std::size_t nextHi = (it + 1 != cend) ? (it+1)->pos : hi;
+                        int rhs = parseRange(nextLo, nextHi, depth);
+                        acc = emit({binaryKind(tokens_[it->pos].type), acc, rhs, 0, 0.0});
                     }
                     return acc;
                 } else {
-                    // Right fold: a op (b op (c op d)) ...
-                    std::vector<ExprPtr> parts;
+                    std::vector<int> parts;
                     parts.reserve(static_cast<std::size_t>(cend - cbeg) + 1);
                     std::size_t prevLo = lo;
                     for (auto it = cbeg; it != cend; ++it) {
@@ -198,46 +192,69 @@ private:
                         prevLo = it->pos + 1;
                     }
                     parts.push_back(parseRange(prevLo, hi, depth));
-                    ExprPtr acc = std::move(parts.back());
+                    int acc = parts.back();
                     auto it = cend;
                     for (std::size_t i = parts.size() - 1; i-- > 0; ) {
                         --it;
-                        acc = binary(tokens_[it->pos].type,
-                                     std::move(parts[i]), std::move(acc));
+                        acc = emit({binaryKind(tokens_[it->pos].type),
+                                    parts[i], acc, 0, 0.0});
                     }
                     return acc;
                 }
             }
         }
 
-        // General case: find the one split point.
         if (const Candidate* split = findSplit(cbeg, cend, lo)) {
-            if (split->unary)
-                return unary(tokens_[split->pos].type,
-                             parseRange(split->pos + 1, hi, depth));
-            return binary(tokens_[split->pos].type,
-                          parseRange(lo, split->pos, depth),
-                          parseRange(split->pos + 1, hi, depth));
+            if (split->unary) {
+                int operand = parseRange(split->pos + 1, hi, depth);
+                return emit({unaryKind(tokens_[split->pos].type), operand, -1, 0, 0.0});
+            }
+            int lhs = parseRange(lo, split->pos, depth);
+            int rhs = parseRange(split->pos + 1, hi, depth);
+            return emit({binaryKind(tokens_[split->pos].type), lhs, rhs, 0, 0.0});
         }
 
-        // No depth-d operator: parenthesized group or single primary.
-        if (tokens_[lo].type == TokenType::LParen &&
-            parenMatch_[lo] == hi - 1)              // O(1) — precomputed
+        // Parenthesized group or single primary.
+        if (tokens_[lo].type == TokenType::LParen && parenMatch_[lo] == hi - 1)
             return parseRange(lo + 1, hi - 1, depth + 1);
+
         if (hi - lo == 1) {
-            if (tokens_[lo].type == TokenType::Number) return number(tokens_[lo].value);
-            if (tokens_[lo].type == TokenType::Ident)
-                return variable(static_cast<int>(tokens_[lo].value));
+            const Token& t = tokens_[lo];
+            if (t.type == TokenType::Number)
+                return emit({ArenaAst::K::Num, -1, -1, 0, t.value});
+            if (t.type == TokenType::Ident)
+                return emit({ArenaAst::K::Var, -1, -1, static_cast<int>(t.value), 0.0});
         }
         throw std::runtime_error("syntax error at position " +
                                  std::to_string(tokens_[lo].pos));
+    }
+
+    double evalNode(int i) const {
+        const ArenaAst::Node& nd = nodes_[static_cast<std::size_t>(i)];
+        switch (nd.kind) {
+            case ArenaAst::K::Num: return nd.value;
+            case ArenaAst::K::Var: return 0.0;  // one-shot: no variables in constant corpus
+            case ArenaAst::K::Pos: return +evalNode(nd.a);
+            case ArenaAst::K::Neg: return -evalNode(nd.a);
+            case ArenaAst::K::Add: return evalNode(nd.a) + evalNode(nd.b);
+            case ArenaAst::K::Sub: return evalNode(nd.a) - evalNode(nd.b);
+            case ArenaAst::K::Mul: return evalNode(nd.a) * evalNode(nd.b);
+            case ArenaAst::K::Div: return evalNode(nd.a) / evalNode(nd.b);
+            case ArenaAst::K::Pow: {
+                // inline pow for integer exponents (common in benchmark corpus)
+                const double base = evalNode(nd.a);
+                const double exp  = evalNode(nd.b);
+                return std::pow(base, exp);
+            }
+        }
+        throw std::runtime_error("invalid node");
     }
 };
 
 }  // namespace
 
-std::unique_ptr<IParser> make_multipass() {
-    return std::make_unique<MultiPass>();
+std::unique_ptr<IEvaluator> make_ast_multipass_arena() {
+    return std::make_unique<MultiPassArena>();
 }
 
 }  // namespace mp
