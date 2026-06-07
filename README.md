@@ -39,8 +39,8 @@ bytecode-vm               ████                               193 ns   ×
 rpn-stack                 █████                              200 ns   ×1.2
 ast-arena                 █████                              208 ns   ×1.3
 ──────────────────────────────────────── tier break: 1 allocation vs N ────
+multipass-bfs             ████████                           330 ns   ×2.0   ← div-and-conquer + sparse-table
 multipass-arena           ████████                           343 ns   ×2.1   ← div-and-conquer + arena
-multipass-bfs             ████████                           330 ns   ×2.0   ← + O(1) sparse-table splits
 ──────────────────────────────────────── tier break: N allocations ────────
 ast-pratt                 ██████████                         400 ns   ×2.5
 ast-shunting-yard         ███████████                        434 ns   ×2.7
