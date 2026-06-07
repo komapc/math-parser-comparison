@@ -203,8 +203,8 @@ can go without changing the algorithm:
 | + pre-scan + flat-chain fold | 879 | ×14 | O(n²) → O(n log n) |
 | + arena AST | 568 | ×8.7 | per-node allocation gone |
 | + O(1) paren matching | ~555 | ~×8.5 | precomputed `parenMatch[]` |
-| + **iterator passing** | **328** | **×1.8** | 7× fewer binary searches |
-| + **sparse-table RMQ + paren pre-index** (`multipass-bfs`) | **~427** | **~×2.4** | O(1) findSplit + O(1) paren strips — theoretical floor |
+| + **iterator passing** (`multipass-arena`) | **~343** | **~×2.1** | 7× fewer binary searches |
+| + **sparse-table RMQ + paren pre-index** (`multipass-bfs`) | **~330** | **~×2.0** | O(1) findSplit + O(1) paren strips — theoretical floor |
 
 **Iterator passing** was the decisive step: instead of binary-searching for candidates
 at every recursive call, each split passes the known sub-iterator range directly to its
