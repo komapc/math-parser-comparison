@@ -193,6 +193,43 @@ working vectors as class members and `.clear()` them each call, so after the fir
 evaluation they pay zero allocation too. Their gap vs `direct-rd` is purely algorithmic:
 one or two passes over the token stream instead of one.
 
+#### ⚖️ Tier 1: why the gap disappeared
+
+The original implementations had a hidden asymmetry. `recursive_descent`, `pratt`, and
+`direct_recursive_descent` kept `tokens_` as a class member — so vector capacity was
+allocated once and reused across subsequent calls. `shunting_yard`, `direct_shunting_yard`,
+`rpn`, and `bytecode` allocated every working structure fresh each call:
+
+```
+shunting_yard:       const std::vector<Token> tokens = tokenize(src);  // local
+                     std::vector<ExprPtr> operands;                     // local
+                     std::vector<Op> ops;                               // local
+
+direct_shunting_yard: same three locals
+rpn:                  tokens + ops + out + st — all locals (static compile())
+bytecode:             tokens + ops + code + consts + st — all locals (static compile())
+```
+
+Promoting every working vector to a class member and calling `.clear()` at the start of
+each `eval()` eliminates re-allocation: the vector's buffer persists across calls, so
+subsequent evaluations pay `O(1)` for the clear and then write into pre-warmed heap
+memory. The benchmark loop's 100 calls to each evaluator now all run allocation-free
+after the first warm-up.
+
+Result: tier 1 compressed from ×1.0–1.3 to ×1.0–1.2. The residual gaps are now purely
+algorithmic:
+
+| Strategy | ×rd | residual cost |
+|---|--:|---|
+| `direct-recursive-descent` | 1.0 | — baseline, single left-to-right pass, call-stack only |
+| `direct-shunting-yard` | 1.1 | two live stacks (operand + operator) instead of one call stack |
+| `bytecode-vm` / `rpn-stack` | 1.2 | two passes (compile → run) instead of one; intermediate form written then re-read |
+| `ast-arena` | 1.2 | one allocation (node vector), then tree-walk; same two-pass cost as rpn/bytecode |
+
+Within tier 1, the algorithm barely matters. Every strategy here runs in `O(n)`, touches
+each token once or twice, and keeps working state in pre-warmed memory. The differences
+are single-digit percentages and swap position run-to-run.
+
 #### 🔬 `multipass` / `multipass-arena` — the optimization story
 
 Both are divide-and-conquer parsers that build a Cartesian tree top-down (find the
