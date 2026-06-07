@@ -2,12 +2,12 @@
 
 # 🧮 Math-Expression Parser & Evaluator — A Comparison
 
-**Eleven ways to turn `"-2 ^ 2 + 3 * (4 - 1)"` into a number — benchmarked head-to-head**
+**Fourteen ways to turn `"-2 ^ 2 + 3 * (4 - 1)"` into a number — benchmarked head-to-head**
 **(plus a five-way compile-once / evaluate-many shoot-out).**
 
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)
 ![CMake](https://img.shields.io/badge/CMake-3.20%2B-064F8C?logo=cmake&logoColor=white)
-![tests](https://img.shields.io/badge/tests-250%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-404%20passing-brightgreen)
 ![warnings](https://img.shields.io/badge/-Wall%20-Wextra%20-Wpedantic-clean-brightgreen)
 ![deps](https://img.shields.io/badge/dependencies-none-blue)
 
@@ -38,23 +38,31 @@ direct-shunting-yard      ████                               178 ns   ×
 bytecode-vm               ████                               193 ns   ×1.2
 rpn-stack                 █████                              200 ns   ×1.2
 ast-arena                 █████                              208 ns   ×1.3
-──────────────────────────────────────── tier break: 1 allocation vs N ────
+──────────────────────────────── tier break: 1 allocation vs pre-scan ────
+direct-mp                 █████                              265 ns   ×1.6   ← div-and-conquer, no AST
+direct-mp-full            █████                              275 ns   ×1.7   ←   + operator-only filter
+direct-mp-simd            █████                              285 ns   ×1.7   ←   + AVX2 SIMD scan
+──────────────────────────────── tier break: pre-scan + AST build ─────────
 multipass-bfs             ████████                           330 ns   ×2.0   ← div-and-conquer + sparse-table
 multipass-arena           ████████                           343 ns   ×2.1   ← div-and-conquer + arena
-──────────────────────────────────────── tier break: N allocations ────────
+──────────────────────────────── tier break: N allocations ────────────────
 ast-pratt                 ██████████                         400 ns   ×2.5
 ast-shunting-yard         ███████████                        434 ns   ×2.7
 ast-recursive-descent     ████████████                       466 ns   ×2.9
-──────────────────────────────────────── tier break: super-linear ─────────
+──────────────────────────────── tier break: super-linear ─────────────────
 multipass                 █████████████████████              864 ns   ×5.3   ← O(n log n)
 ```
 
-Four tiers fall out cleanly:
+Five tiers fall out cleanly:
 
 - **Tier 1 (×1.0–1.3): zero or one allocation.** Direct evaluators build nothing;
   compiled flat forms and the arena AST allocate one contiguous buffer. All land within
   30% of each other — algorithm barely matters inside this tier.
-- **Tier 2 (×2.0–2.1): divide-and-conquer + arena.** `multipass-arena` and
+- **Tier 1.5 (×1.6–1.7): divide-and-conquer, no AST.** `direct-mp` variants apply the
+  same D&C split-find as `multipass-arena`, but the recursion returns `double` directly
+  — no AST is built, no eval-walk pass. The O(n) pre-scan (prec array + paren matching)
+  is the main cost. A new tier between tier 1 and tier 2.
+- **Tier 2 (×2.0–2.1): divide-and-conquer + arena AST.** `multipass-arena` and
   `multipass-bfs` sit here after an extensive optimization series (see below). Both
   are faster than all pointer-AST parsers despite being O(n log n).
 - **Tier 3 (×2.5–2.9): N allocations.** One `make_unique` per AST node. All three
@@ -103,6 +111,9 @@ All one-shot strategies implement [`mp::IEvaluator`](include/parser/evaluator.hp
 |---|---|--:|---|
 | `direct-recursive-descent` | [`direct_recursive_descent.cpp`](src/direct_recursive_descent.cpp) | 81 | Recursive descent whose rules return the computed number directly, so no AST is ever built. |
 | `direct-shunting-yard` | [`direct_shunting_yard.cpp`](src/direct_shunting_yard.cpp) | 109 | Dijkstra's original — the operand stack holds running values, computing the result during the single scan. |
+| `direct-mp` | [`multipass_lean.cpp`](src/multipass_lean.cpp) | — | D&C split-find + inline eval: one O(n) pre-scan builds the candidate lists, then the recursion finds the split and returns `double` directly — no AST built or walked. |
+| `direct-mp-simd` | [`multipass_lean.cpp`](src/multipass_lean.cpp) | — | Same, but an AVX2 `_mm256_min_epi8` pass finds the minimum precedence in 32-byte chunks, replacing the linear RTL scan. |
+| `direct-mp-full` | [`multipass_lean.cpp`](src/multipass_lean.cpp) | — | SIMD split-finding plus an operator-only `buildAll` that skips `Number`/`Ident` tokens, reducing candidate-array size at the cost of a more complex token loop. |
 
 ### Compile to a flat form, then run it
 
@@ -129,7 +140,7 @@ Take `2 + 3 * 4`:
 |---|---|---|
 | `ast-rd`, `ast-sy`, `ast-pratt`, `multipass` | **Pointer AST** — heap nodes (`unique_ptr<Expr>`) | `Binary(+, Num 2, Binary(*, Num 3, Num 4))` |
 | `ast-arena`, `multipass-arena` | **Arena AST** — one flat vector, index children | `[Num2, Num3, Num4, Mul→(1,2), Add→(0,3)]`, root=4 |
-| `direct-recursive-descent`, `direct-shunting-yard` | **None** — value computed on the fly | *(nothing; yields `14`)* |
+| `direct-recursive-descent`, `direct-shunting-yard`, `direct-mp`, `direct-mp-simd`, `direct-mp-full` | **None** — value computed on the fly | *(nothing; yields `14`)* |
 | `rpn-stack` | **Flat postfix** | `2 3 4 * +` |
 | `bytecode-vm` | **Flat opcodes + const pool** | `PUSH PUSH PUSH MUL ADD` |
 
@@ -163,6 +174,9 @@ Full table, ns/leaf (10 000-leaf expressions; `×` = relative to the fastest):
 | `bytecode-vm` | 193 | 1.2 | a few buffers |
 | `rpn-stack` | 200 | 1.2 | a few buffers |
 | `ast-arena` | 208 | 1.3 | **one** (node vector) |
+| `direct-mp` | 265 | **1.6** | pre-scan vectors (no AST) |
+| `direct-mp-full` | 275 | **1.7** | pre-scan vectors (no AST) |
+| `direct-mp-simd` | 285 | **1.7** | pre-scan vectors (no AST) |
 | `multipass-bfs` | 330 | **2.0** | one + sparse table + pre-index |
 | `multipass-arena` | 343 | **2.1** | one (node vector) + pre-scan |
 | `ast-pratt` | 400 | 2.5 | **one per node** |
@@ -209,6 +223,35 @@ exactly cancels the per-split savings at typical expression sizes. This is the
 *theoretical ceiling* of the divide-and-conquer approach: every per-call operation is
 now O(1), but the O(n log n) total work of the algorithm itself cannot be improved
 without changing the strategy entirely.
+
+#### ⚡ Collapsing the eval pass: `direct-mp`, `direct-mp-simd`, `direct-mp-full`
+
+`multipass-bfs` still builds a Cartesian-tree AST, then walks it in a second O(n)
+pass. What if the recursion returned `double` directly? [`multipass_lean.cpp`](src/multipass_lean.cpp)
+tests three stacked ideas — direct eval, AVX2 SIMD scan, and operator-only token filter:
+
+| Version | ns/leaf | ×rd | what changed |
+|---|--:|--:|---|
+| `multipass-bfs` | ~330 | ×2.0 | baseline (O(1) split + arena AST + eval walk) |
+| `direct-mp` | ~265 | **×1.6** | drop AST — recurse directly to `double` |
+| `direct-mp-full` | ~275 | ×1.7 | + operator-only `buildAll` (skip Number/Ident) |
+| `direct-mp-simd` | ~285 | ×1.7 | + AVX2 `_mm256_min_epi8` prec scan |
+
+**Direct evaluation** is the decisive step — eliminating the AST build and eval-walk
+cuts ~35% from `multipass-bfs`. Both the O(n) pre-scan (building prec arrays and paren
+matching) and the O(n log n) D&C recursion stay, but the constant factor shrinks
+significantly when there are no heap nodes to construct or traverse.
+
+The SIMD scan processes 32 precedence bytes per instruction but must scan the whole
+candidate array to find the minimum. The simple RTL linear scan exits as soon as it
+finds the split, often at ~50% depth — SIMD only wins for very long expressions
+(the ordering of `direct-mp` vs `direct-mp-simd` reverses around 5 000 leaves).
+The operator-only filter trades smaller candidate arrays against a more complex
+tokenisation loop; the break-even is similarly expression-size-dependent.
+
+**The winning combination**: direct evaluation alone (`direct-mp`). The SIMD and
+filter add complexity with mixed payoff. The three variants form a controlled experiment
+rather than a strict ranking.
 
 #### 🚀 Bracket-free expressions: multipass-arena's best case
 
@@ -309,8 +352,8 @@ With per-thread arena regions, allocation becomes thread-local and the ceiling l
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 
-ctest --test-dir build --output-on-failure   # 250 checks: all strategies incl. variables
-./build/bench                                 # one-shot comparison (11 strategies)
+ctest --test-dir build --output-on-failure   # 404 checks: all strategies incl. variables
+./build/bench                                 # one-shot comparison (14 strategies)
 ./build/reeval                                # compile-once / eval-many comparison
 ```
 
