@@ -2,12 +2,12 @@
 
 # 🧮 Math-Expression Parser & Evaluator — A Comparison
 
-**Fourteen ways to turn `"-2 ^ 2 + 3 * (4 - 1)"` into a number — benchmarked head-to-head**
+**Eleven ways to turn `"-2 ^ 2 + 3 * (4 - 1)"` into a number — benchmarked head-to-head**
 **(plus a five-way compile-once / evaluate-many shoot-out).**
 
 ![C++26](https://img.shields.io/badge/C%2B%2B-26-00599C?logo=cplusplus&logoColor=white)
 ![CMake](https://img.shields.io/badge/CMake-3.20%2B-064F8C?logo=cmake&logoColor=white)
-![tests](https://img.shields.io/badge/tests-404%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-272%20passing-brightgreen)
 ![warnings](https://img.shields.io/badge/-Wall%20-Wextra%20-Wpedantic-clean-brightgreen)
 ![deps](https://img.shields.io/badge/dependencies-none-blue)
 
@@ -49,8 +49,6 @@ rpn-stack                 ███                                163 ns   ×1.
 ast-arena                 ████                               174 ns   ×1.3
 ──────────────────────────────── tier break: D&C pre-scan + direct eval ──
 direct-mp                 █████                              251 ns   ×1.8   ← D&C, no AST
-direct-mp-simd            █████                              255 ns   ×1.9   ←   + AVX2 SIMD scan
-direct-mp-full            █████                              264 ns   ×1.9   ←   + operator-only filter
 ──────────────────────────────── tier break: AST build + eval walk ────────
 multipass-arena           ██████                             297 ns   ×2.2   ← D&C + arena AST
 multipass-bfs             ██████                             296 ns   ×2.2   ← D&C + sparse-table RMQ
@@ -63,8 +61,8 @@ multipass                 ██████████████            
 ```
 
 - **Tier 1 (×1.0–1.3):** All O(n) strategies with ≤1 allocation per call. Algorithm barely matters — allocation pattern dominates.
-- **Tier 1.5 (×1.8–1.9):** D&C without an AST — O(n log n) work, recursion returns `double` directly.
-- **Tier 2 (×2.2):** D&C with an arena AST. `multipass-arena` and `multipass-bfs` are now tied — the sparse table's overhead exactly cancels its per-split savings at typical expression sizes.
+- **Tier 1.5 (×1.8):** D&C without an AST — O(n log n) work, recursion returns `double` directly.
+- **Tier 2 (×2.2):** D&C with an arena AST. Both variants are tied — the sparse table's overhead exactly cancels its per-split savings at typical expression sizes.
 - **Tier 3 (×3.0–3.1):** One `make_unique` per node. All three algorithms land within 3% — *allocation is the cost, not the algorithm*.
 - **Tier 4 (×5.5):** O(n log n) *plus* N allocations. The arena sibling is ×2.2.
 
@@ -95,14 +93,11 @@ So `-2^2 == -4`, `2^3^2 == 512`, `2^-3 == 0.125`.
 | [`direct-recursive-descent`](src/direct_recursive_descent.cpp) | [Recursive descent](https://en.wikipedia.org/wiki/Recursive_descent_parser) whose rules return `double` directly — no AST built. |
 | [`direct-shunting-yard`](src/direct_shunting_yard.cpp) | [Shunting-yard](https://en.wikipedia.org/wiki/Shunting_yard_algorithm) with a value stack instead of an AST node stack — evaluates during the scan. |
 | [`direct-mp`](src/multipass_lean.cpp) | D&C split-find + inline eval: O(n) pre-scan builds candidate lists, recursion returns `double` directly — no AST. |
-| [`direct-mp-simd`](src/multipass_lean.cpp) | `direct-mp` with [AVX2](https://en.wikipedia.org/wiki/Advanced_Vector_Extensions) `_mm256_min_epi8` replacing the linear RTL scan for split-finding. |
-| [`direct-mp-full`](src/multipass_lean.cpp) | [SIMD](https://en.wikipedia.org/wiki/Single_instruction,_multiple_data) split-finding + operator-only `buildAll` that skips `Number`/`Ident` tokens. |
 
 ### Compile to a flat form, then run
 
 | Strategy | In one sentence |
 |---|---|
-| [`rpn-stack`](src/rpn.cpp) | Shunting-yard emits a flat [RPN](https://en.wikipedia.org/wiki/Reverse_Polish_notation) token sequence; a value stack executes it. |
 | [`bytecode-vm`](src/bytecode.cpp) | Shunting-yard compiles to a [bytecode](https://en.wikipedia.org/wiki/Bytecode) `uint8_t` opcode stream + constant pool; a switch-dispatch VM runs it. |
 
 ### Compile once, evaluate many
@@ -118,7 +113,7 @@ Shared infrastructure: [`lexer.cpp`](src/lexer.cpp) and [`ast.cpp`](src/ast.cpp)
 |---|---|---|
 | `ast-rd/sy/pratt`, `multipass` | [Pointer AST](https://en.wikipedia.org/wiki/Abstract_syntax_tree) — `unique_ptr<Expr>` nodes | `Add(Num2, Mul(Num3, Num4))` |
 | `ast-arena`, `multipass-arena` | [Arena](https://en.wikipedia.org/wiki/Region-based_memory_management) AST — flat vector, index children | `[2, 3, 4, Mul(1,2), Add(0,3)]` |
-| `direct-*` (all five) | None — value computed on the fly | *(yields `14`)* |
+| `direct-*` (all three) | None — value computed on the fly | *(yields `14`)* |
 | `rpn-stack` | Flat [postfix (RPN)](https://en.wikipedia.org/wiki/Reverse_Polish_notation) | `2 3 4 * +` |
 | `bytecode-vm` | [Bytecode](https://en.wikipedia.org/wiki/Bytecode) opcodes + const pool | `PUSH PUSH PUSH MUL ADD` |
 
@@ -140,11 +135,8 @@ ns/leaf, 1 000-leaf expressions (100 reps); `×` relative to fastest:
 | [`direct-recursive-descent`](src/direct_recursive_descent.cpp) | 137 | **1.0** | ~0 (call stack) |
 | [`direct-shunting-yard`](src/direct_shunting_yard.cpp) | 150 | 1.1 | member vectors, reused |
 | [`bytecode-vm`](src/bytecode.cpp) | 158 | 1.2 | member vectors, reused |
-| [`rpn-stack`](src/rpn.cpp) | 163 | 1.2 | member vectors, reused |
 | [`ast-arena`](src/arena_ast.cpp) | 174 | 1.3 | **one** (node vector) |
 | [`direct-mp`](src/multipass_lean.cpp) | 251 | **1.8** | pre-scan vectors (no AST) |
-| [`direct-mp-simd`](src/multipass_lean.cpp) | 255 | **1.9** | pre-scan vectors (no AST) |
-| [`direct-mp-full`](src/multipass_lean.cpp) | 264 | **1.9** | pre-scan vectors (no AST) |
 | [`multipass-bfs`](src/multipass_opt.cpp) | 296 | **2.2** | one + sparse table + pre-index |
 | [`multipass-arena`](src/multipass_arena.cpp) | 297 | **2.2** | one (node vector) + pre-scan |
 | [`ast-pratt`](src/pratt.cpp) | 412 | 3.0 | **one per node** |
@@ -185,19 +177,17 @@ Iterator passing was the decisive step. `multipass-bfs` eliminates the last bina
 cancel that gain. Both variants trade places run-to-run. This is the **theoretical ceiling**
 of D&C: every per-call operation is O(1), but the O(n log n) total work is irreducible.
 
-#### ⚡ Collapsing the eval pass: `direct-mp` variants
+#### ⚡ Collapsing the eval pass: `direct-mp`
 
 Returning `double` directly from the recursion eliminates the AST build + eval-walk passes:
 
 | Version | ns/leaf | ×rd | what changed |
 |---|--:|--:|---|
 | `multipass-bfs` | ~296 | ×2.2 | baseline — O(1) split, arena AST, eval walk |
-| `direct-mp` | ~251 | **×1.8** | drop AST, linear RTL scan |
-| `direct-mp-simd` | ~255 | ×1.9 | drop AST + AVX2 SIMD prec scan |
-| `direct-mp-full` | ~264 | ×1.9 | + operator-only candidate filter |
+| `direct-mp` | ~251 | **×1.8** | drop AST, linear RTL scan, return `double` |
 
-Direct evaluation cuts ~30% from `multipass-bfs`. The three variants order differently
-by expression size — treat them as a controlled experiment rather than a strict ranking.
+Direct evaluation cuts ~15% from `multipass-bfs` by eliminating the O(n) node-construction
+and eval-walk passes, while keeping the same O(n log n) D&C structure.
 
 ### Re-eval — compile once, evaluate many
 
@@ -259,8 +249,8 @@ sub-tree). Neither capability is reflected in the batch benchmark above.
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 
-ctest --test-dir build --output-on-failure   # 404 checks
-./build/bench                                 # one-shot (14 strategies)
+ctest --test-dir build --output-on-failure   # 272 checks
+./build/bench                                 # one-shot (11 strategies)
 ./build/reeval                                # compile-once / eval-many
 ```
 

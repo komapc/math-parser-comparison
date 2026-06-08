@@ -62,15 +62,9 @@ std::vector<std::unique_ptr<IEvaluator>> all_evaluators() {
     v.push_back(make_ast_multipass());
     v.push_back(make_ast_multipass_arena());
     v.push_back(make_direct_mp());
-    v.push_back(make_direct_mp_simd());
-    v.push_back(make_direct_mp_full());
-    v.push_back(make_multipass_paren_idx());
-    v.push_back(make_multipass_sparse());
-    v.push_back(make_multipass_cartesian());
     v.push_back(make_multipass_bfs());
     v.push_back(make_direct_recursive_descent());
     v.push_back(make_direct_shunting_yard());
-    v.push_back(make_rpn());
     v.push_back(make_bytecode());
     return v;
 }
