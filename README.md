@@ -45,7 +45,6 @@ Worth it for parallelism, incremental re-parsing, or sub-expression reuse.
 direct-recursive-descent  ███                                137 ns   ×1.0   ← fastest
 direct-shunting-yard      ███                                150 ns   ×1.1
 bytecode-vm               ███                                158 ns   ×1.2
-rpn-stack                 ███                                163 ns   ×1.2
 ast-arena                 ████                               174 ns   ×1.3
 ──────────────────────────────── tier break: D&C pre-scan + direct eval ──
 direct-mp                 █████                              251 ns   ×1.8   ← D&C, no AST
@@ -114,7 +113,6 @@ Shared infrastructure: [`lexer.cpp`](src/lexer.cpp) and [`ast.cpp`](src/ast.cpp)
 | `ast-rd/sy/pratt`, `multipass` | [Pointer AST](https://en.wikipedia.org/wiki/Abstract_syntax_tree) — `unique_ptr<Expr>` nodes | `Add(Num2, Mul(Num3, Num4))` |
 | `ast-arena`, `multipass-arena` | [Arena](https://en.wikipedia.org/wiki/Region-based_memory_management) AST — flat vector, index children | `[2, 3, 4, Mul(1,2), Add(0,3)]` |
 | `direct-*` (all three) | None — value computed on the fly | *(yields `14`)* |
-| `rpn-stack` | Flat [postfix (RPN)](https://en.wikipedia.org/wiki/Reverse_Polish_notation) | `2 3 4 * +` |
 | `bytecode-vm` | [Bytecode](https://en.wikipedia.org/wiki/Bytecode) opcodes + const pool | `PUSH PUSH PUSH MUL ADD` |
 
 The four pointer-AST strategies produce bit-identical trees and land within 3% of each other — they differ only in *how* they find the tree. The arena layout change alone gives ~2× speedup over pointer nodes.
