@@ -7,7 +7,7 @@
 
 ![C++26](https://img.shields.io/badge/C%2B%2B-26-00599C?logo=cplusplus&logoColor=white)
 ![CMake](https://img.shields.io/badge/CMake-3.20%2B-064F8C?logo=cmake&logoColor=white)
-![tests](https://img.shields.io/badge/tests-272%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-278%20passing-brightgreen)
 ![warnings](https://img.shields.io/badge/-Wall%20-Wextra%20-Wpedantic-clean-brightgreen)
 ![deps](https://img.shields.io/badge/dependencies-none-blue)
 
@@ -193,15 +193,18 @@ Variables `a`–`d`, 1000-leaf expressions:
 
 | Strategy | compile ns/expr | per-eval ns/expr | per-eval × |
 |---|--:|--:|--:|
-| `bytecode` | ~138k | **38k** | 1.0 |
-| `rpn` | ~141k | 38k | 1.0 |
-| `ast-arena` | **~130k** | 52k | 1.4 |
-| `ast-ptr` | ~405k | 66k | 1.7 |
-| `reparse-rd` | ~0 | **435k** | 11.5 |
+| `bytecode` | ~125k | **35k** | 1.0 |
+| `rpn` | ~135k | 36k | 1.0 |
+| `ast-arena` | **~138k** | 55k | 1.6 |
+| `multipass-arena` | ~244k | 51k | 1.5 |
+| `ast-ptr` | ~417k | 60k | 1.7 |
+| `reparse-rd` | ~0 | **391k** | 11.1 |
 
 Flat forms win per-eval: cache-friendly linear walk, zero per-call allocation.
-`ast-arena` compiles fastest (130k ns) but evaluates slower than bytecode/rpn (52k vs 38k).
-Re-parsing beats compiling only if you evaluate fewer than ~1–2 times.
+`multipass-arena` compiles at ~×1.8 the cost of `ast-arena` but evaluates at the same
+speed — the D&C build is more expensive, but the resulting tree is identical to walk.
+Its unique advantage: the only compiled form that supports incremental re-parsing and
+fork-join parallel evaluation.
 
 ### 🏁 The verdict
 
@@ -247,7 +250,7 @@ sub-tree). Neither capability is reflected in the batch benchmark above.
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 
-ctest --test-dir build --output-on-failure   # 272 checks
+ctest --test-dir build --output-on-failure   # 278 checks
 ./build/bench                                 # one-shot (11 strategies)
 ./build/reeval                                # compile-once / eval-many
 ```
