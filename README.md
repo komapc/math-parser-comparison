@@ -88,30 +88,30 @@ So `-2^2 == -4`, `2^3^2 == 512`, `2^-3 == 0.125`.
 
 | Strategy | Source | In one sentence |
 |---|---|---|
-| `ast-recursive-descent` | [`recursive_descent.cpp`](src/recursive_descent.cpp) | [Recursive descent](https://en.wikipedia.org/wiki/Recursive_descent_parser): a function per grammar rule calls down the precedence ladder, building a pointer AST as the recursion returns. |
-| `ast-shunting-yard` | [`shunting_yard.cpp`](src/shunting_yard.cpp) | [Shunting-yard](https://en.wikipedia.org/wiki/Shunting_yard_algorithm): scan left-to-right, popping higher-precedence operators off a stack to fold operands into pointer AST nodes. |
-| `ast-pratt` | [`pratt.cpp`](src/pratt.cpp) | [Pratt / precedence climbing](https://en.wikipedia.org/wiki/Operator-precedence_parser): parsing driven by each operator's binding power, looping while the next operator binds tighter than the caller's minimum. |
-| `ast-arena` | [`arena_ast.cpp`](src/arena_ast.cpp) | Recursive descent, but every node is appended to one contiguous [arena](https://en.wikipedia.org/wiki/Region-based_memory_management) vector; children referenced by index, not pointer. |
-| `multipass` | [`multipass.cpp`](src/multipass.cpp) | Recursively find the lowest-precedence operator, make it the root of a [Cartesian tree](https://en.wikipedia.org/wiki/Cartesian_tree), recurse on both halves (pointer AST). |
-| `multipass-arena` | [`multipass_arena.cpp`](src/multipass_arena.cpp) | Same D&C, but arena AST + O(1) paren matching + iterator passing to eliminate redundant binary searches. |
-| `multipass-bfs` | [`multipass_opt.cpp`](src/multipass_opt.cpp) | Arena D&C + [sparse-table RMQ](https://en.wikipedia.org/wiki/Range_minimum_query) for O(1) split-finding + pre-indexed paren ranges. Theoretical ceiling of this family. |
+| [`ast-recursive-descent`](src/recursive_descent.cpp) | [`recursive_descent.cpp`](src/recursive_descent.cpp) | [Recursive descent](https://en.wikipedia.org/wiki/Recursive_descent_parser): a function per grammar rule calls down the precedence ladder, building a pointer AST as the recursion returns. |
+| [`ast-shunting-yard`](src/shunting_yard.cpp) | [`shunting_yard.cpp`](src/shunting_yard.cpp) | [Shunting-yard](https://en.wikipedia.org/wiki/Shunting_yard_algorithm): scan left-to-right, popping higher-precedence operators off a stack to fold operands into pointer AST nodes. |
+| [`ast-pratt`](src/pratt.cpp) | [`pratt.cpp`](src/pratt.cpp) | [Pratt / precedence climbing](https://en.wikipedia.org/wiki/Operator-precedence_parser): parsing driven by each operator's binding power, looping while the next operator binds tighter than the caller's minimum. |
+| [`ast-arena`](src/arena_ast.cpp) | [`arena_ast.cpp`](src/arena_ast.cpp) | Recursive descent, but every node is appended to one contiguous [arena](https://en.wikipedia.org/wiki/Region-based_memory_management) vector; children referenced by index, not pointer. |
+| [`multipass`](src/multipass.cpp) | [`multipass.cpp`](src/multipass.cpp) | Recursively find the lowest-precedence operator, make it the root of a [Cartesian tree](https://en.wikipedia.org/wiki/Cartesian_tree), recurse on both halves (pointer AST). |
+| [`multipass-arena`](src/multipass_arena.cpp) | [`multipass_arena.cpp`](src/multipass_arena.cpp) | Same D&C, but arena AST + O(1) paren matching + iterator passing to eliminate redundant binary searches. |
+| [`multipass-bfs`](src/multipass_opt.cpp) | [`multipass_opt.cpp`](src/multipass_opt.cpp) | Arena D&C + [sparse-table RMQ](https://en.wikipedia.org/wiki/Range_minimum_query) for O(1) split-finding + pre-indexed paren ranges. Theoretical ceiling of this family. |
 
 ### Evaluate inline (no intermediate form)
 
 | Strategy | Source | In one sentence |
 |---|---|---|
-| `direct-recursive-descent` | [`direct_recursive_descent.cpp`](src/direct_recursive_descent.cpp) | [Recursive descent](https://en.wikipedia.org/wiki/Recursive_descent_parser) whose rules return `double` directly — no AST built. |
-| `direct-shunting-yard` | [`direct_shunting_yard.cpp`](src/direct_shunting_yard.cpp) | [Shunting-yard](https://en.wikipedia.org/wiki/Shunting_yard_algorithm) with a value stack instead of an AST node stack — evaluates during the scan. |
-| `direct-mp` | [`multipass_lean.cpp`](src/multipass_lean.cpp) | D&C split-find + inline eval: O(n) pre-scan builds candidate lists, recursion returns `double` directly — no AST. |
-| `direct-mp-simd` | [`multipass_lean.cpp`](src/multipass_lean.cpp) | `direct-mp` with [AVX2](https://en.wikipedia.org/wiki/Advanced_Vector_Extensions) `_mm256_min_epi8` replacing the linear RTL scan for split-finding. |
-| `direct-mp-full` | [`multipass_lean.cpp`](src/multipass_lean.cpp) | [SIMD](https://en.wikipedia.org/wiki/Single_instruction,_multiple_data) split-finding + operator-only `buildAll` that skips `Number`/`Ident` tokens. |
+| [`direct-recursive-descent`](src/direct_recursive_descent.cpp) | [`direct_recursive_descent.cpp`](src/direct_recursive_descent.cpp) | [Recursive descent](https://en.wikipedia.org/wiki/Recursive_descent_parser) whose rules return `double` directly — no AST built. |
+| [`direct-shunting-yard`](src/direct_shunting_yard.cpp) | [`direct_shunting_yard.cpp`](src/direct_shunting_yard.cpp) | [Shunting-yard](https://en.wikipedia.org/wiki/Shunting_yard_algorithm) with a value stack instead of an AST node stack — evaluates during the scan. |
+| [`direct-mp`](src/multipass_lean.cpp) | [`multipass_lean.cpp`](src/multipass_lean.cpp) | D&C split-find + inline eval: O(n) pre-scan builds candidate lists, recursion returns `double` directly — no AST. |
+| [`direct-mp-simd`](src/multipass_lean.cpp) | [`multipass_lean.cpp`](src/multipass_lean.cpp) | `direct-mp` with [AVX2](https://en.wikipedia.org/wiki/Advanced_Vector_Extensions) `_mm256_min_epi8` replacing the linear RTL scan for split-finding. |
+| [`direct-mp-full`](src/multipass_lean.cpp) | [`multipass_lean.cpp`](src/multipass_lean.cpp) | [SIMD](https://en.wikipedia.org/wiki/Single_instruction,_multiple_data) split-finding + operator-only `buildAll` that skips `Number`/`Ident` tokens. |
 
 ### Compile to a flat form, then run
 
 | Strategy | Source | In one sentence |
 |---|---|---|
-| `rpn-stack` | [`rpn.cpp`](src/rpn.cpp) | Shunting-yard emits a flat [RPN](https://en.wikipedia.org/wiki/Reverse_Polish_notation) token sequence; a value stack executes it. |
-| `bytecode-vm` | [`bytecode.cpp`](src/bytecode.cpp) | Shunting-yard compiles to a [bytecode](https://en.wikipedia.org/wiki/Bytecode) `uint8_t` opcode stream + constant pool; a switch-dispatch VM runs it. |
+| [`rpn-stack`](src/rpn.cpp) | [`rpn.cpp`](src/rpn.cpp) | Shunting-yard emits a flat [RPN](https://en.wikipedia.org/wiki/Reverse_Polish_notation) token sequence; a value stack executes it. |
+| [`bytecode-vm`](src/bytecode.cpp) | [`bytecode.cpp`](src/bytecode.cpp) | Shunting-yard compiles to a [bytecode](https://en.wikipedia.org/wiki/Bytecode) `uint8_t` opcode stream + constant pool; a switch-dispatch VM runs it. |
 
 ### Compile once, evaluate many
 
@@ -145,20 +145,20 @@ ns/leaf, 1 000-leaf expressions (100 reps); `×` relative to fastest:
 
 | Strategy | ns/leaf | × | allocations / expr |
 |---|--:|--:|---|
-| `direct-recursive-descent` | 124 | **1.0** | ~0 (call stack) |
-| `direct-shunting-yard` | 163 | 1.3 | member vectors, reused |
-| `bytecode-vm` | 165 | 1.3 | member vectors, reused |
-| `ast-arena` | 170 | 1.4 | **one** (node vector) |
-| `rpn-stack` | 172 | 1.4 | member vectors, reused |
-| `direct-mp` | 236 | **1.9** | pre-scan vectors (no AST) |
-| `direct-mp-simd` | 251 | **2.0** | pre-scan vectors (no AST) |
-| `direct-mp-full` | 251 | **2.0** | pre-scan vectors (no AST) |
-| `multipass-arena` | 277 | **2.2** | one (node vector) + pre-scan |
-| `multipass-bfs` | 347 | **2.8** | one + sparse table + pre-index |
-| `ast-recursive-descent` | 431 | 3.5 | **one per node** |
-| `ast-pratt` | 443 | 3.6 | **one per node** |
-| `ast-shunting-yard` | 451 | 3.6 | **one per node** |
-| `multipass` | 794 | 6.4 | one per node + pre-scan |
+| [`direct-recursive-descent`](src/direct_recursive_descent.cpp) | 124 | **1.0** | ~0 (call stack) |
+| [`direct-shunting-yard`](src/direct_shunting_yard.cpp) | 163 | 1.3 | member vectors, reused |
+| [`bytecode-vm`](src/bytecode.cpp) | 165 | 1.3 | member vectors, reused |
+| [`ast-arena`](src/arena_ast.cpp) | 170 | 1.4 | **one** (node vector) |
+| [`rpn-stack`](src/rpn.cpp) | 172 | 1.4 | member vectors, reused |
+| [`direct-mp`](src/multipass_lean.cpp) | 236 | **1.9** | pre-scan vectors (no AST) |
+| [`direct-mp-simd`](src/multipass_lean.cpp) | 251 | **2.0** | pre-scan vectors (no AST) |
+| [`direct-mp-full`](src/multipass_lean.cpp) | 251 | **2.0** | pre-scan vectors (no AST) |
+| [`multipass-arena`](src/multipass_arena.cpp) | 277 | **2.2** | one (node vector) + pre-scan |
+| [`multipass-bfs`](src/multipass_opt.cpp) | 347 | **2.8** | one + sparse table + pre-index |
+| [`ast-recursive-descent`](src/recursive_descent.cpp) | 431 | 3.5 | **one per node** |
+| [`ast-pratt`](src/pratt.cpp) | 443 | 3.6 | **one per node** |
+| [`ast-shunting-yard`](src/shunting_yard.cpp) | 451 | 3.6 | **one per node** |
+| [`multipass`](src/multipass.cpp) | 794 | 6.4 | one per node + pre-scan |
 
 #### ⚖️ Tier 1: leveling the playing field
 
