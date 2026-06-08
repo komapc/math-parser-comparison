@@ -33,7 +33,7 @@ Split there. Recurse on each half. Repeat until atoms.
 ```
 
 The result is a [Cartesian tree](https://en.wikipedia.org/wiki/Cartesian_tree) built top-down. Each split is independent → naturally parallel.
-The cost: **O(n log n)** vs O(n) for left-to-right, so single-threaded **left-to-right wins by ~2×**.
+The cost: **O(n log n)** vs O(n) for left-to-right, so single-threaded **left-to-right wins by ~1.7×**.
 Worth it for parallelism, incremental re-parsing, or sub-expression reuse.
 
 ## ⚡ Results at a glance
@@ -115,7 +115,7 @@ Shared infrastructure: [`lexer.cpp`](src/lexer.cpp) and [`ast.cpp`](src/ast.cpp)
 | `direct-*` (all three) | None — value computed on the fly | *(yields `14`)* |
 | `bytecode-vm` | [Bytecode](https://en.wikipedia.org/wiki/Bytecode) opcodes + const pool | `PUSH PUSH PUSH MUL ADD` |
 
-The four pointer-AST strategies produce bit-identical trees and land within 3% of each other — they differ only in *how* they find the tree. The arena layout change alone gives ~2× speedup over pointer nodes.
+The four pointer-AST strategies (`ast-rd`, `ast-sy`, `ast-pratt`, `multipass`) produce bit-identical trees and land within 3% of each other — they differ only in *how* they find the tree. The arena layout change alone gives ~2× speedup over pointer nodes.
 
 ## 📊 Benchmarks
 
@@ -274,7 +274,7 @@ Requires GCC 14 + CMake ≥ 3.20. Falls back to C++23 on older compilers (CMake 
 ```
 include/parser/   interfaces (token, lexer, ast, evaluator, arena_ast, reeval)
 src/              one file per strategy + shared lexer/ast
-bench/            benchmark.cpp, reeval.cpp
+bench/            benchmark.cpp, reeval.cpp, parallel_bench.cpp, single_par_bench.cpp
 tests/            test_parsers.cpp (dependency-free, run via CTest)
 ```
 
