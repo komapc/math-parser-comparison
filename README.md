@@ -15,43 +15,66 @@
 
 ---
 
-A dependency-free C++20 project implementing classic (and not-so-classic) algorithms
+A dependency-free C++23 project implementing classic (and not-so-classic) algorithms
 for parsing and evaluating arithmetic expressions. **Every strategy shares one tokenizer
 and one grammar**, so the benchmarks measure the *algorithm*, not incidental differences.
 
 The recurring punchline: **performance tracks memory allocation, not algorithmic cleverness.**
 
+## 💡 TL;DR — the divide-and-conquer idea
+
+Most parsers read left-to-right and evaluate as they go. The divide-and-conquer approach
+does the opposite: **scan the whole expression to find the lowest-precedence operator**
+(`+`/`-` first, since they bind loosest) — that's the root of the expression tree —
+split there, then recurse on each half (which itself splits at its lowest-precedence
+operator, and so on down to `^` and atoms).
+
+```
+"2 + 3 * 4 - 1"
+       ↓  find lowest-prec op: the '-' at position 3
+   "2 + 3 * 4"    "-"    "1"
+       ↓  recurse left: find '+' at position 1
+   "2"  "+"  "3 * 4"
+               ↓  recurse: find '*'
+             "3" "*" "4"
+```
+
+This produces a correct Cartesian tree and is naturally parallelizable — each split is
+independent. The catch: it's **O(n log n)** total work vs O(n) for a left-to-right parser,
+so on a single thread **left-to-right wins by ~2×**. Divide-and-conquer pays off for
+parallel evaluation, incremental re-parsing, or expressions too large to fit on the call stack.
+
 ## ⚡ Results at a glance
 
 > One-shot, ns per leaf — **shorter is faster**.
-> Throttling laptop: **absolute ns drift ±40% — trust the ratios**.
+> Throttling laptop: **absolute ns drift ±40% run-to-run — trust the ratios**.
 
 ```
-direct-recursive-descent  ███                                162 ns   ×1.0   ← fastest
-direct-shunting-yard      ███                                179 ns   ×1.1
-bytecode-vm               ███                                192 ns   ×1.2
-rpn-stack                 ███                                193 ns   ×1.2
-ast-arena                 ███                                195 ns   ×1.2
+direct-recursive-descent  ███                                124 ns   ×1.0   ← fastest
+direct-shunting-yard      ███                                163 ns   ×1.3
+bytecode-vm               ███                                165 ns   ×1.3
+ast-arena                 ████                               170 ns   ×1.4
+rpn-stack                 ████                               172 ns   ×1.4
 ──────────────────────────────── tier break: O(n) pre-scan overhead ──────
-direct-mp-simd            █████                              273 ns   ×1.7   ← D&C, no AST, SIMD scan
-direct-mp                 █████                              293 ns   ×1.8   ←   linear RTL scan
-direct-mp-full            █████                              304 ns   ×1.9   ←   + operator-only filter
+direct-mp                 █████                              236 ns   ×1.9   ← D&C, no AST
+direct-mp-simd            █████                              251 ns   ×2.0   ←   + AVX2 SIMD scan
+direct-mp-full            █████                              251 ns   ×2.0   ←   + operator-only filter
 ──────────────────────────────── tier break: AST build + eval walk ────────
-multipass-arena           ██████                             378 ns   ×2.3   ← D&C + arena AST
-multipass-bfs             ██████                             384 ns   ×2.4   ← D&C + sparse-table RMQ
+multipass-arena           ██████                             277 ns   ×2.2   ← D&C + arena AST
+multipass-bfs             ████████                           347 ns   ×2.8   ← D&C + sparse-table RMQ
 ──────────────────────────────── tier break: N heap allocations ───────────
-ast-pratt                 ████████                           456 ns   ×2.8
-ast-recursive-descent     ████████                           488 ns   ×3.0
-ast-shunting-yard         ████████                           500 ns   ×3.1
+ast-pratt                 █████████                          443 ns   ×3.6
+ast-recursive-descent     █████████                          431 ns   ×3.5
+ast-shunting-yard         ██████████                         451 ns   ×3.6
 ──────────────────────────────── tier break: super-linear ─────────────────
-multipass                 ██████████████                     839 ns   ×5.2   ← O(n log n) + N allocs
+multipass                 ████████████████                   794 ns   ×6.4   ← O(n log n) + N allocs
 ```
 
-- **Tier 1 (×1.0–1.2):** All O(n) single-pass strategies with ≤1 allocation per call, compressed to 20% of each other. Algorithm irrelevant inside this tier.
-- **Tier 1.5 (×1.7–1.9):** Divide-and-conquer without building an AST — O(n log n) work, but the recursion returns `double` directly.
-- **Tier 2 (×2.3–2.4):** D&C with an arena AST. Both variants trade places run-to-run; the sparse table's cache footprint can cancel its per-split savings.
-- **Tier 3 (×2.8–3.1):** One `make_unique` per AST node. All three algorithms land within 11% — *algorithm is irrelevant*, allocation is the cost.
-- **Tier 4 (×5.2):** O(n log n) *plus* N allocations. The arena sibling (`multipass-arena`) is ×2.3.
+- **Tier 1 (×1.0–1.4):** All O(n) strategies with ≤1 allocation per call. Algorithm barely matters — allocation pattern dominates.
+- **Tier 1.5 (×1.9–2.0):** D&C without an AST — O(n log n) work, recursion returns `double` directly.
+- **Tier 2 (×2.2–2.8):** D&C with an arena AST. Both variants trade places run-to-run.
+- **Tier 3 (×3.5–3.6):** One `make_unique` per node. All three algorithms land within 3% — *allocation is the cost, not the algorithm*.
+- **Tier 4 (×6.4):** O(n log n) *plus* N allocations. The arena sibling is ×2.2.
 
 ## 📐 The grammar
 
@@ -79,8 +102,8 @@ So `-2^2 == -4`, `2^3^2 == 512`, `2^-3 == 0.125`.
 |---|---|---|
 | `direct-recursive-descent` | [`direct_recursive_descent.cpp`](src/direct_recursive_descent.cpp) | Recursive descent whose rules return `double` directly — no AST built. |
 | `direct-shunting-yard` | [`direct_shunting_yard.cpp`](src/direct_shunting_yard.cpp) | Shunting-yard with a value stack instead of an AST node stack — evaluates during the scan. |
-| `direct-mp` | [`multipass_lean.cpp`](src/multipass_lean.cpp) | D&C split-find + inline eval: O(n) pre-scan builds candidate lists, recursion finds split and returns `double` — no AST. |
-| `direct-mp-simd` | [`multipass_lean.cpp`](src/multipass_lean.cpp) | `direct-mp` with AVX2 `_mm256_min_epi8` replacing the linear RTL scan for the split-finding step. |
+| `direct-mp` | [`multipass_lean.cpp`](src/multipass_lean.cpp) | D&C split-find + inline eval: O(n) pre-scan builds candidate lists, recursion returns `double` directly — no AST. |
+| `direct-mp-simd` | [`multipass_lean.cpp`](src/multipass_lean.cpp) | `direct-mp` with AVX2 `_mm256_min_epi8` replacing the linear RTL scan for split-finding. |
 | `direct-mp-full` | [`multipass_lean.cpp`](src/multipass_lean.cpp) | SIMD split-finding + operator-only `buildAll` that skips `Number`/`Ident` tokens. |
 
 ### Compile to a flat form, then run
@@ -107,7 +130,7 @@ Shared infrastructure: [`lexer.cpp`](src/lexer.cpp) and [`ast.cpp`](src/ast.cpp)
 | `rpn-stack` | Flat postfix | `2 3 4 * +` |
 | `bytecode-vm` | Opcodes + const pool | `PUSH PUSH PUSH MUL ADD` |
 
-The four pointer-AST strategies produce bit-identical trees and land within 11% of each other — they differ only in *how* they find the tree. The arena layout change alone gives ~2× speedup over pointer nodes.
+The four pointer-AST strategies produce bit-identical trees and land within 3% of each other — they differ only in *how* they find the tree. The arena layout change alone gives ~2× speedup over pointer nodes.
 
 ## 📊 Benchmarks
 
@@ -122,35 +145,34 @@ ns/leaf, 1 000-leaf expressions (100 reps); `×` relative to fastest:
 
 | Strategy | ns/leaf | × | allocations / expr |
 |---|--:|--:|---|
-| `direct-recursive-descent` | 162 | **1.0** | ~0 (call stack) |
-| `direct-shunting-yard` | 179 | 1.1 | member vectors, reused |
-| `bytecode-vm` | 192 | 1.2 | member vectors, reused |
-| `rpn-stack` | 193 | 1.2 | member vectors, reused |
-| `ast-arena` | 195 | 1.2 | **one** (node vector) |
-| `direct-mp-simd` | 273 | **1.7** | pre-scan vectors (no AST) |
-| `direct-mp` | 293 | **1.8** | pre-scan vectors (no AST) |
-| `direct-mp-full` | 304 | **1.9** | pre-scan vectors (no AST) |
-| `multipass-arena` | 378 | **2.3** | one (node vector) + pre-scan |
-| `multipass-bfs` | 384 | **2.4** | one + sparse table + pre-index |
-| `ast-pratt` | 456 | 2.8 | **one per node** |
-| `ast-recursive-descent` | 488 | 3.0 | **one per node** |
-| `ast-shunting-yard` | 500 | 3.1 | **one per node** |
-| `multipass` | 839 | 5.2 | one per node + pre-scan |
+| `direct-recursive-descent` | 124 | **1.0** | ~0 (call stack) |
+| `direct-shunting-yard` | 163 | 1.3 | member vectors, reused |
+| `bytecode-vm` | 165 | 1.3 | member vectors, reused |
+| `ast-arena` | 170 | 1.4 | **one** (node vector) |
+| `rpn-stack` | 172 | 1.4 | member vectors, reused |
+| `direct-mp` | 236 | **1.9** | pre-scan vectors (no AST) |
+| `direct-mp-simd` | 251 | **2.0** | pre-scan vectors (no AST) |
+| `direct-mp-full` | 251 | **2.0** | pre-scan vectors (no AST) |
+| `multipass-arena` | 277 | **2.2** | one (node vector) + pre-scan |
+| `multipass-bfs` | 347 | **2.8** | one + sparse table + pre-index |
+| `ast-recursive-descent` | 431 | 3.5 | **one per node** |
+| `ast-pratt` | 443 | 3.6 | **one per node** |
+| `ast-shunting-yard` | 451 | 3.6 | **one per node** |
+| `multipass` | 794 | 6.4 | one per node + pre-scan |
 
 #### ⚖️ Tier 1: leveling the playing field
 
 The original `shunting_yard`, `direct_shunting_yard`, `rpn`, and `bytecode` allocated
-every working vector (token list, operator stack, output, eval stack) fresh each call.
-The recursive-descent family kept `tokens_` as a member, reusing capacity automatically.
-Promoting all working vectors to class members and `.clear()`-ing at entry cost eliminated
-this incidental handicap. After the first warm-up call, all tier 1 strategies are
-allocation-free. The residual gaps are algorithmic:
+every working vector fresh each call. The recursive-descent family kept `tokens_` as a
+member, reusing capacity automatically. Promoting all working vectors to class members
+and `.clear()`-ing at entry eliminated this incidental handicap — after the first call,
+all tier 1 strategies are allocation-free. The residual gaps are algorithmic:
 
 | | ×rd | cause |
 |---|--:|---|
 | `direct-rd` | 1.0 | single left-to-right pass, call stack only |
-| `direct-sy` | 1.1 | two explicit stacks (operand + operator) |
-| `rpn` / `bytecode` / `ast-arena` | 1.2 | two passes: build intermediate form, then evaluate |
+| `direct-sy` | 1.3 | two explicit stacks (operand + operator) |
+| `rpn` / `bytecode` / `ast-arena` | 1.3–1.4 | two passes: build intermediate form, then evaluate |
 
 #### 🔬 `multipass` → `multipass-arena` → `multipass-bfs`
 
@@ -165,28 +187,24 @@ D&C parsers build a Cartesian tree top-down — inherently O(n log n). The journ
 | + **iterator passing** (`multipass-arena`) | **~343** | **~×2.1** | 7× fewer binary searches |
 | + **sparse-table RMQ + paren pre-index** (`multipass-bfs`) | **~330** | **~×2.0** | O(1) findSplit + O(1) paren strips |
 
-Iterator passing was the decisive step: sub-iterator ranges are passed directly to children
-instead of binary-searching at each call. `multipass-bfs` eliminates the last binary search
-(paren-depth transitions) via a sparse table and pre-indexed paren ranges — but the table's
-larger cache footprint can cancel that gain on a throttling CPU. Both variants trade places
-run-to-run. This is the **theoretical ceiling** of D&C: every per-call operation is O(1),
-but the O(n log n) total work cannot be reduced without changing the algorithm.
+Iterator passing was the decisive step. `multipass-bfs` eliminates the last binary search
+(paren-depth transitions) via a sparse table, but the table's larger cache footprint can
+cancel that gain. Both variants trade places run-to-run. This is the **theoretical ceiling**
+of D&C: every per-call operation is O(1), but the O(n log n) total work is irreducible.
 
 #### ⚡ Collapsing the eval pass: `direct-mp` variants
 
-The AST build + eval-walk is itself O(n) overhead on top of the O(n log n) D&C work.
-Returning `double` directly from the recursion eliminates both passes:
+Returning `double` directly from the recursion eliminates the AST build + eval-walk passes:
 
 | Version | ns/leaf | ×rd | what changed |
 |---|--:|--:|---|
-| `multipass-bfs` | ~384 | ×2.4 | baseline — O(1) split, arena AST, eval walk |
-| `direct-mp-simd` | ~273 | **×1.7** | drop AST + AVX2 SIMD prec scan |
-| `direct-mp` | ~293 | ×1.8 | drop AST, linear RTL scan |
-| `direct-mp-full` | ~304 | ×1.9 | + operator-only candidate filter |
+| `multipass-bfs` | ~347 | ×2.8 | baseline — O(1) split, arena AST, eval walk |
+| `direct-mp` | ~236 | **×1.9** | drop AST, linear RTL scan |
+| `direct-mp-simd` | ~251 | ×2.0 | drop AST + AVX2 SIMD prec scan |
+| `direct-mp-full` | ~251 | ×2.0 | + operator-only candidate filter |
 
-Direct evaluation cuts ~35% from `multipass-bfs`. The three variants order differently
-by expression size (SIMD helps at large; filter helps at small) — treat them as a
-controlled experiment rather than a strict ranking.
+Direct evaluation cuts ~30% from `multipass-bfs`. The three variants order differently
+by expression size — treat them as a controlled experiment rather than a strict ranking.
 
 ### Re-eval — compile once, evaluate many
 
@@ -200,8 +218,7 @@ Variables `a`–`d`, 1000-leaf expressions:
 | `ast-ptr` | ~372k | 54k | 1.6 |
 | `reparse-rd` | ~0 | **372k** | 11.2 |
 
-Flat forms (bytecode/rpn) win per-eval: cache-friendly linear walk, zero per-call allocation.
-`ast-arena` compiles 2.8× cheaper than `ast-ptr`; per-eval both are within noise.
+Flat forms win per-eval: cache-friendly linear walk, zero per-call allocation.
 Re-parsing beats compiling only if you evaluate fewer than ~2 times.
 
 ### 🏁 The verdict
@@ -236,7 +253,7 @@ ctest --test-dir build --output-on-failure   # 404 checks
 ./build/reeval                                # compile-once / eval-many
 ```
 
-Requires C++20 and CMake ≥ 3.20. No external dependencies.
+Requires C++23 and CMake ≥ 3.20. No external dependencies.
 
 ## 🗂️ Layout
 
