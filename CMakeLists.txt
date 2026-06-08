@@ -7,9 +7,10 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 endif()
 
-# CMake 3.28 lacks the GCC 14 → -std=c++26 mapping; set the flag directly.
+# CMake 3.28 lacks the GCC 14 / Clang 17 → -std=c++26 mapping; set the flag directly.
 # Remove this block once CMake gains native C++26 support.
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "14")
+if((CMAKE_CXX_COMPILER_ID STREQUAL "GNU"   AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "14") OR
+   (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "17"))
   add_compile_options(-std=c++26)
 else()
   set(CMAKE_CXX_STANDARD 23)
