@@ -231,19 +231,28 @@ Multipass finds the split *first*, making both halves fully independent [fork-jo
 
 | Strategy | 1T ns/expr | 2T ns/expr | 4T ns/expr | 8T ns/expr | 2T × | 4T × | 8T × |
 |---|--:|--:|--:|--:|--:|--:|--:|
-| `ast-arena` | 102k | 56k | 37k | 36k | ×1.8 | ×2.7 | ×2.8 |
-| `multipass-arena` | 247k | 129k | 72k | 80k | ×1.9 | **×3.4** | ×3.1 |
+| `ast-arena` | 222k | 110k | 68k | 58k | ×2.0 | ×3.3 | ×3.8 |
+| `multipass-arena` | 248k | 154k | 86k | 76k | ×1.6 | ×2.9 | ×3.3 |
 
-`multipass-arena` scales better per physical core (85% efficiency at 4T vs 68% for
-`ast-arena`). At 8T (hyperthreads), its O(n log n) scan causes cache pressure and
-it regresses from ×3.4 to ×3.1, while `ast-arena` holds at ×2.8. **Batch throughput
-favours `ast-arena` at every thread count** — the multipass structural advantage
-appears only for single-expression fork-join or incremental re-parsing.
+Both strategies scale well in batch mode. The relative per-core efficiency fluctuates
+run-to-run on this throttling laptop (previous runs showed `multipass-arena` scaling
+better; this run favours `ast-arena`). **Batch throughput favours `ast-arena` at every
+thread count** regardless of run — its lower 1T baseline means it stays ahead even when
+`multipass-arena` scales more aggressively.
 
-The structural advantage is elsewhere: `multipass-arena` is the only strategy that can
-parallelize a **single large expression** (fork at the root split, join the results) and
-the only one that supports **incremental re-parsing** (change one token → re-parse one
-sub-tree). Neither capability is reflected in the batch benchmark above.
+**Single-expression fork-join** (`multipass-parallel`, middle-split + `std::async`):
+
+| n (leaves) | par1 ns/leaf | par4 ns/leaf | par4 ×speedup | vs `ast-arena` |
+|---|--:|--:|--:|--:|
+| 10 000 | 315 | 258 | ×1.2 | ×0.85 (still slower) |
+| 100 000 | 372 | 315 | ×1.2 | ×0.85 (still slower) |
+
+The fork-join IS working — ~20% speedup over sequential multipass at both sizes — but
+can't close the ×1.4 gap from O(n log n) vs O(n). Beating `ast-arena` on a single
+expression requires more physical cores than the 4 available here (break-even ≈ T > log₂ n).
+The structural advantage of `multipass-arena` is elsewhere: **incremental re-parsing**
+(change one token → re-parse one subtree, not the whole expression) and
+**range-based sub-evaluation** — neither is reflected in these benchmarks.
 
 ## 🛠️ Build & run
 
@@ -255,6 +264,7 @@ ctest --test-dir build --output-on-failure   # 267 checks
 ./build/bench                                 # one-shot (11 strategies)
 ./build/reeval                                # compile-once / eval-many
 ./build/parallel_bench                        # batch scaling 1–8 threads
+./build/single_par_bench                      # single-expression fork-join scaling
 ```
 
 Requires GCC 14 + CMake ≥ 3.20. Falls back to C++23 on older compilers (CMake sets the standard automatically). No external dependencies.
