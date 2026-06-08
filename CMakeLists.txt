@@ -1,12 +1,19 @@
 cmake_minimum_required(VERSION 3.20)
 project(math_parser_bench CXX)
 
-set(CMAKE_CXX_STANDARD 23)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
+endif()
+
+# CMake 3.28 lacks the GCC 14 → -std=c++26 mapping; set the flag directly.
+# Remove this block once CMake gains native C++26 support.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "14")
+  add_compile_options(-std=c++26)
+else()
+  set(CMAKE_CXX_STANDARD 23)
+  set(CMAKE_CXX_STANDARD_REQUIRED ON)
 endif()
 
 add_compile_options(-Wall -Wextra -Wpedantic)

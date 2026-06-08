@@ -5,7 +5,7 @@
 **Fourteen ways to turn `"-2 ^ 2 + 3 * (4 - 1)"` into a number — benchmarked head-to-head**
 **(plus a five-way compile-once / evaluate-many shoot-out).**
 
-![C++23](https://img.shields.io/badge/C%2B%2B-23-00599C?logo=cplusplus&logoColor=white)
+![C++26](https://img.shields.io/badge/C%2B%2B-26-00599C?logo=cplusplus&logoColor=white)
 ![CMake](https://img.shields.io/badge/CMake-3.20%2B-064F8C?logo=cmake&logoColor=white)
 ![tests](https://img.shields.io/badge/tests-404%20passing-brightgreen)
 ![warnings](https://img.shields.io/badge/-Wall%20-Wextra%20-Wpedantic-clean-brightgreen)
@@ -245,7 +245,7 @@ ctest --test-dir build --output-on-failure   # 404 checks
 ./build/reeval                                # compile-once / eval-many
 ```
 
-Requires C++23 and CMake ≥ 3.20. No external dependencies.
+Requires GCC 14 + CMake ≥ 3.20. Falls back to C++23 on older compilers. No external dependencies.
 
 ## 🗂️ Layout
 
