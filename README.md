@@ -235,6 +235,23 @@ Multipass finds the split *first*, making both halves fully independent [fork-jo
 | **Range-based sub-evaluation** | Evaluate any `[lo, hi)` token sub-range directly. |
 | **[BFS](https://en.wikipedia.org/wiki/Breadth-first_search) / level-by-level** | All nodes at depth d are independent — natural for [SIMD](https://en.wikipedia.org/wiki/Single_instruction,_multiple_data) or GPU batch parsing. |
 
+**Measured batch scaling (400 × 1000-leaf expressions, i7-10610U, 4 physical cores):**
+
+| Strategy | 1T ns/expr | 2T ns/expr | 4T ns/expr | 2T ×speedup | 4T ×speedup |
+|---|--:|--:|--:|--:|--:|
+| `ast-arena` | 117k | 61k | 46k | ×1.9 | ×2.5 |
+| `multipass-arena` | 466k | 222k | 140k | ×2.1 | **×3.3** |
+
+`multipass-arena` scales better per core (83% efficiency vs 63% for `ast-arena`), but
+starts from a ×4× higher single-thread baseline. On this 4-core machine **batch
+throughput still favours `ast-arena` at every thread count**. The break-even core count
+was not reached in this measurement.
+
+The structural advantage is elsewhere: `multipass-arena` is the only strategy that can
+parallelize a **single large expression** (fork at the root split, join the results) and
+the only one that supports **incremental re-parsing** (change one token → re-parse one
+sub-tree). Neither capability is reflected in the batch benchmark above.
+
 ## 🛠️ Build & run
 
 ```sh
