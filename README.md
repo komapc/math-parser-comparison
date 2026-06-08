@@ -62,7 +62,7 @@ multipass                 █████████████               
 - **Tier 1 (×1.0–1.3):** All O(n) strategies with ≤1 allocation per call. Includes `ast-arena` — the **fastest AST builder** — because recursive-descent + one arena allocation beats every other AST approach. Algorithm barely matters; allocation pattern dominates.
 - **Tier 1.5 (×1.4):** D&C without an AST — O(n log n) work, recursion returns `double` directly.
 - **Tier 2 (×1.7–2.0):** D&C *with* an arena AST. Multipass is **not** the fastest way to build an AST (that's `ast-arena` above) — it's the fastest way to build a *balanced* AST whose sub-ranges are split-independent.
-- **Tier 3 (×2.7–3.5):** One `make_unique` per node. Spread is wider here — *allocation is the cost, not the algorithm*, but GC/allocator variance shows.
+- **Tier 3 (×2.7–3.5):** One `make_unique` per node. Spread is wider here — *allocation is the cost, not the algorithm*, but allocator variance shows.
 - **Tier 4 (×5.2):** O(n log n) *plus* N allocations. The arena sibling is ×1.7.
 
 ## 📐 The grammar
@@ -111,11 +111,11 @@ Shared infrastructure: [`lexer.cpp`](src/lexer.cpp) and [`ast.cpp`](src/ast.cpp)
 | Group | Representation | `2 + 3 * 4` |
 |---|---|---|
 | `ast-rd/sy/pratt`, `multipass` | [Pointer AST](https://en.wikipedia.org/wiki/Abstract_syntax_tree) — `unique_ptr<Expr>` nodes | `Add(Num2, Mul(Num3, Num4))` |
-| `ast-arena`, `multipass-arena` | [Arena](https://en.wikipedia.org/wiki/Region-based_memory_management) AST — flat vector, index children | `[2, 3, 4, Mul(1,2), Add(0,3)]` |
+| `ast-arena`, `multipass-arena`, `multipass-bfs` | [Arena](https://en.wikipedia.org/wiki/Region-based_memory_management) AST — flat vector, index children | `[2, 3, 4, Mul(1,2), Add(0,3)]` |
 | `direct-*` (all three) | None — value computed on the fly | *(yields `14`)* |
 | `bytecode-vm` | [Bytecode](https://en.wikipedia.org/wiki/Bytecode) opcodes + const pool | `PUSH PUSH PUSH MUL ADD` |
 
-The four pointer-AST strategies (`ast-rd`, `ast-sy`, `ast-pratt`, `multipass`) produce bit-identical trees and land within 3% of each other — they differ only in *how* they find the tree. The arena layout change alone gives ~2× speedup over pointer nodes.
+All pointer-AST strategies produce bit-identical trees — they differ only in *how* they find each node. The three left-to-right variants (`ast-rd`, `ast-sy`, `ast-pratt`) cluster tightly on a stable run; the D&C variant (`multipass`) lands ~×1.5 slower due to the O(n log n) pre-scan. The arena layout change alone gives ~2× speedup over pointer nodes.
 
 ## 📊 Benchmarks
 
