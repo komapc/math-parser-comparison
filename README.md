@@ -15,7 +15,7 @@
 
 ---
 
-A dependency-free C++23 project implementing classic (and not-so-classic) algorithms
+A dependency-free C++26 project implementing classic (and not-so-classic) algorithms
 for parsing and evaluating arithmetic expressions. **Every strategy shares one tokenizer
 and one grammar**, so the benchmarks measure the *algorithm*, not incidental differences.
 
@@ -263,7 +263,7 @@ ctest --test-dir build --output-on-failure   # 404 checks
 ./build/reeval                                # compile-once / eval-many
 ```
 
-Requires GCC 14 + CMake ≥ 3.20. Falls back to C++23 on older compilers. No external dependencies.
+Requires GCC 14 + CMake ≥ 3.20. Falls back to C++23 on older compilers (CMake sets the standard automatically). No external dependencies.
 
 ## 🗂️ Layout
 
