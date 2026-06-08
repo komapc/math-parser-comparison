@@ -4,3 +4,4 @@ build*/
 *.obj
 compile_commands.json
 .cache/
+a.out
