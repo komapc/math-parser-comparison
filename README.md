@@ -44,11 +44,11 @@ Worth it for parallelism, incremental re-parsing, or sub-expression reuse.
 ```
 direct-recursive-descent  ███                                 91 ns   ×1.0   ← fastest
 bytecode-vm               ███                                 91 ns   ×1.0
-ast-arena                 ███                                107 ns   ×1.2
+ast-arena                 ███                                107 ns   ×1.2   ← fastest AST builder
 direct-shunting-yard      ███                                116 ns   ×1.3
 ──────────────────────────────── tier break: D&C pre-scan + direct eval ──
 direct-mp                 ████                               124 ns   ×1.4   ← D&C, no AST
-──────────────────────────────── tier break: AST build + eval walk ────────
+──────────────────────────────── tier break: D&C AST build + eval walk ────
 multipass-arena           █████                              151 ns   ×1.7   ← D&C + arena AST
 multipass-bfs             █████                              182 ns   ×2.0   ← D&C + sparse-table RMQ
 ──────────────────────────────── tier break: N heap allocations ───────────
@@ -59,9 +59,9 @@ ast-recursive-descent     █████████                          3
 multipass                 █████████████                      474 ns   ×5.2   ← O(n log n) + N allocs
 ```
 
-- **Tier 1 (×1.0–1.3):** All O(n) strategies with ≤1 allocation per call. Algorithm barely matters — allocation pattern dominates.
+- **Tier 1 (×1.0–1.3):** All O(n) strategies with ≤1 allocation per call. Includes `ast-arena` — the **fastest AST builder** — because recursive-descent + one arena allocation beats every other AST approach. Algorithm barely matters; allocation pattern dominates.
 - **Tier 1.5 (×1.4):** D&C without an AST — O(n log n) work, recursion returns `double` directly.
-- **Tier 2 (×1.7–2.0):** D&C with an arena AST. Both variants separate clearly — the sparse table trades a larger cache footprint for O(1) split-finding.
+- **Tier 2 (×1.7–2.0):** D&C *with* an arena AST. Multipass is **not** the fastest way to build an AST (that's `ast-arena` above) — it's the fastest way to build a *balanced* AST whose sub-ranges are split-independent.
 - **Tier 3 (×2.7–3.5):** One `make_unique` per node. Spread is wider here — *allocation is the cost, not the algorithm*, but GC/allocator variance shows.
 - **Tier 4 (×5.2):** O(n log n) *plus* N allocations. The arena sibling is ×1.7.
 
@@ -242,14 +242,17 @@ thread count** regardless of run — its lower 1T baseline means it stays ahead 
 
 **Single-expression fork-join** (`multipass-parallel`, middle-split + `std::async`):
 
-| n (leaves) | par1 ns/leaf | par4 ns/leaf | par4 ×speedup | vs `ast-arena` |
-|---|--:|--:|--:|--:|
-| 10 000 | 315 | 258 | ×1.2 | ×0.85 (still slower) |
-| 100 000 | 372 | 315 | ×1.2 | ×0.85 (still slower) |
+| n (leaves) | par1 ns/leaf | par4 ns/leaf | par8 ns/leaf | best speedup | vs `ast-arena` |
+|---|--:|--:|--:|--:|--:|
+| 10 000 | 315 | **258** | 355 | par4 ×1.2 | ×0.85 (still slower) |
+| 100 000 | 372 | 378 | **315** | par8 ×1.2 | ×0.85 (still slower) |
 
-The fork-join IS working — ~20% speedup over sequential multipass at both sizes — but
-can't close the ×1.4 gap from O(n log n) vs O(n). Beating `ast-arena` on a single
-expression requires more physical cores than the 4 available here (break-even ≈ T > log₂ n).
+At n=10k, par4 wins — the 8 hyperthreads add overhead faster than they add work.
+At n=100k, par8 wins — the expression is large enough that hyperthreads pull ahead.
+In both cases the peak speedup is ~×1.2 over sequential multipass. The fork-join is
+working, but can't close the ×1.4 gap from O(n log n) vs O(n) — beating `ast-arena`
+on a single expression requires more physical cores than the 4 available here
+(break-even ≈ T > log₂ n ≈ 13 for n=10k).
 The structural advantage of `multipass-arena` is elsewhere: **incremental re-parsing**
 (change one token → re-parse one subtree, not the whole expression) and
 **range-based sub-evaluation** — neither is reflected in these benchmarks.
