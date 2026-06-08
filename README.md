@@ -42,31 +42,31 @@ Worth it for parallelism, incremental re-parsing, or sub-expression reuse.
 > Throttling laptop: **absolute ns drift ±40% run-to-run — trust the ratios**.
 
 ```
-direct-recursive-descent  ███                                124 ns   ×1.0   ← fastest
-direct-shunting-yard      ███                                163 ns   ×1.3
-bytecode-vm               ███                                165 ns   ×1.3
-ast-arena                 ████                               170 ns   ×1.4
-rpn-stack                 ████                               172 ns   ×1.4
+direct-recursive-descent  ███                                137 ns   ×1.0   ← fastest
+direct-shunting-yard      ███                                150 ns   ×1.1
+bytecode-vm               ███                                158 ns   ×1.2
+rpn-stack                 ███                                163 ns   ×1.2
+ast-arena                 ████                               174 ns   ×1.3
 ──────────────────────────────── tier break: O(n) pre-scan overhead ──────
-direct-mp                 █████                              236 ns   ×1.9   ← D&C, no AST
-direct-mp-simd            █████                              251 ns   ×2.0   ←   + AVX2 SIMD scan
-direct-mp-full            █████                              251 ns   ×2.0   ←   + operator-only filter
+direct-mp                 █████                              251 ns   ×1.8   ← D&C, no AST
+direct-mp-simd            █████                              255 ns   ×1.9   ←   + AVX2 SIMD scan
+direct-mp-full            █████                              264 ns   ×1.9   ←   + operator-only filter
 ──────────────────────────────── tier break: AST build + eval walk ────────
-multipass-arena           ██████                             277 ns   ×2.2   ← D&C + arena AST
-multipass-bfs             ████████                           347 ns   ×2.8   ← D&C + sparse-table RMQ
+multipass-arena           ██████                             297 ns   ×2.2   ← D&C + arena AST
+multipass-bfs             ██████                             296 ns   ×2.2   ← D&C + sparse-table RMQ
 ──────────────────────────────── tier break: N heap allocations ───────────
-ast-pratt                 █████████                          443 ns   ×3.6
-ast-recursive-descent     █████████                          431 ns   ×3.5
-ast-shunting-yard         ██████████                         451 ns   ×3.6
+ast-pratt                 ████████                           412 ns   ×3.0
+ast-recursive-descent     ████████                           414 ns   ×3.0
+ast-shunting-yard         █████████                          423 ns   ×3.1
 ──────────────────────────────── tier break: super-linear ─────────────────
-multipass                 ████████████████                   794 ns   ×6.4   ← O(n log n) + N allocs
+multipass                 ██████████████                     754 ns   ×5.5   ← O(n log n) + N allocs
 ```
 
-- **Tier 1 (×1.0–1.4):** All O(n) strategies with ≤1 allocation per call. Algorithm barely matters — allocation pattern dominates.
-- **Tier 1.5 (×1.9–2.0):** D&C without an AST — O(n log n) work, recursion returns `double` directly.
-- **Tier 2 (×2.2–2.8):** D&C with an arena AST. Both variants trade places run-to-run.
-- **Tier 3 (×3.5–3.6):** One `make_unique` per node. All three algorithms land within 3% — *allocation is the cost, not the algorithm*.
-- **Tier 4 (×6.4):** O(n log n) *plus* N allocations. The arena sibling is ×2.2.
+- **Tier 1 (×1.0–1.3):** All O(n) strategies with ≤1 allocation per call. Algorithm barely matters — allocation pattern dominates.
+- **Tier 1.5 (×1.8–1.9):** D&C without an AST — O(n log n) work, recursion returns `double` directly.
+- **Tier 2 (×2.2):** D&C with an arena AST. `multipass-arena` and `multipass-bfs` are now tied — the sparse table's overhead exactly cancels its per-split savings at typical expression sizes.
+- **Tier 3 (×3.0–3.1):** One `make_unique` per node. All three algorithms land within 3% — *allocation is the cost, not the algorithm*.
+- **Tier 4 (×5.5):** O(n log n) *plus* N allocations. The arena sibling is ×2.2.
 
 ## 📐 The grammar
 
@@ -137,20 +137,20 @@ ns/leaf, 1 000-leaf expressions (100 reps); `×` relative to fastest:
 
 | Strategy | ns/leaf | × | allocations / expr |
 |---|--:|--:|---|
-| [`direct-recursive-descent`](src/direct_recursive_descent.cpp) | 124 | **1.0** | ~0 (call stack) |
-| [`direct-shunting-yard`](src/direct_shunting_yard.cpp) | 163 | 1.3 | member vectors, reused |
-| [`bytecode-vm`](src/bytecode.cpp) | 165 | 1.3 | member vectors, reused |
-| [`ast-arena`](src/arena_ast.cpp) | 170 | 1.4 | **one** (node vector) |
-| [`rpn-stack`](src/rpn.cpp) | 172 | 1.4 | member vectors, reused |
-| [`direct-mp`](src/multipass_lean.cpp) | 236 | **1.9** | pre-scan vectors (no AST) |
-| [`direct-mp-simd`](src/multipass_lean.cpp) | 251 | **2.0** | pre-scan vectors (no AST) |
-| [`direct-mp-full`](src/multipass_lean.cpp) | 251 | **2.0** | pre-scan vectors (no AST) |
-| [`multipass-arena`](src/multipass_arena.cpp) | 277 | **2.2** | one (node vector) + pre-scan |
-| [`multipass-bfs`](src/multipass_opt.cpp) | 347 | **2.8** | one + sparse table + pre-index |
-| [`ast-recursive-descent`](src/recursive_descent.cpp) | 431 | 3.5 | **one per node** |
-| [`ast-pratt`](src/pratt.cpp) | 443 | 3.6 | **one per node** |
-| [`ast-shunting-yard`](src/shunting_yard.cpp) | 451 | 3.6 | **one per node** |
-| [`multipass`](src/multipass.cpp) | 794 | 6.4 | one per node + pre-scan |
+| [`direct-recursive-descent`](src/direct_recursive_descent.cpp) | 137 | **1.0** | ~0 (call stack) |
+| [`direct-shunting-yard`](src/direct_shunting_yard.cpp) | 150 | 1.1 | member vectors, reused |
+| [`bytecode-vm`](src/bytecode.cpp) | 158 | 1.2 | member vectors, reused |
+| [`rpn-stack`](src/rpn.cpp) | 163 | 1.2 | member vectors, reused |
+| [`ast-arena`](src/arena_ast.cpp) | 174 | 1.3 | **one** (node vector) |
+| [`direct-mp`](src/multipass_lean.cpp) | 251 | **1.8** | pre-scan vectors (no AST) |
+| [`direct-mp-simd`](src/multipass_lean.cpp) | 255 | **1.9** | pre-scan vectors (no AST) |
+| [`direct-mp-full`](src/multipass_lean.cpp) | 264 | **1.9** | pre-scan vectors (no AST) |
+| [`multipass-bfs`](src/multipass_opt.cpp) | 296 | **2.2** | one + sparse table + pre-index |
+| [`multipass-arena`](src/multipass_arena.cpp) | 297 | **2.2** | one (node vector) + pre-scan |
+| [`ast-pratt`](src/pratt.cpp) | 412 | 3.0 | **one per node** |
+| [`ast-recursive-descent`](src/recursive_descent.cpp) | 414 | 3.0 | **one per node** |
+| [`ast-shunting-yard`](src/shunting_yard.cpp) | 423 | 3.1 | **one per node** |
+| [`multipass`](src/multipass.cpp) | 754 | 5.5 | one per node + pre-scan |
 
 #### ⚖️ Tier 1: leveling the playing field
 
@@ -163,8 +163,9 @@ all tier 1 strategies are allocation-free. The residual gaps are algorithmic:
 | | ×rd | cause |
 |---|--:|---|
 | `direct-rd` | 1.0 | single left-to-right pass, call stack only |
-| `direct-sy` | 1.3 | two explicit stacks (operand + operator) |
-| `rpn` / `bytecode` / `ast-arena` | 1.3–1.4 | two passes: build intermediate form, then evaluate |
+| `direct-sy` | 1.1 | two explicit stacks (operand + operator) |
+| `rpn` / `bytecode` | 1.2 | two passes: build intermediate form, then evaluate |
+| `ast-arena` | 1.3 | one allocation (node vector), then tree-walk |
 
 #### 🔬 `multipass` → `multipass-arena` → `multipass-bfs`
 
@@ -190,10 +191,10 @@ Returning `double` directly from the recursion eliminates the AST build + eval-w
 
 | Version | ns/leaf | ×rd | what changed |
 |---|--:|--:|---|
-| `multipass-bfs` | ~347 | ×2.8 | baseline — O(1) split, arena AST, eval walk |
-| `direct-mp` | ~236 | **×1.9** | drop AST, linear RTL scan |
-| `direct-mp-simd` | ~251 | ×2.0 | drop AST + AVX2 SIMD prec scan |
-| `direct-mp-full` | ~251 | ×2.0 | + operator-only candidate filter |
+| `multipass-bfs` | ~296 | ×2.2 | baseline — O(1) split, arena AST, eval walk |
+| `direct-mp` | ~251 | **×1.8** | drop AST, linear RTL scan |
+| `direct-mp-simd` | ~255 | ×1.9 | drop AST + AVX2 SIMD prec scan |
+| `direct-mp-full` | ~264 | ×1.9 | + operator-only candidate filter |
 
 Direct evaluation cuts ~30% from `multipass-bfs`. The three variants order differently
 by expression size — treat them as a controlled experiment rather than a strict ranking.
