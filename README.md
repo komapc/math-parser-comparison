@@ -21,28 +21,20 @@ and one grammar**, so the benchmarks measure the *algorithm*, not incidental dif
 
 The recurring punchline: **performance tracks memory allocation, not algorithmic cleverness.**
 
-## 💡 TL;DR — the divide-and-conquer idea
+## 💡 TL;DR
 
-Most parsers read left-to-right and evaluate as they go. The [divide-and-conquer](https://en.wikipedia.org/wiki/Divide-and-conquer_algorithm) approach
-does the opposite: **scan the whole expression to find the lowest-precedence operator**
-(`+`/`-` first, since they bind loosest) — that's the root of the expression tree —
-split there, then recurse on each half (which itself splits at its lowest-precedence
-operator, and so on down to `^` and atoms).
+Instead of parsing left-to-right, find the **weakest operator** first — it's the root.
+Split there. Recurse on each half. Repeat until atoms.
 
 ```
-"2 + 3 * 4 - 1"
-       ↓  find lowest-prec op: the '-' at position 3
-   "2 + 3 * 4"    "-"    "1"
-       ↓  recurse left: find '+' at position 1
-   "2"  "+"  "3 * 4"
-               ↓  recurse: find '*'
-             "3" "*" "4"
+2 + 3 * 4 - 1   →   find weakest: −   →   (2 + 3 * 4)  −  (1)
+                                               find weakest: +
+                                            (2)  +  (3 * 4)
 ```
 
-This produces a correct [Cartesian tree](https://en.wikipedia.org/wiki/Cartesian_tree) and is naturally parallelizable — each split is
-independent. The catch: it's **O(n log n)** total work vs O(n) for a left-to-right parser,
-so on a single thread **left-to-right wins by ~2×**. Divide-and-conquer pays off for
-parallel evaluation, incremental re-parsing, or expressions too large to fit on the call stack.
+The result is a [Cartesian tree](https://en.wikipedia.org/wiki/Cartesian_tree) built top-down. Each split is independent → naturally parallel.
+The cost: **O(n log n)** vs O(n) for left-to-right, so single-threaded **left-to-right wins by ~2×**.
+Worth it for parallelism, incremental re-parsing, or sub-expression reuse.
 
 ## ⚡ Results at a glance
 
