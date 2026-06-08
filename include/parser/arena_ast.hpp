@@ -27,6 +27,9 @@ public:
     // Build via recursive descent. Throws std::runtime_error on a syntax error.
     static ArenaAst parse(std::string_view src);
 
+    // Adopt a pre-built node vector + root index (used by alternative parsers).
+    static ArenaAst adopt(std::vector<Node> nodes, int root);
+
     // Evaluate with the variable environment (nullptr for constant expressions).
     double eval(const double* vars) const { return evalNode(root_, vars); }
 

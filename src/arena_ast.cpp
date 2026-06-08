@@ -114,6 +114,13 @@ ArenaAst ArenaAst::parse(std::string_view src) {
     return a;
 }
 
+ArenaAst ArenaAst::adopt(std::vector<Node> nodes, int root) {
+    ArenaAst a;
+    a.nodes_ = std::move(nodes);
+    a.root_ = root;
+    return a;
+}
+
 double ArenaAst::evalNode(int i, const double* vars) const {
     const Node& nd = nodes_[static_cast<std::size_t>(i)];
     switch (nd.kind) {

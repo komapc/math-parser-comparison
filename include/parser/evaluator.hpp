@@ -4,6 +4,8 @@
 #include <string_view>
 #include <vector>
 
+#include "parser/arena_ast.hpp"
+
 namespace mp {
 
 // Uniform one-shot interface: source text -> numeric value, in a single call.
@@ -30,6 +32,9 @@ std::unique_ptr<IEvaluator> make_ast_multipass();
 
 // Same algorithm, arena-allocated (no per-node heap allocation).
 std::unique_ptr<IEvaluator> make_ast_multipass_arena();
+
+// Parse with multipass-arena and return the arena AST (for reeval / ICompiler use).
+ArenaAst multipass_arena_parse(std::string_view src);
 
 // Direct-eval D&C variant (no AST, evaluate inline).
 std::unique_ptr<IEvaluator> make_direct_mp();
