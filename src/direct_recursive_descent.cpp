@@ -18,8 +18,9 @@ class DirectRecursiveDescent final : public IEvaluator {
 public:
     const char* name() const override { return "direct-recursive-descent"; }
 
-    double eval(std::string_view src) override {
+    double eval(std::string_view src, const double* vars = nullptr) override {
         tokens_ = tokenize(src);
+        vars_ = vars;
         pos_ = 0;
         const double v = expr();
         if (!check(TokenType::End)) {
@@ -31,7 +32,8 @@ public:
 
 private:
     std::vector<Token> tokens_;
-    std::size_t pos_ = 0;
+    const double*      vars_ = nullptr;
+    std::size_t        pos_  = 0;
 
     const Token& peek() const { return tokens_[pos_]; }
     bool check(TokenType t) const { return peek().type == t; }
@@ -72,6 +74,10 @@ private:
     }
     double primary() {
         if (check(TokenType::Number)) return tokens_[pos_++].value;
+        if (check(TokenType::Ident)) {
+            const int idx = static_cast<int>(tokens_[pos_++].value);
+            return vars_ ? vars_[idx] : 0.0;
+        }
         if (check(TokenType::LParen)) {
             ++pos_;
             const double v = expr();

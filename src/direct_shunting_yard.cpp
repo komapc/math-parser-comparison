@@ -48,7 +48,7 @@ class DirectShuntingYard final : public IEvaluator {
 public:
     const char* name() const override { return "direct-shunting-yard"; }
 
-    double eval(std::string_view src) override {
+    double eval(std::string_view src, const double* vars = nullptr) override {
         tokens_ = tokenize(src);
         vals_.clear();
         ops_.clear();
@@ -76,7 +76,10 @@ public:
                     expectOperand = false;
                     break;
                 case TokenType::Ident:
-                    throw std::runtime_error("variables not supported by this evaluator");
+                    if (!expectOperand) throw std::runtime_error("unexpected variable");
+                    vals_.push_back(vars ? vars[static_cast<int>(tok.value)] : 0.0);
+                    expectOperand = false;
+                    break;
                 case TokenType::LParen:
                     ops_.push_back(Op{tok.type, 0, false, false, true});
                     expectOperand = true;

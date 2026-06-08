@@ -83,19 +83,21 @@ class MultiPassArena final : public IEvaluator {
 public:
     const char* name() const override { return "multipass-arena"; }
 
+    // Build and return an ArenaAst (moves nodes_ out; used by reeval).
     ArenaAst buildArena(std::string_view src) {
-        tokens_ = tokenize(src);
-        nodes_.clear();
-        nodes_.reserve(tokens_.size());
-        buildCandidates();
+        build(src);
         const std::size_t n = tokens_.size() - 1;
         auto [cbeg, cend] = candRange(0, n, 0);
         const int root = parseRange(0, n, 0, cbeg, cend);
         return ArenaAst::adopt(std::move(nodes_), root);
     }
 
-    double eval(std::string_view src) override {
-        return buildArena(src).eval(nullptr);
+    double eval(std::string_view src, const double* vars = nullptr) override {
+        vars_ = vars;
+        build(src);
+        const std::size_t n = tokens_.size() - 1;
+        auto [cbeg, cend] = candRange(0, n, 0);
+        return evalNode(parseRange(0, n, 0, cbeg, cend));
     }
 
 private:
@@ -103,6 +105,14 @@ private:
     std::vector<ArenaAst::Node>         nodes_;
     std::vector<std::vector<Candidate>> candsByDepth_;
     std::vector<std::size_t>            parenMatch_;
+    const double*                       vars_ = nullptr;
+
+    void build(std::string_view src) {
+        tokens_ = tokenize(src);
+        nodes_.clear();
+        nodes_.reserve(tokens_.size());
+        buildCandidates();
+    }
 
     // One O(n) pass: build per-depth candidate lists + precomputed paren matches.
     void buildCandidates() {
@@ -278,7 +288,7 @@ private:
         const ArenaAst::Node& nd = nodes_[static_cast<std::size_t>(i)];
         switch (nd.kind) {
             case ArenaAst::K::Num: return nd.value;
-            case ArenaAst::K::Var: return 0.0;
+            case ArenaAst::K::Var: return vars_ ? vars_[nd.var] : 0.0;
             case ArenaAst::K::Pos: return +evalNode(nd.a);
             case ArenaAst::K::Neg: return -evalNode(nd.a);
             case ArenaAst::K::Add: return evalNode(nd.a) + evalNode(nd.b);

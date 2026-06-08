@@ -23,6 +23,8 @@ add_compile_options(-Wall -Wextra -Wpedantic)
 # NOTE: src/parallel.cpp (single-expression parallelism) is intentionally
 # excluded for now -- it is allocation-bound and disabled pending an arena
 # allocator. The file is kept on disk for reference.
+find_package(Threads REQUIRED)
+
 add_library(parsers
   src/lexer.cpp
   src/ast.cpp
@@ -33,6 +35,7 @@ add_library(parsers
   src/multipass_arena.cpp
   src/multipass_opt.cpp
   src/multipass_lean.cpp
+  src/multipass_parallel.cpp
   src/arena_ast.cpp
   src/direct_recursive_descent.cpp
   src/direct_shunting_yard.cpp
@@ -41,6 +44,7 @@ add_library(parsers
   src/reeval.cpp
 )
 target_include_directories(parsers PUBLIC include)
+target_link_libraries(parsers PUBLIC Threads::Threads)
 
 # Benchmark harnesses.
 add_executable(bench bench/benchmark.cpp)        # one-shot: string -> value
@@ -48,6 +52,12 @@ target_link_libraries(bench PRIVATE parsers)
 
 add_executable(reeval bench/reeval.cpp)          # compile once, evaluate many
 target_link_libraries(reeval PRIVATE parsers)
+
+add_executable(parallel_bench bench/parallel_bench.cpp)  # batch scaling 1-8T
+target_link_libraries(parallel_bench PRIVATE parsers)
+
+add_executable(single_par_bench bench/single_par_bench.cpp)  # single-expr fork-join
+target_link_libraries(single_par_bench PRIVATE parsers)
 
 # Correctness test suite (dependency-free), run via CTest.
 enable_testing()

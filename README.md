@@ -3,11 +3,11 @@
 # 🧮 Math-Expression Parser & Evaluator — A Comparison
 
 **Eleven ways to turn `"-2 ^ 2 + 3 * (4 - 1)"` into a number — benchmarked head-to-head**
-**(plus a five-way compile-once / evaluate-many shoot-out).**
+**(plus a six-way compile-once / evaluate-many shoot-out).**
 
 ![C++26](https://img.shields.io/badge/C%2B%2B-26-00599C?logo=cplusplus&logoColor=white)
 ![CMake](https://img.shields.io/badge/CMake-3.20%2B-064F8C?logo=cmake&logoColor=white)
-![tests](https://img.shields.io/badge/tests-278%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-267%20passing-brightgreen)
 ![warnings](https://img.shields.io/badge/-Wall%20-Wextra%20-Wpedantic-clean-brightgreen)
 ![deps](https://img.shields.io/badge/dependencies-none-blue)
 
@@ -42,28 +42,28 @@ Worth it for parallelism, incremental re-parsing, or sub-expression reuse.
 > Throttling laptop: **absolute ns drift ±40% run-to-run — trust the ratios**.
 
 ```
-direct-recursive-descent  ███                                137 ns   ×1.0   ← fastest
-direct-shunting-yard      ███                                150 ns   ×1.1
-bytecode-vm               ███                                158 ns   ×1.2
-ast-arena                 ████                               174 ns   ×1.3
+direct-recursive-descent  ███                                112 ns   ×1.0   ← fastest
+direct-shunting-yard      ███                                125 ns   ×1.1
+ast-arena                 ████                               154 ns   ×1.4
+bytecode-vm               ████                               172 ns   ×1.5
 ──────────────────────────────── tier break: D&C pre-scan + direct eval ──
-direct-mp                 █████                              251 ns   ×1.8   ← D&C, no AST
+direct-mp                 █████                              196 ns   ×1.8   ← D&C, no AST
 ──────────────────────────────── tier break: AST build + eval walk ────────
-multipass-arena           ██████                             297 ns   ×2.2   ← D&C + arena AST
-multipass-bfs             ██████                             296 ns   ×2.2   ← D&C + sparse-table RMQ
+multipass-arena           ██████                             252 ns   ×2.3   ← D&C + arena AST
+multipass-bfs             ██████                             260 ns   ×2.3   ← D&C + sparse-table RMQ
 ──────────────────────────────── tier break: N heap allocations ───────────
-ast-pratt                 ████████                           412 ns   ×3.0
-ast-recursive-descent     ████████                           414 ns   ×3.0
-ast-shunting-yard         █████████                          423 ns   ×3.1
+ast-recursive-descent     ████████                           337 ns   ×3.0
+ast-pratt                 █████████                          361 ns   ×3.2
+ast-shunting-yard         █████████                          384 ns   ×3.4
 ──────────────────────────────── tier break: super-linear ─────────────────
-multipass                 ██████████████                     754 ns   ×5.5   ← O(n log n) + N allocs
+multipass                 █████████████                      580 ns   ×5.2   ← O(n log n) + N allocs
 ```
 
-- **Tier 1 (×1.0–1.3):** All O(n) strategies with ≤1 allocation per call. Algorithm barely matters — allocation pattern dominates.
+- **Tier 1 (×1.0–1.5):** All O(n) strategies with ≤1 allocation per call. Algorithm barely matters — allocation pattern dominates.
 - **Tier 1.5 (×1.8):** D&C without an AST — O(n log n) work, recursion returns `double` directly.
-- **Tier 2 (×2.2):** D&C with an arena AST. Both variants are tied — the sparse table's overhead exactly cancels its per-split savings at typical expression sizes.
-- **Tier 3 (×3.0–3.1):** One `make_unique` per node. All three algorithms land within 3% — *allocation is the cost, not the algorithm*.
-- **Tier 4 (×5.5):** O(n log n) *plus* N allocations. The arena sibling is ×2.2.
+- **Tier 2 (×2.3):** D&C with an arena AST. Both variants are tied — the sparse table's overhead exactly cancels its per-split savings at typical expression sizes.
+- **Tier 3 (×3.0–3.4):** One `make_unique` per node. All three algorithms land within 15% of each other — *allocation is the cost, not the algorithm*.
+- **Tier 4 (×5.2):** O(n log n) *plus* N allocations. The arena sibling is ×2.3.
 
 ## 📐 The grammar
 
@@ -101,8 +101,8 @@ So `-2^2 == -4`, `2^3^2 == 512`, `2^-3 == 0.125`.
 
 ### Compile once, evaluate many
 
-[`reeval.cpp`](src/reeval.cpp) implements `ICompiler` → `ICompiledExpr::eval(vars)` in five forms:
-`ast-ptr`, `ast-arena`, `rpn`, `bytecode`, `reparse-rd`. Compiled forms are allocation-free on eval.
+[`reeval.cpp`](src/reeval.cpp) implements `ICompiler` → `ICompiledExpr::eval(vars)` in six forms:
+`ast-ptr`, `ast-arena`, `multipass-arena`, `rpn`, `bytecode`, `reparse-rd`. Compiled forms are allocation-free on eval.
 
 Shared infrastructure: [`lexer.cpp`](src/lexer.cpp) and [`ast.cpp`](src/ast.cpp).
 
@@ -130,21 +130,21 @@ ns/leaf, 1 000-leaf expressions (100 reps); `×` relative to fastest:
 
 | Strategy | ns/leaf | × | allocations / expr |
 |---|--:|--:|---|
-| [`direct-recursive-descent`](src/direct_recursive_descent.cpp) | 137 | **1.0** | ~0 (call stack) |
-| [`direct-shunting-yard`](src/direct_shunting_yard.cpp) | 150 | 1.1 | member vectors, reused |
-| [`bytecode-vm`](src/bytecode.cpp) | 158 | 1.2 | member vectors, reused |
-| [`ast-arena`](src/arena_ast.cpp) | 174 | 1.3 | **one** (node vector) |
-| [`direct-mp`](src/multipass_lean.cpp) | 251 | **1.8** | pre-scan vectors (no AST) |
-| [`multipass-bfs`](src/multipass_opt.cpp) | 296 | **2.2** | one + sparse table + pre-index |
-| [`multipass-arena`](src/multipass_arena.cpp) | 297 | **2.2** | one (node vector) + pre-scan |
-| [`ast-pratt`](src/pratt.cpp) | 412 | 3.0 | **one per node** |
-| [`ast-recursive-descent`](src/recursive_descent.cpp) | 414 | 3.0 | **one per node** |
-| [`ast-shunting-yard`](src/shunting_yard.cpp) | 423 | 3.1 | **one per node** |
-| [`multipass`](src/multipass.cpp) | 754 | 5.5 | one per node + pre-scan |
+| [`direct-recursive-descent`](src/direct_recursive_descent.cpp) | 112 | **1.0** | ~0 (call stack) |
+| [`direct-shunting-yard`](src/direct_shunting_yard.cpp) | 125 | 1.1 | member vectors, reused |
+| [`ast-arena`](src/arena_ast.cpp) | 154 | 1.4 | **one** (node vector) |
+| [`bytecode-vm`](src/bytecode.cpp) | 172 | 1.5 | member vectors, reused |
+| [`direct-mp`](src/multipass_lean.cpp) | 196 | **1.8** | pre-scan vectors (no AST) |
+| [`multipass-arena`](src/multipass_arena.cpp) | 252 | **2.3** | one (node vector) + pre-scan |
+| [`multipass-bfs`](src/multipass_opt.cpp) | 260 | **2.3** | one + sparse table + pre-index |
+| [`ast-recursive-descent`](src/recursive_descent.cpp) | 337 | 3.0 | **one per node** |
+| [`ast-pratt`](src/pratt.cpp) | 361 | 3.2 | **one per node** |
+| [`ast-shunting-yard`](src/shunting_yard.cpp) | 384 | 3.4 | **one per node** |
+| [`multipass`](src/multipass.cpp) | 580 | 5.2 | one per node + pre-scan |
 
 #### ⚖️ Tier 1: leveling the playing field
 
-The original `shunting_yard`, `direct_shunting_yard`, `rpn`, and `bytecode` allocated
+The original `shunting_yard`, `direct_shunting_yard`, and `bytecode` allocated
 every working vector fresh each call. The recursive-descent family kept `tokens_` as a
 member, reusing capacity automatically. Promoting all working vectors to class members
 and `.clear()`-ing at entry eliminated this incidental handicap — after the first call,
@@ -154,8 +154,8 @@ all tier 1 strategies are allocation-free. The residual gaps are algorithmic:
 |---|--:|---|
 | `direct-rd` | 1.0 | single left-to-right pass, call stack only |
 | `direct-sy` | 1.1 | two explicit stacks (operand + operator) |
-| `rpn` / `bytecode` | 1.2 | two passes: build intermediate form, then evaluate |
-| `ast-arena` | 1.3 | one allocation (node vector), then tree-walk |
+| `ast-arena` | 1.4 | one allocation (node vector), then tree-walk |
+| `bytecode` | 1.5 | two passes: compile to flat form, then VM dispatch |
 
 #### 🔬 `multipass` → `multipass-arena` → `multipass-bfs`
 
@@ -167,8 +167,8 @@ D&C parsers build a [Cartesian tree](https://en.wikipedia.org/wiki/Cartesian_tre
 | + pre-scan + flat-chain fold | 879 | ×14 | O(n²) → O(n log n) |
 | + arena AST | 568 | ×8.7 | per-node allocation gone |
 | + O(1) paren matching | ~555 | ~×8.5 | precomputed `parenMatch[]` |
-| + **iterator passing** (`multipass-arena`) | **~297** | **~×2.2** | 7× fewer binary searches |
-| + **[sparse-table RMQ](https://en.wikipedia.org/wiki/Range_minimum_query) + paren pre-index** (`multipass-bfs`) | **~296** | **~×2.2** | O(1) findSplit + O(1) paren strips |
+| + **iterator passing** (`multipass-arena`) | **~252** | **~×2.3** | 7× fewer binary searches |
+| + **[sparse-table RMQ](https://en.wikipedia.org/wiki/Range_minimum_query) + paren pre-index** (`multipass-bfs`) | **~260** | **~×2.3** | O(1) findSplit + O(1) paren strips |
 
 Iterator passing was the decisive step. `multipass-bfs` eliminates the last binary search
 (paren-depth transitions) via a sparse table, but the table's larger cache footprint can
@@ -181,10 +181,10 @@ Returning `double` directly from the recursion eliminates the AST build + eval-w
 
 | Version | ns/leaf | ×rd | what changed |
 |---|--:|--:|---|
-| `multipass-bfs` | ~296 | ×2.2 | baseline — O(1) split, arena AST, eval walk |
-| `direct-mp` | ~251 | **×1.8** | drop AST, linear RTL scan, return `double` |
+| `multipass-bfs` | ~260 | ×2.3 | baseline — O(1) split, arena AST, eval walk |
+| `direct-mp` | ~196 | **×1.8** | drop AST, linear RTL scan, return `double` |
 
-Direct evaluation cuts ~15% from `multipass-bfs` by eliminating the O(n) node-construction
+Direct evaluation cuts ~25% from `multipass-bfs` by eliminating the O(n) node-construction
 and eval-walk passes, while keeping the same O(n log n) D&C structure.
 
 ### Re-eval — compile once, evaluate many
@@ -193,18 +193,18 @@ Variables `a`–`d`, 1000-leaf expressions:
 
 | Strategy | compile ns/expr | per-eval ns/expr | per-eval × |
 |---|--:|--:|--:|
-| `bytecode` | ~125k | **35k** | 1.0 |
-| `rpn` | ~135k | 36k | 1.0 |
-| `ast-arena` | **~138k** | 55k | 1.6 |
-| `multipass-arena` | ~244k | 51k | 1.5 |
-| `ast-ptr` | ~417k | 60k | 1.7 |
-| `reparse-rd` | ~0 | **391k** | 11.1 |
+| `rpn` | ~90k | **25k** | 1.0 |
+| `ast-arena` | **~76k** | 28k | 1.1 |
+| `bytecode` | ~120k | 31k | 1.2 |
+| `multipass-arena` | ~215k | 40k | 1.6 |
+| `ast-ptr` | ~270k | 50k | 2.0 |
+| `reparse-rd` | ~0 | **380k** | 15.2 |
 
-Flat forms win per-eval: cache-friendly linear walk, zero per-call allocation.
-`multipass-arena` compiles at ~×1.8 the cost of `ast-arena` but evaluates at the same
-speed — the D&C build is more expensive, but the resulting tree is identical to walk.
-Its unique advantage: the only compiled form that supports incremental re-parsing and
-fork-join parallel evaluation.
+Flat forms (`rpn`, `bytecode`) win per-eval: cache-friendly linear walk, zero per-call allocation.
+`ast-arena` has the lowest compile cost — one recursive-descent pass — and nearly matches
+flat forms on per-eval. `multipass-arena` compiles at ~×2.8 the cost of `ast-arena` and
+evaluates ~×1.4 slower per call; its unique advantage is being the only compiled form that
+supports incremental re-parsing and fork-join parallel evaluation.
 
 ### 🏁 The verdict
 
@@ -227,17 +227,18 @@ Multipass finds the split *first*, making both halves fully independent [fork-jo
 | **Range-based sub-evaluation** | Evaluate any `[lo, hi)` token sub-range directly. |
 | **[BFS](https://en.wikipedia.org/wiki/Breadth-first_search) / level-by-level** | All nodes at depth d are independent — natural for [SIMD](https://en.wikipedia.org/wiki/Single_instruction,_multiple_data) or GPU batch parsing. |
 
-**Measured batch scaling (400 × 1000-leaf expressions, i7-10610U, 4 physical cores):**
+**Measured batch scaling (400 × 1000-leaf expressions, i7-10610U, 4 physical / 8 logical cores):**
 
-| Strategy | 1T ns/expr | 2T ns/expr | 4T ns/expr | 2T ×speedup | 4T ×speedup |
-|---|--:|--:|--:|--:|--:|
-| `ast-arena` | 117k | 61k | 46k | ×1.9 | ×2.5 |
-| `multipass-arena` | 466k | 222k | 140k | ×2.1 | **×3.3** |
+| Strategy | 1T ns/expr | 2T ns/expr | 4T ns/expr | 8T ns/expr | 2T × | 4T × | 8T × |
+|---|--:|--:|--:|--:|--:|--:|--:|
+| `ast-arena` | 102k | 56k | 37k | 36k | ×1.8 | ×2.7 | ×2.8 |
+| `multipass-arena` | 247k | 129k | 72k | 80k | ×1.9 | **×3.4** | ×3.1 |
 
-`multipass-arena` scales better per core (83% efficiency vs 63% for `ast-arena`), but
-starts from a ×4× higher single-thread baseline. On this 4-core machine **batch
-throughput still favours `ast-arena` at every thread count**. The break-even core count
-was not reached in this measurement.
+`multipass-arena` scales better per physical core (85% efficiency at 4T vs 68% for
+`ast-arena`). At 8T (hyperthreads), its O(n log n) scan causes cache pressure and
+it regresses from ×3.4 to ×3.1, while `ast-arena` holds at ×2.8. **Batch throughput
+favours `ast-arena` at every thread count** — the multipass structural advantage
+appears only for single-expression fork-join or incremental re-parsing.
 
 The structural advantage is elsewhere: `multipass-arena` is the only strategy that can
 parallelize a **single large expression** (fork at the root split, join the results) and
@@ -250,9 +251,10 @@ sub-tree). Neither capability is reflected in the batch benchmark above.
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 
-ctest --test-dir build --output-on-failure   # 278 checks
+ctest --test-dir build --output-on-failure   # 267 checks
 ./build/bench                                 # one-shot (11 strategies)
 ./build/reeval                                # compile-once / eval-many
+./build/parallel_bench                        # batch scaling 1–8 threads
 ```
 
 Requires GCC 14 + CMake ≥ 3.20. Falls back to C++23 on older compilers (CMake sets the standard automatically). No external dependencies.

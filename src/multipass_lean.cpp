@@ -65,6 +65,7 @@ protected:
     std::vector<uint32_t>            parenMatch_;
     std::vector<uint32_t>            pcStart_;  // parenCandStart
     std::vector<uint32_t>            pcEnd_;    // parenCandEnd
+    const double*                    vars_ = nullptr;
 
     // ── buildAll: full token scan ────────────────────────────────────────────
     void buildAll_full() {
@@ -120,7 +121,7 @@ protected:
         if (hi - lo != 1) throw std::runtime_error("syntax error at " + std::to_string(tokens_[lo].pos));
         const Token& t = tokens_[lo];
         if (t.type == TokenType::Number) return t.value;
-        if (t.type == TokenType::Ident)  return 0.0;
+        if (t.type == TokenType::Ident)  return vars_ ? vars_[static_cast<int>(t.value)] : 0.0;
         throw std::runtime_error("syntax error at " + std::to_string(t.pos));
     }
 
@@ -141,8 +142,9 @@ protected:
 class DirectMp final : public LeanBase, public IEvaluator {
 public:
     const char* name() const override { return "direct-mp"; }
-    double eval(std::string_view src) override {
+    double eval(std::string_view src, const double* vars = nullptr) override {
         tokens_ = tokenize(src);
+        vars_ = vars;
         buildAll_full();
         const uint32_t n = (uint32_t)(tokens_.size() - 1);
         int clo = 0, chi = cands_.empty() ? 0 : (int)cands_[0].size();

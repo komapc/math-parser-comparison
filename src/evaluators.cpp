@@ -11,22 +11,19 @@ namespace {
 class ArenaEvaluator final : public IEvaluator {
 public:
     const char* name() const override { return "ast-arena"; }
-    double eval(std::string_view src) override {
-        return ArenaAst::parse(src).eval(nullptr);
+    double eval(std::string_view src, const double* vars = nullptr) override {
+        return ArenaAst::parse(src).eval(vars);
     }
 };
 
-// Adapts an AST-building IParser into the one-shot IEvaluator interface:
-// parse to an AST, then walk it. Carries an explicit label so the comparison
-// table distinguishes the AST variants from the direct ones.
 class AstEvaluator final : public IEvaluator {
 public:
     AstEvaluator(const char* label, std::unique_ptr<IParser> parser)
         : label_(label), parser_(std::move(parser)) {}
 
     const char* name() const override { return label_; }
-    double eval(std::string_view src) override {
-        return parser_->parse(src)->eval(nullptr);  // one-shot: constant expr
+    double eval(std::string_view src, const double* vars = nullptr) override {
+        return parser_->parse(src)->eval(vars);
     }
 
 private:

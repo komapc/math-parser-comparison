@@ -10,13 +10,12 @@ namespace mp {
 
 // Uniform one-shot interface: source text -> numeric value, in a single call.
 // Every strategy implements this, so they can be compared apples-to-apples.
-// (AST builders parse then walk the tree; direct evaluators compute inline;
-// RPN/bytecode compile to a flat form then run it -- all within eval().)
+// vars: variable environment indexed a=0..z=25; nullptr for constant expressions.
 class IEvaluator {
 public:
     virtual ~IEvaluator() = default;
     virtual const char* name() const = 0;
-    virtual double eval(std::string_view src) = 0;
+    virtual double eval(std::string_view src, const double* vars = nullptr) = 0;
 };
 
 // AST-building strategies, wrapped as one-shot evaluators (parse + tree-walk).
@@ -48,6 +47,13 @@ std::unique_ptr<IEvaluator> make_direct_shunting_yard();
 
 // Compile-to-flat-form strategy (one allocation, cache-friendly run).
 std::unique_ptr<IEvaluator> make_bytecode();
+
+// Parallel multipass: middle-split + fork-join at 1/2/4/8 threads.
+// NOT in all_evaluators() — use single_par_bench for scaling measurements.
+std::unique_ptr<IEvaluator> make_multipass_par1();
+std::unique_ptr<IEvaluator> make_multipass_par2();
+std::unique_ptr<IEvaluator> make_multipass_par4();
+std::unique_ptr<IEvaluator> make_multipass_par8();
 
 // All evaluators in display order (AST -> direct -> compiled).
 std::vector<std::unique_ptr<IEvaluator>> all_evaluators();

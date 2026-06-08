@@ -71,6 +71,7 @@ protected:
     std::vector<Token>                  tokens_;
     std::vector<ArenaAst::Node>         nodes_;
     std::vector<std::vector<Candidate>> candsByDepth_;
+    const double*                       vars_ = nullptr;
     std::vector<std::size_t>            parenMatch_;
     // parenCandStart_[i] / parenCandEnd_[i]:  for '(' at position i,
     // the half-open index range [start, end) into candsByDepth_[depth+1]
@@ -189,7 +190,7 @@ protected:
         const auto& nd = nodes_[(std::size_t)i];
         switch (nd.kind) {
             case ArenaAst::K::Num: return nd.value;
-            case ArenaAst::K::Var: return 0.0;
+            case ArenaAst::K::Var: return vars_ ? vars_[nd.var] : 0.0;
             case ArenaAst::K::Pos: return +evalNode(nd.a);
             case ArenaAst::K::Neg: return -evalNode(nd.a);
             case ArenaAst::K::Add: return evalNode(nd.a)+evalNode(nd.b);
@@ -211,8 +212,9 @@ protected:
 class MultipassBfs final : public MultipassBase, public IEvaluator {
 public:
     const char* name() const override { return "multipass-bfs"; }
-    double eval(std::string_view src) override {
+    double eval(std::string_view src, const double* vars = nullptr) override {
         tokens_ = tokenize(src);
+        vars_ = vars;
         nodes_.clear(); nodes_.reserve(tokens_.size());
         buildAll();
         return evalNode(buildBfs(0, tokens_.size()-1, 0));
