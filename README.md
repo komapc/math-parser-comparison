@@ -23,7 +23,7 @@ The recurring punchline: **performance tracks memory allocation, not algorithmic
 
 ## 💡 TL;DR — the divide-and-conquer idea
 
-Most parsers read left-to-right and evaluate as they go. The divide-and-conquer approach
+Most parsers read left-to-right and evaluate as they go. The [divide-and-conquer](https://en.wikipedia.org/wiki/Divide-and-conquer_algorithm) approach
 does the opposite: **scan the whole expression to find the lowest-precedence operator**
 (`+`/`-` first, since they bind loosest) — that's the root of the expression tree —
 split there, then recurse on each half (which itself splits at its lowest-precedence
@@ -39,7 +39,7 @@ operator, and so on down to `^` and atoms).
              "3" "*" "4"
 ```
 
-This produces a correct Cartesian tree and is naturally parallelizable — each split is
+This produces a correct [Cartesian tree](https://en.wikipedia.org/wiki/Cartesian_tree) and is naturally parallelizable — each split is
 independent. The catch: it's **O(n log n)** total work vs O(n) for a left-to-right parser,
 so on a single thread **left-to-right wins by ~2×**. Divide-and-conquer pays off for
 parallel evaluation, incremental re-parsing, or expressions too large to fit on the call stack.
@@ -84,34 +84,34 @@ So `-2^2 == -4`, `2^3^2 == 512`, `2^-3 == 0.125`.
 
 ## 🧩 The strategies
 
-### Build an AST, then walk it
+### Build an [AST](https://en.wikipedia.org/wiki/Abstract_syntax_tree), then walk it
 
 | Strategy | Source | In one sentence |
 |---|---|---|
-| `ast-recursive-descent` | [`recursive_descent.cpp`](src/recursive_descent.cpp) | A function per grammar rule calls down the precedence ladder, building a pointer AST as the recursion returns. |
-| `ast-shunting-yard` | [`shunting_yard.cpp`](src/shunting_yard.cpp) | Scan left-to-right, popping higher-precedence operators off a stack to fold operands into pointer AST nodes. |
-| `ast-pratt` | [`pratt.cpp`](src/pratt.cpp) | Parsing driven by each operator's binding power, looping while the next operator binds tighter than the caller's minimum. |
-| `ast-arena` | [`arena_ast.cpp`](src/arena_ast.cpp) | Recursive descent, but every node is appended to one contiguous vector; children referenced by index, not pointer. |
-| `multipass` | [`multipass.cpp`](src/multipass.cpp) | Recursively find the lowest-precedence operator, make it the root, recurse on both halves (pointer AST). |
+| `ast-recursive-descent` | [`recursive_descent.cpp`](src/recursive_descent.cpp) | [Recursive descent](https://en.wikipedia.org/wiki/Recursive_descent_parser): a function per grammar rule calls down the precedence ladder, building a pointer AST as the recursion returns. |
+| `ast-shunting-yard` | [`shunting_yard.cpp`](src/shunting_yard.cpp) | [Shunting-yard](https://en.wikipedia.org/wiki/Shunting_yard_algorithm): scan left-to-right, popping higher-precedence operators off a stack to fold operands into pointer AST nodes. |
+| `ast-pratt` | [`pratt.cpp`](src/pratt.cpp) | [Pratt / precedence climbing](https://en.wikipedia.org/wiki/Operator-precedence_parser): parsing driven by each operator's binding power, looping while the next operator binds tighter than the caller's minimum. |
+| `ast-arena` | [`arena_ast.cpp`](src/arena_ast.cpp) | Recursive descent, but every node is appended to one contiguous [arena](https://en.wikipedia.org/wiki/Region-based_memory_management) vector; children referenced by index, not pointer. |
+| `multipass` | [`multipass.cpp`](src/multipass.cpp) | Recursively find the lowest-precedence operator, make it the root of a [Cartesian tree](https://en.wikipedia.org/wiki/Cartesian_tree), recurse on both halves (pointer AST). |
 | `multipass-arena` | [`multipass_arena.cpp`](src/multipass_arena.cpp) | Same D&C, but arena AST + O(1) paren matching + iterator passing to eliminate redundant binary searches. |
-| `multipass-bfs` | [`multipass_opt.cpp`](src/multipass_opt.cpp) | Arena D&C + sparse-table RMQ for O(1) split-finding + pre-indexed paren ranges. Theoretical ceiling of this family. |
+| `multipass-bfs` | [`multipass_opt.cpp`](src/multipass_opt.cpp) | Arena D&C + [sparse-table RMQ](https://en.wikipedia.org/wiki/Range_minimum_query) for O(1) split-finding + pre-indexed paren ranges. Theoretical ceiling of this family. |
 
 ### Evaluate inline (no intermediate form)
 
 | Strategy | Source | In one sentence |
 |---|---|---|
-| `direct-recursive-descent` | [`direct_recursive_descent.cpp`](src/direct_recursive_descent.cpp) | Recursive descent whose rules return `double` directly — no AST built. |
-| `direct-shunting-yard` | [`direct_shunting_yard.cpp`](src/direct_shunting_yard.cpp) | Shunting-yard with a value stack instead of an AST node stack — evaluates during the scan. |
+| `direct-recursive-descent` | [`direct_recursive_descent.cpp`](src/direct_recursive_descent.cpp) | [Recursive descent](https://en.wikipedia.org/wiki/Recursive_descent_parser) whose rules return `double` directly — no AST built. |
+| `direct-shunting-yard` | [`direct_shunting_yard.cpp`](src/direct_shunting_yard.cpp) | [Shunting-yard](https://en.wikipedia.org/wiki/Shunting_yard_algorithm) with a value stack instead of an AST node stack — evaluates during the scan. |
 | `direct-mp` | [`multipass_lean.cpp`](src/multipass_lean.cpp) | D&C split-find + inline eval: O(n) pre-scan builds candidate lists, recursion returns `double` directly — no AST. |
-| `direct-mp-simd` | [`multipass_lean.cpp`](src/multipass_lean.cpp) | `direct-mp` with AVX2 `_mm256_min_epi8` replacing the linear RTL scan for split-finding. |
-| `direct-mp-full` | [`multipass_lean.cpp`](src/multipass_lean.cpp) | SIMD split-finding + operator-only `buildAll` that skips `Number`/`Ident` tokens. |
+| `direct-mp-simd` | [`multipass_lean.cpp`](src/multipass_lean.cpp) | `direct-mp` with [AVX2](https://en.wikipedia.org/wiki/Advanced_Vector_Extensions) `_mm256_min_epi8` replacing the linear RTL scan for split-finding. |
+| `direct-mp-full` | [`multipass_lean.cpp`](src/multipass_lean.cpp) | [SIMD](https://en.wikipedia.org/wiki/Single_instruction,_multiple_data) split-finding + operator-only `buildAll` that skips `Number`/`Ident` tokens. |
 
 ### Compile to a flat form, then run
 
 | Strategy | Source | In one sentence |
 |---|---|---|
-| `rpn-stack` | [`rpn.cpp`](src/rpn.cpp) | Shunting-yard emits a flat postfix token sequence; a value stack executes it. |
-| `bytecode-vm` | [`bytecode.cpp`](src/bytecode.cpp) | Shunting-yard compiles to a `uint8_t` opcode stream + constant pool; a switch-dispatch VM runs it. |
+| `rpn-stack` | [`rpn.cpp`](src/rpn.cpp) | Shunting-yard emits a flat [RPN](https://en.wikipedia.org/wiki/Reverse_Polish_notation) token sequence; a value stack executes it. |
+| `bytecode-vm` | [`bytecode.cpp`](src/bytecode.cpp) | Shunting-yard compiles to a [bytecode](https://en.wikipedia.org/wiki/Bytecode) `uint8_t` opcode stream + constant pool; a switch-dispatch VM runs it. |
 
 ### Compile once, evaluate many
 
@@ -124,11 +124,11 @@ Shared infrastructure: [`lexer.cpp`](src/lexer.cpp) and [`ast.cpp`](src/ast.cpp)
 
 | Group | Representation | `2 + 3 * 4` |
 |---|---|---|
-| `ast-rd/sy/pratt`, `multipass` | Pointer AST — `unique_ptr<Expr>` nodes | `Add(Num2, Mul(Num3, Num4))` |
-| `ast-arena`, `multipass-arena` | Arena AST — flat vector, index children | `[2, 3, 4, Mul(1,2), Add(0,3)]` |
+| `ast-rd/sy/pratt`, `multipass` | [Pointer AST](https://en.wikipedia.org/wiki/Abstract_syntax_tree) — `unique_ptr<Expr>` nodes | `Add(Num2, Mul(Num3, Num4))` |
+| `ast-arena`, `multipass-arena` | [Arena](https://en.wikipedia.org/wiki/Region-based_memory_management) AST — flat vector, index children | `[2, 3, 4, Mul(1,2), Add(0,3)]` |
 | `direct-*` (all five) | None — value computed on the fly | *(yields `14`)* |
-| `rpn-stack` | Flat postfix | `2 3 4 * +` |
-| `bytecode-vm` | Opcodes + const pool | `PUSH PUSH PUSH MUL ADD` |
+| `rpn-stack` | Flat [postfix (RPN)](https://en.wikipedia.org/wiki/Reverse_Polish_notation) | `2 3 4 * +` |
+| `bytecode-vm` | [Bytecode](https://en.wikipedia.org/wiki/Bytecode) opcodes + const pool | `PUSH PUSH PUSH MUL ADD` |
 
 The four pointer-AST strategies produce bit-identical trees and land within 3% of each other — they differ only in *how* they find the tree. The arena layout change alone gives ~2× speedup over pointer nodes.
 
@@ -176,7 +176,7 @@ all tier 1 strategies are allocation-free. The residual gaps are algorithmic:
 
 #### 🔬 `multipass` → `multipass-arena` → `multipass-bfs`
 
-D&C parsers build a Cartesian tree top-down — inherently O(n log n). The journey:
+D&C parsers build a [Cartesian tree](https://en.wikipedia.org/wiki/Cartesian_tree) top-down — inherently O(n log n). The journey:
 
 | Version | ns/leaf | ×rd | what changed |
 |---|--:|--:|---|
@@ -185,7 +185,7 @@ D&C parsers build a Cartesian tree top-down — inherently O(n log n). The journ
 | + arena AST | 568 | ×8.7 | per-node allocation gone |
 | + O(1) paren matching | ~555 | ~×8.5 | precomputed `parenMatch[]` |
 | + **iterator passing** (`multipass-arena`) | **~343** | **~×2.1** | 7× fewer binary searches |
-| + **sparse-table RMQ + paren pre-index** (`multipass-bfs`) | **~330** | **~×2.0** | O(1) findSplit + O(1) paren strips |
+| + **[sparse-table RMQ](https://en.wikipedia.org/wiki/Range_minimum_query) + paren pre-index** (`multipass-bfs`) | **~330** | **~×2.0** | O(1) findSplit + O(1) paren strips |
 
 Iterator passing was the decisive step. `multipass-bfs` eliminates the last binary search
 (paren-depth transitions) via a sparse table, but the table's larger cache footprint can
@@ -233,14 +233,14 @@ Re-parsing beats compiling only if you evaluate fewer than ~2 times.
 
 Every strategy except multipass is a left-to-right stream — sub-expressions can't be
 parsed concurrently because the split point is unknown until the full scan completes.
-Multipass finds the split *first*, making both halves fully independent fork-join tasks.
+Multipass finds the split *first*, making both halves fully independent [fork-join](https://en.wikipedia.org/wiki/Fork%E2%80%93join_model) tasks.
 
 | Property | Why only multipass |
 |---|---|
-| **Fork-join parallelism** | Every split is an independent fork; O(log n) parallel depth with per-thread arena regions. |
+| **[Fork-join](https://en.wikipedia.org/wiki/Fork%E2%80%93join_model) parallelism** | Every split is an independent fork; O(log n) parallel depth with per-thread arena regions. |
 | **Incremental re-parsing** | Only the sub-tree containing the changed token needs re-parsing. |
 | **Range-based sub-evaluation** | Evaluate any `[lo, hi)` token sub-range directly. |
-| **BFS / level-by-level** | All nodes at depth d are independent — natural for SIMD or GPU batch parsing. |
+| **[BFS](https://en.wikipedia.org/wiki/Breadth-first_search) / level-by-level** | All nodes at depth d are independent — natural for [SIMD](https://en.wikipedia.org/wiki/Single_instruction,_multiple_data) or GPU batch parsing. |
 
 ## 🛠️ Build & run
 
