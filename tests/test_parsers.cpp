@@ -5,7 +5,7 @@
 
 #include <array>
 #include <cmath>
-#include <cstdio>
+#include <print>
 #include <exception>
 #include <string_view>
 #include <vector>
@@ -29,14 +29,13 @@ void checkValue(IEvaluator& ev, const Case& c) {
     try {
         const double got = ev.eval(c.expr);
         if (!nearly(got, c.expected)) {
-            std::printf("FAIL [%-26s] \"%.*s\" = %g, expected %g\n",
-                        ev.name(), static_cast<int>(c.expr.size()), c.expr.data(),
-                        got, c.expected);
+            std::println("FAIL [{:<26}] \"{}\" = {:g}, expected {:g}",
+                        ev.name(), c.expr, got, c.expected);
             ++g_failures;
         }
     } catch (const std::exception& e) {
-        std::printf("FAIL [%-26s] \"%.*s\" threw: %s\n",
-                    ev.name(), static_cast<int>(c.expr.size()), c.expr.data(), e.what());
+        std::println("FAIL [{:<26}] \"{}\" threw: {}",
+                    ev.name(), c.expr, e.what());
         ++g_failures;
     }
 }
@@ -45,8 +44,8 @@ void checkError(IEvaluator& ev, const ErrCase& c) {
     ++g_checks;
     try {
         (void)ev.eval(c.expr);
-        std::printf("FAIL [%-26s] \"%.*s\" should have thrown\n",
-                    ev.name(), static_cast<int>(c.expr.size()), c.expr.data());
+        std::println("FAIL [{:<26}] \"{}\" should have thrown",
+                    ev.name(), c.expr);
         ++g_failures;
     } catch (const std::exception&) {
         // expected
@@ -110,20 +109,19 @@ int main() {
             try {
                 const double got = comp->compile(vc.expr)->eval(env.data());
                 if (!nearly(got, vc.expected)) {
-                    std::printf("FAIL [%-26s] \"%.*s\" = %g, expected %g\n",
-                                comp->name(), static_cast<int>(vc.expr.size()),
-                                vc.expr.data(), got, vc.expected);
+                    std::println("FAIL [{:<26}] \"{}\" = {:g}, expected {:g}",
+                                comp->name(), vc.expr, got, vc.expected);
                     ++g_failures;
                 }
             } catch (const std::exception& e) {
-                std::printf("FAIL [%-26s] \"%.*s\" threw: %s\n", comp->name(),
-                            static_cast<int>(vc.expr.size()), vc.expr.data(), e.what());
+                std::println("FAIL [{:<26}] \"{}\" threw: {}",
+                            comp->name(), vc.expr, e.what());
                 ++g_failures;
             }
         }
     }
 
-    std::printf("\n%d checks across %zu evaluators + %zu compilers, %d failure(s)\n",
+    std::println("\n{} checks across {} evaluators + {} compilers, {} failure(s)",
                 g_checks, evs.size(), compilers.size(), g_failures);
     return g_failures == 0 ? 0 : 1;
 }

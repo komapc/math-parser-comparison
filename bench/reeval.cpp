@@ -13,7 +13,8 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
-#include <cstdio>
+#include <format>
+#include <print>
 #include <functional>
 #include <limits>
 #include <random>
@@ -130,7 +131,7 @@ void correctnessPass(const std::vector<std::vector<std::string>>& corpora,
             }
         }
     }
-    std::printf("Correctness: %zu/%zu (expr,env) results agree across all compilers%s\n\n",
+    std::println("Correctness: {}/{} (expr,env) results agree across all compilers{}\n",
                 total - mism, total, mism ? "  <-- FAILURES" : "");
 }
 
@@ -148,14 +149,14 @@ int main() {
                                      0xA11CEu + static_cast<std::uint32_t>(i)));
     }
 
-    std::printf("== re-evaluation comparison (compile once, evaluate many) ==\n\n");
+    std::println("== re-evaluation comparison (compile once, evaluate many) ==\n");
     correctnessPass(corpora, envs);
 
-    std::printf("Variables a-d, values in [0.5, 2.0]\n");
-    std::printf("%-12s %8s %8s %16s %16s %12s\n",
+    std::println("Variables a-d, values in [0.5, 2.0]");
+    std::println("{:<12} {:>8} {:>8} {:>16} {:>16} {:>12}",
                 "strategy", "leaves", "exprs", "compile ns/expr", "per-eval ns/expr",
                 "break-even");
-    std::printf("%s\n", std::string(78, '-').c_str());
+    std::println("{}", std::string(78, '-'));
 
     auto compilers = all_compilers();
 
@@ -200,16 +201,15 @@ int main() {
         for (const auto& r : rows) {
             // break-even N: evals after which compiling beats reparsing.
             // (compile + N*eval) < N*reparseEval  =>  N > compile / (reparseEval - eval)
-            char be[24];
             const double denom = reparseEval - r.evalNs;
-            if (r.name == "reparse-rd")      std::snprintf(be, sizeof be, "%s", "(baseline)");
-            else if (denom <= 0)             std::snprintf(be, sizeof be, "%s", "n/a");
-            else                             std::snprintf(be, sizeof be, "%.1f", r.compileNs / denom);
+            const std::string be = (r.name == "reparse-rd") ? "(baseline)"
+                                 : (denom <= 0)             ? "n/a"
+                                 : std::format("{:.1f}", r.compileNs / denom);
 
-            std::printf("%-12s %8d %8.0f %16.1f %16.2f %12s\n",
-                        r.name.c_str(), sizes[si], count, r.compileNs, r.evalNs, be);
+            std::println("{:<12} {:>8} {:>8.0f} {:>16.1f} {:>16.2f} {:>12}",
+                        r.name, sizes[si], count, r.compileNs, r.evalNs, be);
         }
-        std::printf("\n");
+        std::println("");
     }
 
     return (g_sink == 0x1234567u) ? 1 : 0;

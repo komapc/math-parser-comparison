@@ -9,9 +9,9 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
-#include <cstdio>
 #include <functional>
 #include <limits>
+#include <print>
 #include <random>
 #include <string>
 #include <vector>
@@ -112,8 +112,8 @@ void correctnessPass(const std::vector<std::vector<std::string>>& corpora) {
                 if (!sameResult(ref, evs[i]->eval(expr))) {
                     ++mismatches;
                     if (mismatches <= 5) {
-                        std::printf("  MISMATCH on \"%s\": %s=%g vs %s=%g\n",
-                                    expr.c_str(), evs.front()->name(), ref,
+                        std::println("  MISMATCH on \"{}\": {}={:g} vs {}={:g}",
+                                    expr, evs.front()->name(), ref,
                                     evs[i]->name(), evs[i]->eval(expr));
                     }
                     break;
@@ -121,7 +121,7 @@ void correctnessPass(const std::vector<std::vector<std::string>>& corpora) {
             }
         }
     }
-    std::printf("Correctness: %zu/%zu expressions agree across all strategies%s\n\n",
+    std::println("Correctness: {}/{} expressions agree across all strategies{}\n",
                 total - mismatches, total, mismatches ? "  <-- FAILURES" : "");
 }
 
@@ -131,10 +131,10 @@ void timingTable(const std::vector<int>& sizes,
                  int reps) {
     auto evs = all_evaluators();
 
-    std::printf("One-shot: source text -> value (single evaluation)\n");
-    std::printf("%-26s %8s %8s %16s %16s\n",
+    std::println("One-shot: source text -> value (single evaluation)");
+    std::println("{:<26} {:>8} {:>8} {:>16} {:>16}",
                 "strategy", "leaves", "exprs", "ns/expr", "ns/leaf");
-    std::printf("%s\n", std::string(78, '-').c_str());
+    std::println("{}", std::string(78, '-'));
 
     for (std::size_t si = 0; si < sizes.size(); ++si) {
         const int leaves = sizes[si];
@@ -147,10 +147,10 @@ void timingTable(const std::vector<int>& sizes,
                 for (const auto& e : corpus) acc += ev->eval(e);
                 g_sink += static_cast<std::uint64_t>(acc);
             });
-            std::printf("%-26s %8d %8.0f %16.1f %16.2f\n",
+            std::println("{:<26} {:>8} {:>8.0f} {:>16.1f} {:>16.2f}",
                         ev->name(), leaves, count, ns / count, ns / count / leaves);
         }
-        std::printf("\n");
+        std::println("");
     }
 }
 
@@ -169,7 +169,7 @@ int main() {
                                      0xC0FFEEu + static_cast<std::uint32_t>(i)));
     }
 
-    std::printf("== math-expression evaluator comparison ==\n\n");
+    std::println("== math-expression evaluator comparison ==\n");
     correctnessPass(corpora);
     timingTable(sizes, corpora, reps);
 
