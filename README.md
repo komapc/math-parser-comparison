@@ -41,7 +41,7 @@ ast-recursive-descent     █████████                          3
 multipass                 █████████████                      474 ns   ×5.2   ← O(n log n) + N allocs
 ```
 
-- **Tier 1 (×1.0–1.3):** O(n), ≤1 allocation. `ast-arena` is the **fastest AST builder** — recursive-descent + one arena vector beats every other AST approach.
+- **Tier 1 (×1.0–1.3):** O(n), ≤1 allocation. `direct-rd` is fastest; `bytecode-vm` and the other direct forms sit within ~30% and trade places run-to-run. `ast-arena` is the **fastest AST builder** — recursive-descent + one arena vector beats every other AST approach.
 - **Tier 1.5 (×1.4):** D&C without an AST — O(n log n) pre-scan, result returned inline.
 - **Tier 2 (×1.7–2.0):** D&C *with* an arena AST. Not the fastest way to build a tree, but the only way to build one whose sub-ranges are split-independent.
 - **Tier 3 (×2.7–3.5):** One `make_unique` per node. Algorithm barely matters — allocator dominates.
@@ -107,7 +107,7 @@ Flat forms (`rpn`, `bytecode`) win per-eval. `ast-arena` compiles fastest — on
 
 ### 🏁 Verdict
 
-> - **Once, fastest?** `direct-rd` / `bytecode-vm` — tied.
+> - **Once, fastest?** `direct-rd` — with `bytecode-vm` and the other direct forms within ~30% (ordering inside this group flips run-to-run).
 > - **Many times?** `rpn` / `bytecode` — allocation-free eval loop.
 > - **Need a tree?** `ast-arena` — one allocation, never per-node `unique_ptr`.
 > - **Parallel or incremental re-parse?** `multipass-arena` — the only strategy where sub-ranges are independent.
@@ -137,7 +137,7 @@ Fork-join delivers ~×1.2 over sequential multipass. Beating `ast-arena` require
 ## 🛠️ Build & run
 
 ```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-14
 cmake --build build -j
 
 ctest --test-dir build --output-on-failure   # 267 checks

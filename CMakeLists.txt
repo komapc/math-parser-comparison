@@ -13,8 +13,10 @@ if((CMAKE_CXX_COMPILER_ID STREQUAL "GNU"   AND CMAKE_CXX_COMPILER_VERSION VERSIO
    (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "17"))
   add_compile_options(-std=c++26)
 else()
-  set(CMAKE_CXX_STANDARD 23)
-  set(CMAKE_CXX_STANDARD_REQUIRED ON)
+  message(FATAL_ERROR
+    "This project uses <print> and requires GCC >= 14 or Clang >= 17. "
+    "Detected ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}. "
+    "Re-run with e.g. -DCMAKE_CXX_COMPILER=g++-14.")
 endif()
 
 add_compile_options(-Wall -Wextra -Wpedantic)
