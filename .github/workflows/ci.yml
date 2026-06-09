@@ -28,7 +28,7 @@ jobs:
 
       - name: Configure
         run: |
-          cmake -B build \
+          cmake -S cpp -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_CXX_COMPILER=${{ matrix.cpp }}
 
@@ -37,3 +37,24 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Correctness
+        run: python3 python/test_parsers.py
+
+  haskell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install libgmp
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: '9.6'
+          cabal-version: '3.10'
+      - name: Correctness
+        working-directory: haskell
+        run: cabal test

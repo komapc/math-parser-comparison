@@ -5,4 +5,15 @@ build*/
 compile_commands.json
 .cache/
 a.out
-a.out
+
+# generated benchmark corpora (reproduce with: python3 bench/gen_corpus.py)
+bench/corpus/
+
+# python
+__pycache__/
+*.pyc
+
+# haskell
+haskell/dist-newstyle/
+haskell/.stack-work/
+*.hi

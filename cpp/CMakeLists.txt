@@ -36,6 +36,7 @@ add_library(parsers
   src/multipass.cpp
   src/multipass_arena.cpp
   src/multipass_opt.cpp
+  src/multipass_reverse.cpp
   src/multipass_lean.cpp
   src/multipass_parallel.cpp
   src/arena_ast.cpp
@@ -60,6 +61,12 @@ target_link_libraries(parallel_bench PRIVATE parsers)
 
 add_executable(single_par_bench bench/single_par_bench.cpp)  # single-expr fork-join
 target_link_libraries(single_par_bench PRIVATE parsers)
+
+add_executable(corpus_bench bench/corpus_bench.cpp)  # shared-corpus cross-language bench
+target_link_libraries(corpus_bench PRIVATE parsers)
+
+add_executable(scaling_bench bench/scaling_bench.cpp)  # batch-throughput scaling 1/2/4 threads
+target_link_libraries(scaling_bench PRIVATE parsers)
 
 # Correctness test suite (dependency-free), run via CTest.
 enable_testing()

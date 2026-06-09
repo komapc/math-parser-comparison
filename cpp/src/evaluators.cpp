@@ -60,6 +60,7 @@ std::vector<std::unique_ptr<IEvaluator>> all_evaluators() {
     v.push_back(make_ast_multipass_arena());
     v.push_back(make_direct_mp());
     v.push_back(make_multipass_bfs());
+    v.push_back(make_multipass_reverse());
     v.push_back(make_direct_recursive_descent());
     v.push_back(make_direct_shunting_yard());
     v.push_back(make_bytecode());

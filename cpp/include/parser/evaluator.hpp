@@ -41,6 +41,9 @@ std::unique_ptr<IEvaluator> make_direct_mp();
 // Optimised multipass (sparse-table RMQ + paren pre-index + BFS).
 std::unique_ptr<IEvaluator> make_multipass_bfs();
 
+// Reverse (bottom-up) multipass: reduce innermost/highest-precedence first.
+std::unique_ptr<IEvaluator> make_multipass_reverse();
+
 // Direct evaluators: compute the value while parsing, no intermediate form.
 std::unique_ptr<IEvaluator> make_direct_recursive_descent();
 std::unique_ptr<IEvaluator> make_direct_shunting_yard();
