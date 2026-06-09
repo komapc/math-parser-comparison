@@ -1,0 +1,103 @@
+name: bench
+
+# Runs the three benchmark suites on a neutral GitHub-hosted runner — removes
+# the local-laptop thermal throttling that makes absolute ns unreliable. Results
+# land in the job summary and as a downloadable artifact.
+#
+# Trigger manually from the Actions tab (workflow_dispatch), or automatically on
+# pushes to main that touch an implementation or the corpus generator.
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'cpp/**'
+      - 'python/**'
+      - 'haskell/**'
+      - 'bench/**'
+      - '.github/workflows/bench.yml'
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Runner info
+        run: |
+          {
+            echo '## Runner'
+            echo '```'
+            lscpu | grep -E 'Model name|^CPU\(s\)|MHz' || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Generate shared corpora
+        run: python3 bench/gen_corpus.py
+
+      - name: Install GCC 14 + libgmp
+        run: sudo apt-get update && sudo apt-get install -y g++-14 libgmp-dev
+
+      # ---- C++ ----
+      - name: Build C++
+        run: |
+          cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-14
+          cmake --build build -j"$(nproc)"
+      - name: Run C++ tests
+        run: ctest --test-dir build --output-on-failure
+      - name: C++ benchmark
+        run: |
+          set -o pipefail
+          echo "nproc=$(nproc)" >> "$GITHUB_STEP_SUMMARY"
+          { echo '## C++ (corpus_bench)'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          ./build/corpus_bench | tee bench-cpp.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - name: C++ scaling (1/2/4 workers)
+        run: |
+          set -o pipefail
+          { echo '## C++ scaling'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          ./build/scaling_bench | tee scaling-cpp.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      # ---- Python ----
+      - name: Python benchmark (+ corpus cross-check)
+        run: |
+          set -o pipefail
+          python3 python/test_parsers.py
+          { echo '## Python'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          python3 python/bench.py | tee bench-python.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - name: Python scaling (process vs thread / GIL)
+        run: |
+          set -o pipefail
+          { echo '## Python scaling (process vs thread)'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          python3 python/scaling.py | tee scaling-python.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      # ---- Haskell ----
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: '9.6'
+          cabal-version: '3.10'
+      - name: Haskell benchmark (+ tests)
+        working-directory: haskell
+        run: |
+          set -o pipefail
+          cabal build all
+          cabal test
+          { echo '## Haskell'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          cabal run -v0 bench | tee ../bench-haskell.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          { echo '## Haskell scaling (-threaded)'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          cabal run -v0 scaling | tee ../scaling-haskell.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: |
+            bench-*.txt
+            scaling-*.txt
