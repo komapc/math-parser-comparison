@@ -37,41 +37,45 @@ C++ `double` semantics (`x/0 = inf`, integral `^` keeps a negative base's sign v
 
 ## Benchmark (measured)
 
-ns/leaf on the shared corpora, one run on a throttling i7-10610U — **noisy
-(wall-clock, single run); trust the tiers, not the digits.** The
-[CI bench](../.github/workflows/bench.yml) regenerates these on a neutral
-runner. Reproduce locally with `cabal run bench`.
+ns/leaf on the shared corpora, neutral GitHub runner (4 vCPU) via the
+[CI bench](../.github/workflows/bench.yml) — **noisy (wall-clock); trust the
+tiers, not the digits.** Reproduce locally with `cabal run bench`.
 
 | strategy | n=10 | n=100 | n=1000 | n=10000 |
 |---|--:|--:|--:|--:|
-| ast-recursive-descent | 4133 | 3751 | 5788 | 7906 |
-| ast-shunting-yard | 6161 | 6298 | 7657 | 10823 |
-| ast-pratt | 6088 | 6559 | 6248 | 7852 |
-| ast-arena | 5529 | 5221 | 6327 | 8412 |
-| multipass | 6306 | 6299 | 7023 | 11095 |
-| multipass-arena | 7534 | 6961 | 8595 | 14863 |
-| direct-mp | 7546 | 7352 | 8182 | 10684 |
-| multipass-bfs | 9211 | 8262 | 10165 | 20316 |
-| multipass-reverse | 6897 | 6200 | 6747 | 11164 |
-| direct-recursive-descent | 5559 | 5414 | 5213 | **5151** |
-| direct-shunting-yard | 4695 | 4679 | 4878 | 8448 |
-| **bytecode-vm** | 4866 | 5174 | **4663** | 6831 |
+| **ast-recursive-descent** | **1229** | **1212** | 1408 | 1350 |
+| ast-shunting-yard | 1391 | 1342 | 1527 | 1645 |
+| **ast-pratt** | 1288 | 1252 | **1274** | **1296** |
+| ast-arena | 1445 | 1416 | 1734 | 1840 |
+| multipass | 1601 | 1522 | 1781 | 2374 |
+| multipass-arena | 1759 | 1728 | 2062 | 3481 |
+| direct-mp | 1623 | 1547 | 1834 | 2343 |
+| multipass-bfs | 1949 | 1920 | 2369 | 4718 |
+| multipass-reverse | 1655 | 1599 | 1821 | 2554 |
+| direct-recursive-descent | 1318 | 1291 | 1486 | 1346 |
+| direct-shunting-yard | 1336 | 1328 | 1532 | 2021 |
+| bytecode-vm | 1371 | 1354 | 1542 | 1650 |
 
 Correctness: all corpus expressions agree across all 12 strategies. The spread is
-much tighter than C++ (~2× fastest-to-slowest vs ~5×) — GC and laziness
-overhead dominate. `multipass-reverse` is among the better mp variants here
-(beats `multipass-arena`/`-bfs` at scale); the `multipass-bfs` blow-up at
+much tighter than C++ (~1.7× fastest-to-slowest on the median vs ~4.7×) — GC and
+laziness overhead dominate. `multipass-reverse` is among the better mp variants
+here (beats `multipass-arena`/`-bfs` at scale); the `multipass-bfs` blow-up at
 n=10000 is the sparse-table build cost showing through.
 
 ## What changes versus C++
 
-- **The arena trick disappears** — `ast-arena` ≈ `ast-recursive-descent`. A flat
-  `Array` of boxed, GC'd nodes is no cheaper than the `Expr` tree; the C++ win
-  was about contiguous memory *layout*, which a managed runtime hides.
+- **The arena trick disappears** — `ast-arena` (1734 @ n=1000) is *slower* than
+  the pointer-AST `Expr` builders (`ast-recursive-descent` 1408, `ast-pratt`
+  1274). A flat `Array` of boxed, GC'd nodes is no cheaper than the tree; the C++
+  win was about contiguous memory *layout*, which a managed runtime hides.
+- **"No tree" stops winning, too.** In C++ the `direct-*` forms are fastest; in
+  Haskell a pointer-AST builder is nominally fastest and `direct-rd`/`bytecode-vm`
+  sit just behind. With every node boxed and GC'd, *not* allocating the tree no
+  longer buys a layout advantage — the top five strategies are a ~15% near-tie.
 - **The sparse-table `multipass-bfs` is the slowest at scale** — building the
   `Array`-based RMQ costs more than the linear split scan it replaces, exactly as
-  in C++. Cleverness loses to allocation in every runtime.
-- **The spread compresses** to ~2-3× (vs C++'s ~5×): GC and laziness overhead
-  dominate, shrinking the gaps between algorithms.
+  in C++. The precompute loses to a plain linear scan in every runtime.
+- **The spread compresses** to ~1.7× on the median (vs C++'s ~4.7×): GC and
+  laziness overhead dominate, shrinking the gaps between algorithms.
 
 See the top-level [README](../README.md) for the cross-language table.

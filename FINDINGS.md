@@ -58,50 +58,64 @@ cd haskell && cabal test && cabal run bench
 All three read the same `bench/corpus/` files. Numbers below are the **median
 ns/leaf across the four sizes** (n=10…10000), each normalised to that language's
 own fastest strategy — so the column shows *ranking*, not cross-language speed.
-Median, not a single size, because C++ is `steady_clock` but Python/Haskell are
-wall-clock on a throttling laptop: **trust the tiers, not the digits.**
+Regenerated on a neutral 4-vCPU GitHub runner; median across sizes (not a single
+one) because C++ is `steady_clock` while Python/Haskell are wall-clock and noisier
+per-size: **trust the tiers, not the digits.**
 
 | strategy | C++ ×fastest | Python ×fastest | Haskell ×fastest |
 |---|--:|--:|--:|
-| direct-recursive-descent | **1.0** | **1.0** | 1.2 |
-| bytecode-vm | 1.2 | 1.1 | **1.0** |
-| direct-shunting-yard | 1.2 | 2.7 | 1.3 |
-| direct-mp | 1.9 | 6.1 | 1.2 |
-| ast-shunting-yard | 3.6 | 2.2 | 1.2 |
-| ast-pratt | 4.8 | 2.8 | 1.5 |
-| ast-recursive-descent | 5.2 | 2.4 | 1.3 |
-| **ast-arena** | **2.2** | **3.0** | **1.7** |
-| multipass (pointer) | 5.2 | 5.3 | 1.4 |
-| multipass-arena | 2.2 | 4.3 | 1.6 |
-| multipass-bfs (sparse RMQ) | 2.7 | 3.8 | 1.6 |
+| direct-recursive-descent | **1.0** | 1.0 | 1.0 |
+| bytecode-vm | 1.3 | **1.0** | 1.1 |
+| direct-shunting-yard | 1.1 | **1.0** | 1.1 |
+| direct-mp | 1.6 | 2.4 | 1.3 |
+| ast-shunting-yard | 2.8 | 1.1 | 1.1 |
+| ast-pratt | 2.7 | 1.2 | **1.0** |
+| ast-recursive-descent | 2.7 | 1.1 | 1.0 |
+| **ast-arena** | **1.3** | **1.3** | **1.2** |
+| multipass (pointer) | 4.7 | 2.4 | 1.3 |
+| multipass-arena | 2.0 | 2.6 | 1.5 |
+| multipass-bfs (sparse RMQ) | 2.2 | 3.0 | 1.7 |
+| multipass-reverse | 2.7 | 2.4 | 1.4 |
 
-Raw fastest, median ns/leaf: **C++ ≈ 300**, **Haskell ≈ 5 400**, **Python ≈ 6 500** —
-C++ is ~20× faster in absolute terms; Python and Haskell land close together.
+Raw fastest, median ns/leaf: **C++ ≈ 72**, **Haskell ≈ 1 280**, **Python ≈ 2 780** —
+C++ is ~18–40× faster in absolute terms; Python and Haskell land within ~2×.
+(The fastest-in-language is a near-tie: Python's top five span 1.0–1.2, Haskell's
+top five span 1.0–1.1 — the `1.0` marks a cluster, not a clear winner. **Trust the
+tiers, not the digits.**)
 
 ### What survives the change of runtime, and what doesn't
 
-1. **"Build no tree" wins everywhere.** `direct-recursive-descent` and
-   `bytecode-vm` are the fastest tier in all three languages. Not allocating an
-   intermediate structure is the one optimization no runtime takes away.
+The two big wins in C++ — *not building a tree* and *building it in a flat arena* —
+are both **allocation/layout** effects, and **both are C++-only**. That single idea
+explains every row below.
 
-2. **The arena trick is a C++-only win.** `ast-arena` is ~2.4× *faster* than
-   pointer-AST recursive descent in C++ (2.2 vs 5.2) — but *no faster, even
-   slightly slower*, in Python (3.0 vs 2.4) and Haskell (1.7 vs 1.3). A flat node
-   buffer beats per-node allocation only when you control memory *layout*; once
-   the runtime boxes and GCs every node, the contiguity is gone and the win
-   evaporates. This is the headline result: **the C++ thesis was really about
-   layout, and layout is exactly what managed runtimes hide.**
+1. **In C++, memory layout dominates — flat beats pointer-chasing ~2.7×.** The
+   fastest tier is everything *contiguous*: `direct-*` (no tree), `bytecode-vm`
+   (flat opcode stream), and `ast-arena` (flat node buffer) all cluster at
+   1.0–1.3. The pointer-walking forms — pointer-AST (`ast-*` ≈ 2.7) and `multipass`
+   (4.7) — lose by chasing `make_unique`'d nodes around the heap. Layout, not
+   algorithm, sets the tiers.
 
-3. **The sparse-table `multipass-bfs` splits the languages.** Its O(n log n) RMQ
-   precompute *loses* in C++ (2.7 vs `multipass-arena`'s 2.2 — the build costs
-   more than the cheap linear split-scan it replaces) and is no help in Haskell
-   (1.6 vs 1.6), but *wins* in Python (3.8 vs 4.3), where an interpreted linear
-   scan is so expensive that removing iterations pays for the allocation.
-   Cleverness-vs-allocation flips sign depending on how costly a basic operation is.
+2. **In managed runtimes that layout signal washes out.** Once the runtime boxes
+   and GCs every node, contiguity is invisible: `ast-arena` is *no faster, even
+   slightly slower* than pointer-AST in Python (1.3 vs 1.1) and Haskell (1.2 vs
+   1.0), and "no tree" shrinks to a ~10–30% edge instead of C++'s 2.7×. Everything
+   non-multipass lands within ~1.5×. **This is the headline: the C++ thesis was
+   really about layout, and layout is exactly what managed runtimes hide.**
 
-4. **Overhead compresses the spread.** Fastest-to-slowest is ~5× in C++, but only
-   ~1.7× in Haskell — GC and laziness dominate, shrinking the gaps the algorithm
-   creates. The more your runtime costs per operation, the less your algorithm choice shows.
+3. **The multipass divide-and-conquer family loses in every language** — it does
+   genuinely more work (repeated split-scans) to build the *same* tree, so no
+   runtime rescues it. And the sparse-table `multipass-bfs` is the cautionary
+   tale: its O(n log n) RMQ precompute pays off **nowhere** — it's the *slowest* mp
+   variant in Python (3.0) and Haskell (1.7) and loses to `multipass-arena` in C++
+   (2.2 vs 2.0). The precompute costs more than the cheap linear split-scan it
+   replaces, in every runtime. Among the family, `multipass-reverse` (bottom-up)
+   is the best in Python.
+
+4. **Overhead compresses the spread.** Fastest-to-slowest is ~4.7× in C++, but only
+   ~1.7× in Haskell and ~3× in Python — GC, laziness, and interpreter overhead
+   dominate, shrinking the gaps the algorithm creates. The more your runtime costs
+   per operation, the less your algorithm choice shows.
 
 ### A reverse-multipass flavour
 
@@ -111,23 +125,24 @@ lowest-precedence operator (the root) and splitting top-down, it reduces the
 — agglomerating outward (one reduction pass per precedence level). Same tree,
 opposite construction order. Where does it land among the multipass family?
 
-ns/leaf at n=10000, this session — **noisy, ranking only:**
+ns/leaf at n=10000 on the neutral runner — **ranking only:**
 
 | language | `multipass-reverse` | best *other* mp | fastest overall |
 |---|--:|--:|--:|
-| Python | **28 765** ← best of the mp family | multipass 38 608 | direct-rd 14 031 |
-| C++ | 465 ← mid-pack | direct-mp 272 | direct-rd 167 |
-| Haskell | 11 164 ← ≈ tied | direct-mp 10 684 | direct-rd 5 151 |
+| Python | **7 397** ← best of the mp family | direct-mp 12 138 | direct-rd 2 855 |
+| C++ | 193 ← mid-pack | direct-mp 118 | direct-rd 79 |
+| Haskell | 2 554 ← ≈ tied | direct-mp 2 343 | direct-rd 1 346 |
 
 It's the **only multipass variant whose cost stays flat as n grows** — the
 top-down variants recurse per split and bisect per call, and that per-call
 overhead compounds. So bottom-up *wins the multipass family in interpreted
 Python*, but is only *mid-pack in compiled C++* (where recursion is cheap and
 its extra item-list materialisation is pure overhead) and *roughly ties in
-Haskell*. The same "reduce operations to win a slow runtime" pattern as
-`multipass-bfs` — and, like every multipass variant, it never beats the no-tree
-winners. (These are warm-laptop numbers; the [CI bench](.github/workflows/bench.yml)
-regenerates them on a neutral runner.)
+Haskell*. Note the contrast with `multipass-bfs`: both try to "reduce work to win
+a slow runtime," but reverse does it by *cutting per-call overhead* (and wins
+Python), while bfs does it by *adding an O(n log n) precompute* (and loses
+everywhere). And, like every multipass variant, neither beats the no-tree winners.
+(Regenerated on the neutral runner by the [CI bench](.github/workflows/bench.yml).)
 
 Per-language detail and full tables: [`cpp/`](cpp/README.md) · [`python/`](python/README.md) · [`haskell/`](haskell/README.md).
 
@@ -143,25 +158,25 @@ language's parallelism model.**
 
 | strategy | ns/leaf W=1 | W=4 | speedup@4 | eff |
 |---|--:|--:|--:|--:|
-| direct-recursive-descent | 77 | 27 | 2.89× | 0.72 |
-| ast-arena | 129 | 40 | 3.19× | 0.80 |
-| multipass-reverse | 184 | 71 | 2.59× | 0.65 |
-| multipass | 369 | 128 | 2.88× | 0.72 |
+| direct-recursive-descent | 77 | 26 | 2.97× | 0.74 |
+| ast-arena | 92 | 40 | 2.27× | 0.57 |
+| multipass-reverse | 193 | 71 | 2.73× | 0.68 |
+| multipass | 369 | 129 | 2.87× | 0.72 |
 
 Per-strategy *efficiency* differences are **within run-to-run noise** on this
-shared 4-vCPU VM — across two runs `ast-arena` swung from 0.80 to 0.55, so it is
-**not** the case that any strategy reliably scales better or that multi-core
+shared 4-vCPU VM — across three runs `ast-arena` ranged 0.80 → 0.57 → 0.55, so it
+is **not** the case that any strategy reliably scales better or that multi-core
 amplifies the allocation gap. The robust facts are only the **invariant ranking**
-and the ~0.6–0.8 efficiency band.
+and the ~0.55–0.75 efficiency band.
 
-**Haskell** (`-threaded` + `setNumCapabilities`) — every strategy ~2.5× at W=4; no GIL.
+**Haskell** (`-threaded` + `setNumCapabilities`) — every strategy ~2.4–2.6× at W=4; no GIL.
 
-**Python** — scales with **processes** (~2.2–2.6×) but **not threads** — a live GIL demo:
+**Python** — scales with **processes** (~2.1–2.5×) but **not threads** — a live GIL demo:
 
 | pool | speedup@4 |
 |---|--:|
-| process | 2.2–2.6× ✓ |
-| thread | 0.9–1.1× ✗ (flat) |
+| process | 2.1–2.5× ✓ |
+| thread | 0.97–1.0× ✗ (flat) |
 
 So cores only *multiply* throughput, and only where the runtime allows true
 parallelism (C++/Haskell threads; Python processes, never threads). 8-core
@@ -176,21 +191,21 @@ per-eval ns/expr at n=1000, neutral runner:
 
 | compiled form | C++ | Python | Haskell |
 |---|--:|--:|--:|
-| ast-ptr (pointer AST) | 123k | 1.82M | **178k** |
-| ast-arena | 95k | 1.95M | 189k |
-| multipass-arena | 87k | 1.40M | 226k |
-| rpn | 62k | — | — |
-| bytecode | **58k** | **1.38M** | 292k |
-| **reparse-rd** (re-parse each eval) | 695k | 14.3M | 4.08M |
+| ast-ptr (pointer AST) | 32k | 361k | **44k** |
+| ast-arena | 29k | 429k | 45k |
+| multipass-arena | 29k | 436k | 46k |
+| rpn | 21k | — | — |
+| bytecode | **21k** | **307k** | 62k |
+| **reparse-rd** (re-parse each eval) | 208k | 2.86M | 892k |
 
 Two findings:
 
-1. **Building any reusable form beats re-parsing by ~10–23×**, and break-even is
+1. **Building any reusable form beats re-parsing by ~9–20×**, and break-even is
    tiny (≲ 4 evals in every language — often < 1). So if you evaluate more than a
    couple of times, *build the structure* — the opposite of the one-shot result.
 2. **The best compiled form is runtime-specific:**
-   - **C++** → flat (`bytecode`/`rpn`), and arena beats pointer (95k vs 123k) — memory layout wins.
-   - **Python** → `bytecode` (a tight loop dodges the per-node interpreter overhead of a tree walk); arena ≈ pointer.
+   - **C++** → flat (`bytecode`/`rpn`), and arena beats pointer (29k vs 32k) — memory layout wins.
+   - **Python** → `bytecode` (a tight loop dodges the per-node interpreter overhead of a tree walk); pointer beats arena (361k vs 429k).
    - **Haskell** → **pointer-AST `Expr`** (GHC's pattern-matching walk beats array bounds-checks and a list-based VM); `bytecode` is *slowest*.
 
    So *which* tree/representation to build depends on the language — but *that* you

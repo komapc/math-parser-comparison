@@ -31,24 +31,24 @@ return `nan`/`inf` instead of raising), so results agree across languages.
 
 ## Benchmark (measured)
 
-ns/leaf on the shared corpora, one (warm) run on a throttling i7-10610U —
-**noisy; trust the tiers, not the digits.** The [CI bench](../.github/workflows/bench.yml)
-regenerates these on a neutral runner. Reproduce locally with `python3 python/bench.py`.
+ns/leaf on the shared corpora, neutral GitHub runner (4 vCPU) via the
+[CI bench](../.github/workflows/bench.yml) — **trust the tiers, not the digits.**
+Reproduce locally with `python3 python/bench.py`.
 
 | strategy | n=10 | n=100 | n=1000 | n=10000 |
 |---|--:|--:|--:|--:|
-| ast-recursive-descent | 18634 | 18819 | 20830 | 24190 |
-| ast-shunting-yard | 15025 | 16132 | 19761 | 23721 |
-| ast-pratt | 18962 | 18944 | 19403 | 22491 |
-| ast-arena | 24399 | 23480 | 18732 | 18293 |
-| multipass | 21644 | 17469 | 29078 | 38608 |
-| multipass-arena | 23900 | 24964 | 30422 | 45898 |
-| direct-mp | 22057 | 30149 | 38008 | 56232 |
-| multipass-bfs | 33000 | 34530 | 41229 | 56249 |
-| multipass-reverse | 31954 | 31869 | 32858 | **28765** |
-| **direct-recursive-descent** | **12967** | **12720** | **12983** | 14031 |
-| direct-shunting-yard | 12179 | 17198 | 16956 | 17767 |
-| **bytecode-vm** | 12378 | **11728** | 14244 | 16901 |
+| ast-recursive-descent | 3234 | 3070 | 3021 | 3793 |
+| ast-shunting-yard | 2869 | 2881 | 3062 | 3609 |
+| ast-pratt | 3244 | 3158 | 3132 | 3865 |
+| ast-arena | 3588 | 3378 | 3523 | 4165 |
+| multipass | 5540 | 6096 | 7442 | 12696 |
+| multipass-arena | 5714 | 6281 | 7973 | 13360 |
+| direct-mp | 5290 | 5891 | 7194 | 12138 |
+| multipass-bfs | 6336 | 7028 | 9394 | 15906 |
+| multipass-reverse | 6460 | 6603 | 6959 | **7397** |
+| **direct-recursive-descent** | 2985 | 2804 | **2754** | **2855** |
+| direct-shunting-yard | **2654** | **2709** | 2843 | 2974 |
+| bytecode-vm | 2728 | 2787 | 2941 | 3208 |
 
 `multipass-reverse` is the only multipass variant that stays flat as n grows
 (others recurse + bisect per call) — at n=10000 it's the fastest of the mp
@@ -59,10 +59,13 @@ expressions agree across all 12 strategies.
 
 - **The arena trick disappears.** In C++ a flat node vector beats per-node
   allocation ~2×. In Python every node is a boxed object regardless, so
-  `ast-arena` ≈ `ast-recursive-descent` — the win was about memory *layout*,
-  which Python doesn't expose.
-- **"No allocation" still wins.** `direct-*` and `bytecode-vm` (which never build
-  a tree) remain the fastest tier, ~2-3× over the AST builders — avoiding object
-  creation matters even when you can't control layout.
+  `ast-arena` is no faster — in fact slightly *slower* than `ast-recursive-descent`
+  (3523 vs 3021 @ n=1000) — the win was about memory *layout*, which Python
+  doesn't expose.
+- **"No allocation" still leads, but only just.** `direct-*` and `bytecode-vm`
+  (which never build a tree) are the fastest tier, but only ~10% ahead of the
+  pointer-AST builders — when every operation is already boxed, skipping the tree
+  saves little. What clearly loses is the **multipass family** (~2.4–3×): the
+  repeated split-scans are real extra work no runtime hides.
 
 See the top-level [README](../README.md) for the cross-language table.
