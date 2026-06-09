@@ -139,16 +139,20 @@ Does more cores change any of this? Batch throughput on a **neutral GitHub runne
 ranking is core-count-invariant — the only thing that depends on cores is the
 language's parallelism model.**
 
-**C++** (`std::thread`) — identical ranking at W=1/2/4; efficiency clusters at
-0.65–0.80, and the contiguous `ast-arena` actually scales *best*, so multi-core
-does **not** amplify a penalty on the heavy strategies:
+**C++** (`std::thread`) — identical ranking at W=1/2/4, ~2.5–3× speedup at W=4:
 
 | strategy | ns/leaf W=1 | W=4 | speedup@4 | eff |
 |---|--:|--:|--:|--:|
 | direct-recursive-descent | 77 | 27 | 2.89× | 0.72 |
-| ast-arena | 129 | 40 | 3.19× | **0.80** |
+| ast-arena | 129 | 40 | 3.19× | 0.80 |
 | multipass-reverse | 184 | 71 | 2.59× | 0.65 |
 | multipass | 369 | 128 | 2.88× | 0.72 |
+
+Per-strategy *efficiency* differences are **within run-to-run noise** on this
+shared 4-vCPU VM — across two runs `ast-arena` swung from 0.80 to 0.55, so it is
+**not** the case that any strategy reliably scales better or that multi-core
+amplifies the allocation gap. The robust facts are only the **invariant ranking**
+and the ~0.6–0.8 efficiency band.
 
 **Haskell** (`-threaded` + `setNumCapabilities`) — every strategy ~2.5× at W=4; no GIL.
 
