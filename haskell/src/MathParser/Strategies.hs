@@ -1,0 +1,591 @@
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE BangPatterns #-}
+
+-- | The eleven strategies, idiomatic Haskell.
+--
+-- Representation is abstracted tagless-final via the 'Sym' class, so each parse
+-- algorithm is written once and instantiated at three carriers:
+--
+--   * 'Expr'   — the algebraic data type (pointer-AST analog)   -> ast-*, multipass
+--   * 'Arena'  — a state-threaded flat node array               -> ast-arena, multipass-arena/-bfs
+--   * 'Direct' — an @Env -> Double@ closure (no tree)           -> direct-*
+--
+-- bytecode-vm is a separate compile-to-instructions-then-run pass.
+module MathParser.Strategies
+  ( Evaluator(..)
+  , Env
+  , allEvaluators
+  ) where
+
+import           Data.Array
+import           Data.Bits (countLeadingZeros, finiteBitSize)
+import           Data.List (foldl')
+import qualified Data.IntMap.Strict as IM
+
+import           MathParser.Lexer
+
+-- ---- semantics -------------------------------------------------------------
+data Op = Add | Sub | Mul | Div | Pow deriving (Eq, Show)
+
+opOf :: Kind -> Op
+opOf KPlus  = Add
+opOf KMinus = Sub
+opOf KStar  = Mul
+opOf KSlash = Div
+opOf KCaret = Pow
+opOf k      = error ("not a binary operator: " ++ show k)
+
+binPrec :: Kind -> Int
+binPrec KPlus  = 1
+binPrec KMinus = 1
+binPrec KStar  = 2
+binPrec KSlash = 2
+binPrec KCaret = 4
+binPrec _      = -1
+
+applyOp :: Op -> Double -> Double -> Double
+applyOp Add a b = a + b
+applyOp Sub a b = a - b
+applyOp Mul a b = a * b
+applyOp Div a b = a / b          -- IEEE: x/0 = inf, 0/0 = nan (matches C++)
+applyOp Pow a b = applyPow a b
+
+-- Match C++ std::pow on the cases we hit: integral exponents keep the sign of a
+-- negative base (Haskell's @**@ would give NaN there); otherwise use @**@.
+applyPow :: Double -> Double -> Double
+applyPow b e
+  | not (isNaN e) && not (isInfinite e) && e == fromIntegral n = b ^^ n
+  | otherwise = b ** e
+  where n = truncate e :: Integer
+
+type Env = Int -> Double
+
+-- ---- tagless-final representation class ------------------------------------
+class Sym r where
+  sNum :: Double -> r
+  sVar :: Int -> r
+  sNeg :: r -> r
+  sPos :: r -> r
+  sPos = id               -- unary plus is identity in every carrier
+  sBin :: Op -> r -> r -> r
+
+-- pointer-AST carrier
+data Expr = ENum !Double | EVar !Int | ENeg Expr | EBin !Op Expr Expr
+
+instance Sym Expr where
+  sNum = ENum
+  sVar = EVar
+  sNeg = ENeg
+  sBin = EBin
+
+evalExpr :: Env -> Expr -> Double
+evalExpr env = go
+  where
+    go (ENum x)     = x
+    go (EVar i)     = env i
+    go (ENeg e)     = negate (go e)
+    go (EBin op a b) = applyOp op (go a) (go b)
+
+-- direct carrier: an environment-indexed value, no tree walk
+newtype Direct = Direct { runDirect :: Env -> Double }
+
+instance Sym Direct where
+  sNum x = Direct (const x)
+  sVar i = Direct (\e -> e i)
+  sNeg (Direct f) = Direct (negate . f)
+  sBin op (Direct a) (Direct b) = Direct (\e -> applyOp op (a e) (b e))
+
+-- arena carrier: thread (next-index, nodes-in-reverse); a node refs children by index
+data Node = NNum !Double | NVar !Int | NNeg !Int | NBin !Op !Int !Int
+type ArenaSt = (Int, [Node])
+newtype Arena = Arena { runArena :: ArenaSt -> (Int, ArenaSt) }
+
+emitNode :: Node -> ArenaSt -> (Int, ArenaSt)
+emitNode nd (n, xs) = (n, (n + 1, nd : xs))
+
+instance Sym Arena where
+  sNum x = Arena (emitNode (NNum x))
+  sVar i = Arena (emitNode (NVar i))
+  sNeg (Arena a) = Arena $ \st -> let (ai, st1) = a st in emitNode (NNeg ai) st1
+  sBin op (Arena l) (Arena r) = Arena $ \st ->
+    let (li, st1) = l st
+        (ri, st2) = r st1
+    in emitNode (NBin op li ri) st2
+
+evalArena :: Env -> Arena -> Double
+evalArena env (Arena f) =
+  let (root, (cnt, xs)) = f (0, [])
+      arr = listArray (0, cnt - 1) (reverse xs) :: Array Int Node
+      go i = case arr ! i of
+        NNum x      -> x
+        NVar v      -> env v
+        NNeg c      -> negate (go c)
+        NBin op l r -> applyOp op (go l) (go r)
+  in if cnt == 0 then error "empty expression" else go root
+
+-- ---- driver: recursive descent ---------------------------------------------
+rdParse :: Sym r => [Tok] -> r
+rdParse ts = case pExpr ts of
+  (e, rest) | tKind (head rest) == KEnd -> e
+            | otherwise -> error "unexpected token"
+
+pExpr :: Sym r => [Tok] -> (r, [Tok])
+pExpr ts = loop l0 r0
+  where
+    (l0, r0) = pTerm ts
+    loop l (t : rest)
+      | tKind t == KPlus  = let (rt, r2) = pTerm rest in loop (sBin Add l rt) r2
+      | tKind t == KMinus = let (rt, r2) = pTerm rest in loop (sBin Sub l rt) r2
+    loop l toks = (l, toks)
+
+pTerm :: Sym r => [Tok] -> (r, [Tok])
+pTerm ts = loop l0 r0
+  where
+    (l0, r0) = pUnary ts
+    loop l (t : rest)
+      | tKind t == KStar  = let (rt, r2) = pUnary rest in loop (sBin Mul l rt) r2
+      | tKind t == KSlash = let (rt, r2) = pUnary rest in loop (sBin Div l rt) r2
+    loop l toks = (l, toks)
+
+pUnary :: Sym r => [Tok] -> (r, [Tok])
+pUnary (t : rest)
+  | tKind t == KPlus  = let (c, r) = pUnary rest in (sPos c, r)
+  | tKind t == KMinus = let (c, r) = pUnary rest in (sNeg c, r)
+pUnary ts = pPower ts
+
+pPower :: Sym r => [Tok] -> (r, [Tok])
+pPower ts =
+  let (base, r) = pPrimary ts
+  in case r of
+       (t : rest) | tKind t == KCaret -> let (e, r2) = pUnary rest in (sBin Pow base e, r2)
+       _ -> (base, r)
+
+pPrimary :: Sym r => [Tok] -> (r, [Tok])
+pPrimary (t : rest) = case tKind t of
+  KNum    -> (sNum (tVal t), rest)
+  KVar    -> (sVar (round (tVal t)), rest)
+  KLParen -> let (e, r) = pExpr rest
+             in case r of
+                  (t2 : r2) | tKind t2 == KRParen -> (e, r2)
+                  _ -> error "expected ')'"
+  _ -> error "expected number or '('"
+pPrimary [] = error "unexpected end of input"
+
+-- ---- driver: Pratt / precedence climbing -----------------------------------
+prattParse :: Sym r => [Tok] -> r
+prattParse ts = case pp 0 ts of
+  (e, rest) | tKind (head rest) == KEnd -> e
+            | otherwise -> error "unexpected token"
+
+lbp :: Kind -> Int
+lbp k = let p = binPrec k in if p > 0 then p else 0
+
+pp :: Sym r => Int -> [Tok] -> (r, [Tok])
+pp rbp (t : ts) = loop left ts1
+  where
+    (left, ts1) = nud t ts
+    loop l toks@(o : rest)
+      | lb <= rbp = (l, toks)
+      | otherwise = let (right, ts2) = pp (if ra then lb - 1 else lb) rest
+                    in loop (sBin (opOf k) l right) ts2
+      where k = tKind o; lb = lbp k; ra = k == KCaret
+    loop l [] = (l, [])
+pp _ [] = error "unexpected end of input"
+
+nud :: Sym r => Tok -> [Tok] -> (r, [Tok])
+nud t ts = case tKind t of
+  KNum    -> (sNum (tVal t), ts)
+  KVar    -> (sVar (round (tVal t)), ts)
+  KPlus   -> let (o, r) = pp 3 ts in (sPos o, r)   -- rbp 3 < ^ lbp 4: prefix grabs a power
+  KMinus  -> let (o, r) = pp 3 ts in (sNeg o, r)
+  KLParen -> let (e, r) = pp 0 ts
+             in case r of
+                  (t2 : r2) | tKind t2 == KRParen -> (e, r2)
+                  _ -> error "expected ')'"
+  _ -> error "unexpected token"
+
+-- ---- driver: shunting-yard -------------------------------------------------
+-- Operator-stack entry: kind, precedence, right-assoc, unary, is-'('.
+data OpE = OpE !Kind !Int !Bool !Bool !Bool
+
+isLP :: OpE -> Bool
+isLP (OpE _ _ _ _ lp) = lp
+
+oePrec :: OpE -> Int
+oePrec (OpE _ p _ _ _) = p
+
+syParse :: Sym r => [Tok] -> r
+syParse toks = finish (go toks [] [] True)
+  where
+    applyE (OpE k _ _ unary lp) out
+      | lp = error "mismatched parenthesis"
+      | unary = case out of
+          (x : rest) -> (if k == KMinus then sNeg x else sPos x) : rest
+          _ -> error "missing operand"
+      | otherwise = case out of
+          (r : l : rest) -> sBin (opOf k) l r : rest
+          _ -> error "missing operand"
+
+    popUntilLP out (o : ops)
+      | not (isLP o) = popUntilLP (applyE o out) ops
+      | otherwise    = (out, ops)
+    popUntilLP _ [] = error "mismatched parenthesis"
+
+    popGE out (o : ops) prec ra
+      | not (isLP o) && (oePrec o > prec || (oePrec o == prec && not ra))
+        = popGE (applyE o out) ops prec ra
+    popGE out ops _ _ = (out, ops)
+
+    go (t : ts) out ops expect = case tKind t of
+      KNum | expect    -> go ts (sNum (tVal t) : out) ops False
+           | otherwise -> error "unexpected number"
+      KVar | expect    -> go ts (sVar (round (tVal t)) : out) ops False
+           | otherwise -> error "unexpected variable"
+      KLParen -> go ts out (OpE KLParen 0 False False True : ops) True
+      KRParen -> let (out1, ops1) = popUntilLP out ops in go ts out1 ops1 False
+      KEnd | expect    -> error "unexpected end of input"
+           | otherwise -> (out, ops)
+      k | k `elem` [KPlus, KMinus, KStar, KSlash, KCaret] ->
+            if expect
+              then if k == KPlus || k == KMinus
+                     then go ts out (OpE k 3 True True False : ops) True
+                     else error "unexpected operator"
+              else let prec = binPrec k; ra = k == KCaret
+                       (out1, ops1) = popGE out ops prec ra
+                   in go ts out1 (OpE k prec ra False False : ops1) True
+        | otherwise -> error "unexpected token"
+    go [] out ops _ = (out, ops)
+
+    finish (out, ops) =
+      let out1 = foldl' (flip applyE) out ops
+      in case out1 of
+           [r] -> r
+           _   -> error "invalid expression"
+
+-- ---- driver: divide & conquer (multipass family) ---------------------------
+data Cand = Cand { cPos :: !Int, cPrec :: !Int, cRA :: !Bool, cUnary :: !Bool }
+
+-- Total order used to pick the split root: lower precedence wins; on a tie,
+-- right-assoc prefers the leftmost operator, left-assoc the rightmost.
+better :: Cand -> Cand -> Bool
+better a b
+  | cPrec a /= cPrec b = cPrec a < cPrec b
+  | cRA a              = cPos a < cPos b
+  | otherwise          = cPos a > cPos b
+
+floorLog2 :: Int -> Int
+floorLog2 x = finiteBitSize x - 1 - countLeadingZeros x
+
+mpRun :: Sym r => Bool -> [Tok] -> r
+mpRun useSparse toks = parseRange 0 hi0 0 a0 b0 e0
+  where
+    n        = length toks
+    arr      = listArray (0, n - 1) toks :: Array Int Tok
+    hi0      = n - 1                              -- exclude the End sentinel
+
+    (parenMatch, candArr, dCount) = buildCandidates arr n
+    sparse   = if useSparse then Just (buildSparse candArr dCount) else Nothing
+
+    emptyA   = listArray (0, -1) [] :: Array Int Cand
+    candRangeAt depth lo hi
+      | depth < 0 || depth >= dCount = (emptyA, 0, 0)
+      | otherwise = let a = candArr ! depth in (a, lb a lo, lb a hi)
+    (a0, b0, e0) = candRangeAt 0 0 hi0
+
+    -- first index whose candidate position is >= key (rangeSize if none)
+    lb a key = go 0 (rangeSize (bounds a))
+      where go l r | l >= r = l
+                   | cPos (a ! m) < key = go (m + 1) r
+                   | otherwise = go l m
+              where m = (l + r) `div` 2
+
+    stQuery depth lo hi
+      | lo >= hi  = -1
+      | otherwise =
+          let a      = candArr ! depth
+              levels = case sparse of Just s -> s ! depth; Nothing -> []
+              k      = floorLog2 (hi - lo)
+              x      = (levels !! k) ! lo
+              y      = (levels !! k) ! (hi - 2 ^ k)
+          in if better (a ! x) (a ! y) then x else y
+
+    parseRange :: Sym r => Int -> Int -> Int -> Array Int Cand -> Int -> Int -> r
+    parseRange lo hi depth a b e
+      | lo >= hi = error "empty sub-expression"
+      | b < e && flat = if not chainRA then leftFold else rightFold
+      | s /= -1 =
+          let c = a ! s; pos = cPos c
+          in if cUnary c
+               then (if tKind (arr ! pos) == KMinus then sNeg else sPos)
+                      (parseRange (pos + 1) hi depth a (s + 1) e)
+               else sBin (opOf (tKind (arr ! pos)))
+                      (parseRange lo pos depth a b s)
+                      (parseRange (pos + 1) hi depth a (s + 1) e)
+      | tKind (arr ! lo) == KLParen && parenMatch ! lo == hi - 1 =
+          let d = depth + 1
+              (a2, b2, e2) = candRangeAt d (lo + 1) (hi - 1)
+          in parseRange (lo + 1) (hi - 1) d a2 b2 e2
+      | hi - lo == 1 = case tKind (arr ! lo) of
+          KNum -> sNum (tVal (arr ! lo))
+          KVar -> sVar (round (tVal (arr ! lo)))
+          _    -> error "syntax error"
+      | otherwise = error ("syntax error at position " ++ show (tPos (arr ! lo)))
+      where
+        chainPrec = cPrec (a ! b)
+        chainRA   = cRA (a ! b)
+        flat      = b < e && all (\i -> not (cUnary (a ! i)) && cPrec (a ! i) == chainPrec)
+                                 [b .. e - 1]
+        s = splitAt' a b e lo depth
+
+        leftFold =
+          let acc0 = parseRange lo (cPos (a ! b)) depth a e e
+              step acc i =
+                let pos = cPos (a ! i)
+                    nhi = if i + 1 < e then cPos (a ! (i + 1)) else hi
+                    rhs = parseRange (pos + 1) nhi depth a e e
+                in sBin (opOf (tKind (arr ! pos))) acc rhs
+          in foldl' step acc0 [b .. e - 1]
+
+        rightFold =
+          let idxs   = [b .. e - 1]
+              starts = lo : map (\i -> cPos (a ! i) + 1) idxs
+              ends   = map (\i -> cPos (a ! i)) idxs ++ [hi]
+              parts  = zipWith (\st en -> parseRange st en depth a e e) starts ends
+          in foldr (\(i, p) acc -> sBin (opOf (tKind (arr ! cPos (a ! i)))) p acc)
+                   (last parts) (zip idxs (init parts))
+
+    -- split index, threading depth for the sparse path
+    splitAt' a b e lo depth
+      | Just _ <- sparse =
+          let si = stQuery depth b e
+          in if si < 0 then -1
+             else let c = a ! si
+                  in if cUnary c && cPos c /= lo
+                       then head ([ i | i <- [b .. e - 1]
+                                      , not (cUnary (a ! i)) || cPos (a ! i) == lo ] ++ [-1])
+                       else si
+      | otherwise = linear (e - 1) (-1)
+      where
+        linear i best
+          | i < b = best
+          | cUnary c && cPos c /= lo = linear (i - 1) best
+          | best == (-1) || cPrec c < cPrec (a ! best) =
+              if cPrec c == 1 && not (cRA c) then i else linear (i - 1) i
+          | cPrec c == cPrec (a ! best) && cRA (a ! best) = linear (i - 1) i
+          | otherwise = linear (i - 1) best
+          where c = a ! i
+
+-- one O(n) scan: candidate lists per paren-depth + matching-paren array
+buildCandidates :: Array Int Tok -> Int -> (Array Int Int, Array Int (Array Int Cand), Int)
+buildCandidates arr n =
+  let (_, _, _, cmap, matches) = foldl' step (0, True, [], IM.empty, []) [0 .. n - 2]
+      dCount = if IM.null cmap then 0 else fst (IM.findMax cmap) + 1
+      candArr = listArray (0, max 0 (dCount - 1))
+                  [ let cs = reverse (IM.findWithDefault [] d cmap)
+                    in listArray (0, length cs - 1) cs
+                  | d <- [0 .. dCount - 1] ]
+      pm = accumArray (\_ v -> v) 0 (0, n - 1) matches :: Array Int Int
+  in (pm, candArr, dCount)
+  where
+    step (depth, expect, stack, cmap, matches) i = case tKind (arr ! i) of
+      KLParen -> (depth + 1, True, i : stack, cmap, matches)
+      KRParen -> case stack of
+                   (o : st') -> (depth - 1, False, st', cmap, (o, i) : (i, o) : matches)
+                   []        -> (depth - 1, False, [], cmap, matches)
+      KNum    -> (depth, False, stack, cmap, matches)
+      KVar    -> (depth, False, stack, cmap, matches)
+      k | k `elem` [KPlus, KMinus, KStar, KSlash, KCaret] ->
+            let cand | expect = if k == KPlus || k == KMinus
+                                  then Cand i 3 False True
+                                  else error "unexpected operator"
+                     | otherwise = Cand i (binPrec k) (k == KCaret) False
+            in (depth, True, stack, IM.insertWith (++) depth [cand] cmap, matches)
+        | otherwise -> (depth, expect, stack, cmap, matches)
+
+-- per-depth sparse table: levels !! k ! i = argmin (better) over [i, i+2^k)
+buildSparse :: Array Int (Array Int Cand) -> Int -> Array Int [Array Int Int]
+buildSparse candArr dCount =
+  listArray (0, max 0 (dCount - 1))
+    [ buildOne (candArr ! d) | d <- [0 .. dCount - 1] ]
+  where
+    buildOne a =
+      let sz = rangeSize (bounds a)
+      in if sz <= 0 then []
+         else let logn = floorLog2 sz + 1
+                  lvl0 = listArray (0, sz - 1) [0 .. sz - 1]
+                  build prev k =
+                    let half = 2 ^ (k - 1)
+                    in listArray (0, sz - 1)
+                         [ if i + 2 ^ k <= sz
+                             then let x = prev ! i; y = prev ! (i + half)
+                                  in if better (a ! x) (a ! y) then x else y
+                             else prev ! i
+                         | i <- [0 .. sz - 1] ]
+                  levels = lvl0 : [ build (levels !! (k - 1)) k | k <- [1 .. logn - 1] ]
+              in levels
+
+-- ---- driver: REVERSE multipass (bottom-up, innermost/highest first) --------
+-- Dual of mpRun: reduce the tightest-binding things first (deepest parens, then
+-- ^, then * /, then + -), agglomerating outward. "Multipass" in its original
+-- sense: one reduction pass per precedence level. Same tree, opposite order.
+data RItem r = ROpd r | RUn Kind | ROp Kind
+
+isBarrier :: Kind -> Bool
+isBarrier k = k == KPlus || k == KMinus || k == KStar || k == KSlash
+
+reverseMpParse :: Sym r => [Tok] -> r
+reverseMpParse toks = reduceRange 0 (n - 1)
+  where
+    n   = length toks
+    arr = listArray (0, n - 1) toks :: Array Int Tok
+    pm  = parenMatchArr arr n
+
+    reduceRange lo hi
+      | lo >= hi  = error "empty sub-expression"
+      | otherwise =
+          let raw  = build lo True
+              flat = splitSegments raw
+          in case reduceBinLevel [KPlus, KMinus]
+                    (reduceBinLevel [KStar, KSlash] flat) of
+               [ROpd r] -> r
+               _        -> error "reduction failed"
+      where
+        -- materialise items, recursing into parens (innermost first)
+        build i expect
+          | i >= hi   = if expect then error "unexpected end of sub-expression" else []
+          | otherwise = case tKind (arr ! i) of
+              KLParen -> let j = pm ! i in ROpd (reduceRange (i + 1) j) : build (j + 1) False
+              KNum    -> ROpd (sNum (tVal (arr ! i)))           : build (i + 1) False
+              KVar    -> ROpd (sVar (round (tVal (arr ! i))))   : build (i + 1) False
+              k | k `elem` [KPlus, KMinus, KStar, KSlash, KCaret] ->
+                    if expect
+                      then if k == KPlus || k == KMinus
+                             then RUn k : build (i + 1) True
+                             else error "unexpected operator"
+                      else ROp k : build (i + 1) True
+                | otherwise -> error "syntax error"
+
+    -- split by * / + - barriers; reduce each ^/unary segment to one operand
+    splitSegments items = go items []
+      where
+        go [] segRev = [ROpd (reduceSeg (reverse segRev))]
+        go (it : rest) segRev = case it of
+          ROp k | isBarrier k -> ROpd (reduceSeg (reverse segRev)) : it : go rest []
+          _                   -> go rest (it : segRev)
+
+-- reduce one ^/unary segment via the unary/power grammar (right-assoc ^, prefix unary)
+reduceSeg :: Sym r => [RItem r] -> r
+reduceSeg items = case segUnary items of
+  (r, []) -> r
+  _       -> error "malformed segment"
+  where
+    segUnary (RUn k : rest) = let (c, rest') = segUnary rest
+                              in (if k == KMinus then sNeg c else sPos c, rest')
+    segUnary xs = segPower xs
+    segPower xs = let (base, rest) = segOperand xs
+                  in case rest of
+                       (ROp KCaret : rest') -> let (e, rest'') = segUnary rest'
+                                               in (sBin Pow base e, rest'')
+                       _ -> (base, rest)
+    segOperand (ROpd r : rest) = (r, rest)
+    segOperand _               = error "expected operand"
+
+-- left-to-right left-associative contraction of one binary level
+reduceBinLevel :: Sym r => [Kind] -> [RItem r] -> [RItem r]
+reduceBinLevel ops (ROpd x0 : rest) = collapse x0 rest
+  where
+    collapse acc (ROp k : ROpd y : more)
+      | k `elem` ops = collapse (sBin (opOf k) acc y) more
+      | otherwise    = ROpd acc : ROp k : collapse y more
+    collapse acc [] = [ROpd acc]
+    collapse _ _    = error "malformed binary level"
+reduceBinLevel _ _ = error "expected operand"
+
+parenMatchArr :: Array Int Tok -> Int -> Array Int Int
+parenMatchArr arr n = accumArray (\_ v -> v) 0 (0, n - 1) matches
+  where
+    (_, matches) = foldl' step ([], []) [0 .. n - 2]
+    step (stack, ms) i = case tKind (arr ! i) of
+      KLParen -> (i : stack, ms)
+      KRParen -> case stack of
+                   (o : s') -> (s', (o, i) : (i, o) : ms)
+                   []       -> ([], ms)
+      _ -> (stack, ms)
+
+-- ---- bytecode VM -----------------------------------------------------------
+data Instr = IPush !Double | ILoad !Int | INeg | IBin !Op
+
+bcEval :: Env -> [Tok] -> Double
+bcEval env toks = run (compile toks [] [] True)
+  where
+    applyE (OpE k _ _ unary lp) code
+      | lp = error "mismatched parenthesis"
+      | unary = if k == KMinus then INeg : code else code
+      | otherwise = IBin (opOf k) : code
+
+    popUntilLP code (o : ops)
+      | not (isLP o) = popUntilLP (applyE o code) ops
+      | otherwise    = (code, ops)
+    popUntilLP _ [] = error "mismatched parenthesis"
+
+    popGE code (o : ops) prec ra
+      | not (isLP o) && (oePrec o > prec || (oePrec o == prec && not ra))
+        = popGE (applyE o code) ops prec ra
+    popGE code ops _ _ = (code, ops)
+
+    compile (t : ts) code ops expect = case tKind t of
+      KNum | expect    -> compile ts (IPush (tVal t) : code) ops False
+           | otherwise -> error "unexpected number"
+      KVar | expect    -> compile ts (ILoad (round (tVal t)) : code) ops False
+           | otherwise -> error "unexpected variable"
+      KLParen -> compile ts code (OpE KLParen 0 False False True : ops) True
+      KRParen -> let (c1, ops1) = popUntilLP code ops in compile ts c1 ops1 False
+      KEnd | expect    -> error "unexpected end of input"
+           | otherwise -> reverse (foldl' (flip applyE) code ops)
+      k | k `elem` [KPlus, KMinus, KStar, KSlash, KCaret] ->
+            if expect
+              then if k == KPlus || k == KMinus
+                     then compile ts code (OpE k 3 True True False : ops) True
+                     else error "unexpected operator"
+              else let prec = binPrec k; ra = k == KCaret
+                       (c1, ops1) = popGE code ops prec ra
+                   in compile ts c1 (OpE k prec ra False False : ops1) True
+        | otherwise -> error "unexpected token"
+    compile [] code ops _ = reverse (foldl' (flip applyE) code ops)
+
+    run code = go code []
+      where
+        go [] [v] = v
+        go (IPush x : cs) st = go cs (x : st)
+        go (ILoad i : cs) st = go cs (env i : st)
+        go (INeg : cs) (x : st) = go cs (negate x : st)
+        go (IBin op : cs) (r : l : st) = go cs (applyOp op l r : st)
+        go _ _ = error "invalid expression"
+
+-- ---- registry --------------------------------------------------------------
+data Evaluator = Evaluator { evName :: String, evRun :: Env -> String -> Double }
+
+mkAst :: String -> (forall r. Sym r => [Tok] -> r) -> Evaluator
+mkAst name parse = Evaluator name (\env src -> evalExpr env (parse (tokenize src)))
+
+mkArena :: String -> (forall r. Sym r => [Tok] -> r) -> Evaluator
+mkArena name parse = Evaluator name (\env src -> evalArena env (parse (tokenize src)))
+
+mkDirect :: String -> (forall r. Sym r => [Tok] -> r) -> Evaluator
+mkDirect name parse = Evaluator name (\env src -> runDirect (parse (tokenize src)) env)
+
+allEvaluators :: [Evaluator]
+allEvaluators =
+  [ mkAst    "ast-recursive-descent"    rdParse
+  , mkAst    "ast-shunting-yard"        syParse
+  , mkAst    "ast-pratt"                prattParse
+  , mkArena  "ast-arena"                rdParse
+  , mkAst    "multipass"                (mpRun False)
+  , mkArena  "multipass-arena"          (mpRun False)
+  , mkDirect "direct-mp"                (mpRun False)
+  , mkArena  "multipass-bfs"            (mpRun True)
+  , mkArena  "multipass-reverse"        reverseMpParse
+  , mkDirect "direct-recursive-descent" rdParse
+  , mkDirect "direct-shunting-yard"     syParse
+  , Evaluator "bytecode-vm"             (\env src -> bcEval env (tokenize src))
+  ]
