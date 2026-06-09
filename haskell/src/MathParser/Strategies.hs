@@ -15,6 +15,7 @@ module MathParser.Strategies
   ( Evaluator(..)
   , Env
   , allEvaluators
+  , reevalForms
   ) where
 
 import           Data.Array
@@ -515,8 +516,9 @@ parenMatchArr arr n = accumArray (\_ v -> v) 0 (0, n - 1) matches
 -- ---- bytecode VM -----------------------------------------------------------
 data Instr = IPush !Double | ILoad !Int | INeg | IBin !Op
 
-bcEval :: Env -> [Tok] -> Double
-bcEval env toks = run (compile toks [] [] True)
+-- compile (shunting-yard) to a reusable instruction list
+bcCompile :: [Tok] -> [Instr]
+bcCompile toks = compile toks [] [] True
   where
     applyE (OpE k _ _ unary lp) code
       | lp = error "mismatched parenthesis"
@@ -553,14 +555,41 @@ bcEval env toks = run (compile toks [] [] True)
         | otherwise -> error "unexpected token"
     compile [] code ops _ = reverse (foldl' (flip applyE) code ops)
 
-    run code = go code []
-      where
-        go [] [v] = v
-        go (IPush x : cs) st = go cs (x : st)
-        go (ILoad i : cs) st = go cs (env i : st)
-        go (INeg : cs) (x : st) = go cs (negate x : st)
-        go (IBin op : cs) (r : l : st) = go cs (applyOp op l r : st)
-        go _ _ = error "invalid expression"
+bcRun :: Env -> [Instr] -> Double
+bcRun env = go `flip` []
+  where
+    go [] [v] = v
+    go (IPush x : cs) st = go cs (x : st)
+    go (ILoad i : cs) st = go cs (env i : st)
+    go (INeg : cs) (x : st) = go cs (negate x : st)
+    go (IBin op : cs) (r : l : st) = go cs (applyOp op l r : st)
+    go _ _ = error "invalid expression"
+
+bcEval :: Env -> [Tok] -> Double
+bcEval env toks = bcRun env (bcCompile toks)
+
+-- ---- reeval API: compile once -> reusable (Env -> Double) ------------------
+-- Build the compiled form once (captured in the returned closure); evaluating
+-- with a fresh Env only re-walks it. `reparse-rd` re-parses on every call.
+arenaClosure :: Arena -> (Env -> Double)
+arenaClosure (Arena f) =
+  let (root, (cnt, xs)) = f (0, [])
+      arr = listArray (0, cnt - 1) (reverse xs) :: Array Int Node
+      go env i = case arr ! i of
+        NNum x      -> x
+        NVar v      -> env v
+        NNeg c      -> negate (go env c)
+        NBin op l r -> applyOp op (go env l) (go env r)
+  in if cnt == 0 then error "empty expression" else \env -> go env root
+
+reevalForms :: [(String, String -> (Env -> Double))]
+reevalForms =
+  [ ("ast-ptr",         \src -> let e = rdParse (tokenize src) :: Expr in \env -> evalExpr env e)
+  , ("ast-arena",       \src -> arenaClosure (rdParse (tokenize src) :: Arena))
+  , ("multipass-arena", \src -> arenaClosure (mpRun False (tokenize src) :: Arena))
+  , ("bytecode",        \src -> let c = bcCompile (tokenize src) in \env -> bcRun env c)
+  , ("reparse-rd",      \src env -> evalExpr env (rdParse (tokenize src)))
+  ]
 
 -- ---- registry --------------------------------------------------------------
 data Evaluator = Evaluator { evName :: String, evRun :: Env -> String -> Double }

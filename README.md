@@ -52,6 +52,22 @@ Reading it:
   (bottom-up iteration avoids the recursion+bisect overhead that punishes the
   top-down variants in a slow runtime) and mid-pack in C++/Haskell.
 
+## When you build the tree and re-evaluate
+
+The comparison above is **one-shot** (parse + evaluate once). If instead you build
+the tree once and evaluate it many times with **different variable values**, the
+verdict flips — building a reusable form is worth it after just **≲ 4 evaluations**,
+because re-parsing every time is **~10–23× slower per eval**:
+
+| per-eval, n=1000 | C++ | Python | Haskell |
+|---|--:|--:|--:|
+| best compiled form | 58k (bytecode) | 1.38M (bytecode) | 178k (ast-ptr) |
+| re-parse every time | 695k | 14.3M | 4.08M |
+
+And *which* form is fastest to re-evaluate is itself runtime-specific: flat
+bytecode/arena in C++, bytecode in Python, the pointer-AST `Expr` in Haskell.
+Details and the full table in [FINDINGS.md](FINDINGS.md).
+
 ## Multi-core scaling
 
 Splitting the corpus across W workers (neutral 4-vCPU GitHub runner). The

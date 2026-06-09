@@ -595,8 +595,9 @@ def reverse_mp_parse(tokens, B):
 
 
 # ---- bytecode VM (compile shunting-yard -> opcode list, then run) -----------
-def _bytecode_eval(tokens, vars):
-    code = []   # ('push', v) | ('load', idx) | ('neg',) | ('bin', op)
+def compile_bytecode(tokens):
+    """Shunting-yard -> reusable opcode list: ('push',v) | ('load',i) | ('neg',) | ('bin',op)."""
+    code = []
     ops = []
 
     def emit(op):
@@ -648,7 +649,11 @@ def _bytecode_eval(tokens, vars):
         emit(ops.pop())
     if not code:
         raise ValueError("invalid expression")
+    return code
 
+
+def run_bytecode(code, vars):
+    """Execute a compiled opcode list against a variable environment."""
     st = []
     for ins in code:
         t = ins[0]
@@ -662,6 +667,10 @@ def _bytecode_eval(tokens, vars):
             r = st.pop()
             st[-1] = apply_bin(ins[1], st[-1], r)
     return st[-1]
+
+
+def _bytecode_eval(tokens, vars):
+    return run_bytecode(compile_bytecode(tokens), vars)
 
 
 # ---- registry ---------------------------------------------------------------
