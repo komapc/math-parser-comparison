@@ -70,6 +70,12 @@ jobs:
           { echo '## C++ reeval'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           ./build/corpus_reeval | tee reeval-cpp.txt >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - name: C++ adversarial chains
+        run: |
+          set -o pipefail
+          { echo '## C++ adversarial chains'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          ./build/adversarial_bench | tee adversarial-cpp.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       # ---- Python ----
       - name: Python benchmark (+ corpus cross-check)
@@ -90,6 +96,12 @@ jobs:
           set -o pipefail
           { echo '## Python reeval'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           python3 python/reeval.py | tee reeval-python.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - name: Python adversarial chains
+        run: |
+          set -o pipefail
+          { echo '## Python adversarial chains'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          python3 python/adversarial.py | tee adversarial-python.txt >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       # ---- Haskell ----
@@ -112,6 +124,9 @@ jobs:
           { echo '## Haskell reeval'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           cabal run -v0 reeval | tee ../reeval-haskell.txt >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+          { echo '## Haskell adversarial chains'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          cabal run -v0 adversarial | tee ../adversarial-haskell.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload results
         if: always()
@@ -122,3 +137,4 @@ jobs:
             bench-*.txt
             scaling-*.txt
             reeval-*.txt
+            adversarial-*.txt
