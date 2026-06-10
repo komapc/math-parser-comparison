@@ -88,14 +88,14 @@ order each node is *decided*:
 
 ```mermaid
 graph TD
-    R["+&nbsp;&nbsp;(root — decided LAST)"]
+    R["+ (root — decided LAST)"]
     N["unary −"]
     P["^"]
     a["2"]
     b["2"]
     M["*"]
     c["3"]
-    S["−&nbsp;&nbsp;(in parens — decided FIRST)"]
+    S["− (in parens — decided FIRST)"]
     d["4"]
     e["1"]
     R --> N
