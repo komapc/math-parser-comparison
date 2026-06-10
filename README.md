@@ -86,7 +86,7 @@ look a touch tighter at W4 — but that's run-to-run parallel-efficiency noise
 The comparison above is **one-shot** (parse + evaluate once). If instead you build
 the tree once and evaluate it many times with **different variable values**, the
 verdict flips — building a reusable form is worth it after just **≲ 4 evaluations**,
-because re-parsing every time is **~9–20× slower per eval**:
+because re-parsing every time is **~9–21× slower per eval**:
 
 | per-eval, n=1000 | C++ | Python | Haskell |
 |---|--:|--:|--:|
