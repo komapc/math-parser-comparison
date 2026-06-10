@@ -20,13 +20,18 @@ CORPUS = os.path.normpath(os.path.join(HERE, "..", "bench", "corpus", "n100.txt"
 SIZE_N = 100
 WORKERS = [1, 2, 4]
 
-# Representative slice across the allocation spectrum (kept small — process pool
-# spawn + interpreter overhead makes this a demonstration, not a precise bench).
+# The eight tree-building strategies, so the W=1 vs W=4 columns show whether the
+# AST-builder *ranking* is core-count-invariant. (Process-pool spawn overhead
+# makes this a demonstration, not a precise bench — trust the order, not digits.)
 STRATEGIES = [
-    "ast-recursive-descent",     # per-node allocation (heavy)
-    "ast-arena",                 # one allocation
-    "multipass-reverse",         # bottom-up D&C
-    "direct-recursive-descent",  # no tree
+    "ast-recursive-descent",   # pointer AST, per-node allocation
+    "ast-shunting-yard",       # pointer AST
+    "ast-pratt",               # pointer AST
+    "ast-arena",               # arena AST, one allocation
+    "multipass",               # D&C, pointer AST
+    "multipass-arena",         # D&C, arena AST
+    "multipass-bfs",           # D&C + sparse-table RMQ
+    "multipass-reverse",       # D&C, bottom-up
 ]
 
 _EV = None  # per-worker evaluator

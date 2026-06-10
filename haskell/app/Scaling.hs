@@ -26,10 +26,12 @@ workers = [1, 2, 4]
 sizeN :: Int
 sizeN = 100
 
+-- The eight tree-building strategies, so the W=1 vs W=4 columns show whether the
+-- AST-builder ranking is core-count-invariant.
 strategies :: [String]
 strategies =
-  [ "ast-recursive-descent", "ast-arena", "multipass-reverse"
-  , "direct-recursive-descent", "bytecode-vm" ]
+  [ "ast-recursive-descent", "ast-shunting-yard", "ast-pratt", "ast-arena"
+  , "multipass", "multipass-arena", "multipass-bfs", "multipass-reverse" ]
 
 splitN :: Int -> [a] -> [[a]]
 splitN n xs = go xs
