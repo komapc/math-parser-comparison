@@ -154,28 +154,29 @@ Does more cores change any of this? Batch throughput on a **neutral GitHub runne
 ranking is core-count-invariant — the only thing that depends on cores is the
 language's parallelism model.**
 
-**C++** (`std::thread`) — identical ranking at W=1/2/4, ~2.5–3× speedup at W=4:
+**C++** (`std::thread`) — identical ranking at W=1/2/4, ~2.1–3× speedup at W=4:
 
 | strategy | ns/leaf W=1 | W=4 | speedup@4 | eff |
 |---|--:|--:|--:|--:|
-| direct-recursive-descent | 77 | 26 | 2.97× | 0.74 |
-| ast-arena | 92 | 40 | 2.27× | 0.57 |
-| multipass-reverse | 193 | 71 | 2.73× | 0.68 |
+| direct-recursive-descent | 77 | 27 | 2.89× | 0.72 |
+| ast-arena | 92 | 43 | 2.13× | 0.53 |
+| multipass-reverse | 192 | 70 | 2.76× | 0.69 |
 | multipass | 369 | 129 | 2.87× | 0.72 |
 
 Per-strategy *efficiency* differences are **within run-to-run noise** on this
-shared 4-vCPU VM — across three runs `ast-arena` ranged 0.80 → 0.57 → 0.55, so it
-is **not** the case that any strategy reliably scales better or that multi-core
-amplifies the allocation gap. The robust facts are only the **invariant ranking**
-and the ~0.55–0.75 efficiency band.
+shared 4-vCPU VM — across four runs `ast-arena` ranged 0.80 → 0.57 → 0.55 → 0.53,
+so it is **not** the case that any strategy reliably scales better or that
+multi-core amplifies the allocation gap. The robust facts are only the **invariant
+ranking** and the ~0.53–0.75 efficiency band. The full eight-AST-builder W=1-vs-W=4
+ranking (it doesn't move) is in the [README](README.md#and-the-same-comparison-at-4-cores).
 
-**Haskell** (`-threaded` + `setNumCapabilities`) — every strategy ~2.4–2.6× at W=4; no GIL.
+**Haskell** (`-threaded` + `setNumCapabilities`) — every strategy ~2.3–2.8× at W=4; no GIL.
 
-**Python** — scales with **processes** (~2.1–2.5×) but **not threads** — a live GIL demo:
+**Python** — scales with **processes** (~2.3–2.5×) but **not threads** — a live GIL demo:
 
 | pool | speedup@4 |
 |---|--:|
-| process | 2.1–2.5× ✓ |
+| process | 2.3–2.5× ✓ |
 | thread | 0.97–1.0× ✗ (flat) |
 
 So cores only *multiply* throughput, and only where the runtime allows true
