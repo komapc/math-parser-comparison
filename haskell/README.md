@@ -7,6 +7,7 @@ python3 bench/gen_corpus.py        # from repo root: generate shared corpora (on
 cd haskell
 cabal test                         # correctness (252 checks)
 cabal run bench                    # cross-check + timing on shared corpora
+cabal run adversarial              # structured chains: multipass top-down Θ(n²) vs reverse Θ(n)
 ```
 
 ### Toolchain

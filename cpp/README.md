@@ -151,6 +151,7 @@ ctest --test-dir build --output-on-failure   # 288 checks
 ./build/reeval                                # compile-once / eval-many
 ./build/parallel_bench                        # batch scaling 1–8 threads
 ./build/single_par_bench                      # single-expression fork-join scaling
+./build/adversarial_bench                     # structured chains: multipass top-down Θ(n²) vs reverse Θ(n)
 ```
 
 Requires GCC 14 + CMake ≥ 3.20. No external dependencies. `corpus_bench` reads

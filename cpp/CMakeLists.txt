@@ -71,6 +71,9 @@ target_link_libraries(scaling_bench PRIVATE parsers)
 add_executable(corpus_reeval bench/corpus_reeval.cpp)  # shared-corpus compile-once/eval-many
 target_link_libraries(corpus_reeval PRIVATE parsers)
 
+add_executable(adversarial_bench bench/adversarial_bench.cpp)  # structured chains that separate the multipass family
+target_link_libraries(adversarial_bench PRIVATE parsers)
+
 # Correctness test suite (dependency-free), run via CTest.
 enable_testing()
 add_executable(tests tests/test_parsers.cpp)

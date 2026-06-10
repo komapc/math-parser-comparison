@@ -106,11 +106,13 @@ explains every row below.
 3. **The multipass divide-and-conquer family loses in every language** — it does
    genuinely more work (repeated split-scans) to build the *same* tree, so no
    runtime rescues it. And the sparse-table `multipass-bfs` is the cautionary
-   tale: its O(n log n) RMQ precompute pays off **nowhere** — it's the *slowest* mp
-   variant in Python (3.0) and Haskell (1.7) and loses to `multipass-arena` in C++
-   (2.2 vs 2.0). The precompute costs more than the cheap linear split-scan it
-   replaces, in every runtime. Among the family, `multipass-reverse` (bottom-up)
-   is the best in Python.
+   tale: its O(n log n) RMQ precompute pays off **nowhere on these random
+   corpora** — it's the *slowest* mp variant in Python (3.0) and Haskell (1.7)
+   and loses to `multipass-arena` in C++ (2.2 vs 2.0). The precompute costs more
+   than the cheap linear split-scan it replaces. (On structured mixed-precedence
+   chains the RMQ finally beats its top-down siblings — but still loses to
+   bottom-up; [see below](#where-bottom-up-provably-wins-mixed-precedence-chains).)
+   Among the family, `multipass-reverse` (bottom-up) is the best in Python.
 
 4. **Overhead compresses the spread.** Fastest-to-slowest is ~4.7× in C++, but only
    ~1.7× in Haskell and ~3× in Python — GC, laziness, and interpreter overhead
@@ -143,6 +145,43 @@ a slow runtime," but reverse does it by *cutting per-call overhead* (and wins
 Python), while bfs does it by *adding an O(n log n) precompute* (and loses
 everywhere). And, like every multipass variant, neither beats the no-tree winners.
 (Regenerated on the neutral runner by the [CI bench](.github/workflows/bench.yml).)
+
+> **Stale digits:** the table above predates a rewrite of `multipass-reverse`
+> (fused single-pass materialisation, iterative right-to-left segment folding,
+> in-place level contraction — no per-range allocation). Interleaved local A/B:
+> **~1.9× faster in C++, ~1.6× in Python**, parity in Haskell. The next CI run
+> refreshes the digits; the ranking claims above are now conservative.
+
+### Where bottom-up provably wins: mixed-precedence chains
+
+The shared corpora are random and balanced, so top-down splits land near the
+middle. The structured input that separates the family is a flat
+**product-of-powers chain** — `3^2 * 2^2 / 2^2 * …`, no parentheses (think
+factored monomials). Its operator list mixes `^` (prec 4) with `*` `/` (prec 2),
+which defeats both top-down fast paths at once: the flat-chain fold never
+applies (two precedences), and the right-to-left split scan never takes its
+prec-1 early exit (there is no `+`/`-`) — so every split rescans its whole
+range: **Θ(n²)** for `multipass`, `multipass-arena`, and `direct-mp`. The
+sparse-table `multipass-bfs` answers splits in O(1) and stays ~O(n log n) — the
+first input family where its RMQ precompute beats the linear scan it replaces.
+Bottom-up `multipass-reverse` reduces each precedence level in one pass no
+matter how the operators interleave: **Θ(n)**.
+
+ns/leaf on the power chain (laptop, ±40% — the *ratios* are the result):
+
+| family member | C++ m=8192 | Python m=1024 | Haskell m=4096 |
+|---|--:|--:|--:|
+| top-down (`multipass` / `-arena` / `direct-mp`) | 20 171–28 546 | 335 146–363 726 | 51 821–61 740 |
+| `multipass-bfs` (RMQ) | 366 | 80 463 | 13 968 |
+| **`multipass-reverse`** | **182** | **21 031** | **6 232** |
+
+That is **~9× (Haskell), ~16× (Python) and >100× (C++) over top-down** at the
+largest sizes measured — growing with n — and **~2–4× over the RMQ variant** in
+every runtime. The control input — a single-precedence chain
+`1 + 2 - 3 + …`, where the flat-chain fold does apply — keeps the whole family
+linear, confirming the blow-up is about *mixed precedence*, not chain length.
+Reproduce with `./build/adversarial_bench`, `python3 python/adversarial.py`,
+`cabal run adversarial`.
 
 Per-language detail and full tables: [`cpp/`](cpp/README.md) · [`python/`](python/README.md) · [`haskell/`](haskell/README.md).
 

@@ -53,6 +53,11 @@ Reading it:
   work to build the same tree. Among them, `multipass-reverse` is the best in Python
   (bottom-up iteration avoids the recursion+bisect overhead that punishes the
   top-down variants in a slow runtime) and mid-pack in C++/Haskell.
+- **But on structured inputs that gap flips to a blow-out:** on flat
+  mixed-precedence chains (`3^2 * 2^2 / …` — factored monomials) the top-down
+  splitters degenerate to **Θ(n²)** while bottom-up stays **Θ(n)** — measured
+  **~9× (Haskell) to >100× (C++)** in `multipass-reverse`'s favour, growing with n.
+  See [FINDINGS.md](FINDINGS.md#where-bottom-up-provably-wins-mixed-precedence-chains).
 
 ### …and the same comparison at 4 cores
 
