@@ -467,29 +467,25 @@ reverseMpParse toks = reduceRange 0 (n - 1)
                 | otherwise -> error "syntax error"
 
     -- split by * / + - barriers; reduce each ^/unary segment to one operand
+    -- (segments accumulate reversed — exactly what reduceSegRev consumes)
     splitSegments items = go items []
       where
-        go [] segRev = [ROpd (reduceSeg (reverse segRev))]
+        go [] segRev = [ROpd (reduceSegRev segRev)]
         go (it : rest) segRev = case it of
-          ROp k | isBarrier k -> ROpd (reduceSeg (reverse segRev)) : it : go rest []
+          ROp k | isBarrier k -> ROpd (reduceSegRev segRev) : it : go rest []
           _                   -> go rest (it : segRev)
 
--- reduce one ^/unary segment via the unary/power grammar (right-assoc ^, prefix unary)
-reduceSeg :: Sym r => [RItem r] -> r
-reduceSeg items = case segUnary items of
-  (r, []) -> r
-  _       -> error "malformed segment"
+-- Reduce one REVERSED ^/unary segment — (un* opd (^ un* opd)*) read backwards —
+-- by folding right-to-left: right-assoc ^ and the ^-binds-tighter-than-unary
+-- corner (-2^2 = -4, 2^-3 = 0.125) fall out naturally walking from the right.
+reduceSegRev :: Sym r => [RItem r] -> r
+reduceSegRev (ROpd r0 : rest0) = go r0 rest0
   where
-    segUnary (RUn k : rest) = let (c, rest') = segUnary rest
-                              in (if k == KMinus then sNeg c else sPos c, rest')
-    segUnary xs = segPower xs
-    segPower xs = let (base, rest) = segOperand xs
-                  in case rest of
-                       (ROp KCaret : rest') -> let (e, rest'') = segUnary rest'
-                                               in (sBin Pow base e, rest'')
-                       _ -> (base, rest)
-    segOperand (ROpd r : rest) = (r, rest)
-    segOperand _               = error "expected operand"
+    go acc []                            = acc
+    go acc (RUn k : more)                = go ((if k == KMinus then sNeg else sPos) acc) more
+    go acc (ROp KCaret : ROpd b : more)  = go (sBin Pow b acc) more
+    go _ _                               = error "malformed segment"
+reduceSegRev _ = error "malformed segment"
 
 -- left-to-right left-associative contraction of one binary level
 reduceBinLevel :: Sym r => [Kind] -> [RItem r] -> [RItem r]

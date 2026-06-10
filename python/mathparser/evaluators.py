@@ -491,41 +491,25 @@ def _paren_match(tokens):
     return pm
 
 
-_BARRIER = {STAR, SLASH, PLUS, MINUS}
-
-
-# Reduce one pow/unary segment (only 'opd', prefix 'un', and '^') via the
-# unary/power grammar: right-assoc ^, prefix unary.
+# Reduce one ^/unary segment — ('un'* 'opd' ('^' 'un'* 'opd')*) — to a single
+# operand by folding RIGHT-TO-LEFT: right-assoc ^ and the ^-binds-tighter-than-
+# unary corner (-a^a = -(a^a), a^-b = a^(-b)) fall out naturally, no recursion.
 def _reduce_seg(seg, B):
-    pos = 0
-
-    def operand():
-        nonlocal pos
-        if pos >= len(seg) or seg[pos][0] != "opd":
-            raise ValueError("expected operand")
-        v = seg[pos][1]; pos += 1
-        return v
-
-    def power():
-        nonlocal pos
-        base = operand()
-        if pos < len(seg) and seg[pos][0] == "op" and seg[pos][1] == CARET:
-            pos += 1
-            return B.binop("^", base, unary())
-        return base
-
-    def unary():
-        nonlocal pos
-        if pos < len(seg) and seg[pos][0] == "un":
-            k = seg[pos][1]; pos += 1
-            c = unary()
-            return B.neg(c) if k == MINUS else B.pos(c)
-        return power()
-
-    r = unary()
-    if pos != len(seg):
+    if not seg or seg[-1][0] != "opd":
         raise ValueError("malformed segment")
-    return r
+    acc = seg[-1][1]
+    i = len(seg) - 2
+    while i >= 0:
+        kind, val = seg[i]
+        if kind == "un":
+            acc = B.neg(acc) if val == MINUS else B.pos(acc)
+        elif kind == "op" and val == CARET and i > 0 and seg[i - 1][0] == "opd":
+            i -= 1
+            acc = B.binop("^", seg[i][1], acc)
+        else:
+            raise ValueError("malformed segment")
+        i -= 1
+    return acc
 
 
 # Left-to-right left-associative contraction of one binary level.
@@ -545,48 +529,50 @@ def _reduce_bin_level(flat, B, ops):
 def reverse_mp_parse(tokens, B):
     pm = _paren_match(tokens)
 
+    def close_seg(seg):
+        # fast path: most segments are a lone operand
+        if len(seg) == 1 and seg[0][0] == "opd":
+            return seg[0]
+        return ("opd", _reduce_seg(seg, B))
+
     def reduce_range(lo, hi):
         if lo >= hi:
             raise ValueError("empty sub-expression")
-        # 1. materialise items, recursing into parens (innermost first)
-        raw = []
+        # 1. materialise items, recursing into parens (innermost first);
+        #    a */+- barrier closes the current ^/unary segment on the fly
+        flat = []
+        seg = []
         i = lo
         expect = True
         while i < hi:
             tok = tokens[i]; k = tok.kind
             if k == LPAREN:
                 j = pm[i]
-                raw.append(("opd", reduce_range(i + 1, j))); i = j + 1; expect = False
+                seg.append(("opd", reduce_range(i + 1, j))); i = j + 1; expect = False
             elif k == NUM:
-                raw.append(("opd", B.num(tok.value))); i += 1; expect = False
+                seg.append(("opd", B.num(tok.value))); i += 1; expect = False
             elif k == IDENT:
-                raw.append(("opd", B.var(int(tok.value)))); i += 1; expect = False
+                seg.append(("opd", B.var(int(tok.value)))); i += 1; expect = False
             elif k in (PLUS, MINUS, STAR, SLASH, CARET):
                 if expect:
                     if k not in (PLUS, MINUS):
                         raise ValueError("unexpected operator")
-                    raw.append(("un", k)); i += 1
-                else:
-                    raw.append(("op", k)); i += 1; expect = True
+                    seg.append(("un", k)); i += 1
+                elif k == CARET:
+                    seg.append(("op", k)); i += 1; expect = True
+                else:  # barrier: close the segment
+                    flat.append(close_seg(seg)); flat.append(("op", k))
+                    seg = []; i += 1; expect = True
             else:
                 raise ValueError("syntax error")
         if expect:
             raise ValueError("unexpected end of sub-expression")
+        flat.append(close_seg(seg))
 
-        # 2. split by */+- barriers; reduce each ^/unary segment to one operand
-        flat = []
-        seg = []
-        for it in raw:
-            if it[0] == "op" and it[1] in _BARRIER:
-                flat.append(("opd", _reduce_seg(seg, B))); seg = []
-                flat.append(it)
-            else:
-                seg.append(it)
-        flat.append(("opd", _reduce_seg(seg, B)))
-
-        # 3. contract */ then +-
-        flat = _reduce_bin_level(flat, B, {STAR, SLASH})
-        flat = _reduce_bin_level(flat, B, {PLUS, MINUS})
+        # 2. contract */ then +- (skipped when the range was one segment)
+        if len(flat) > 1:
+            flat = _reduce_bin_level(flat, B, {STAR, SLASH})
+            flat = _reduce_bin_level(flat, B, {PLUS, MINUS})
         if len(flat) != 1 or flat[0][0] != "opd":
             raise ValueError("reduction failed")
         return flat[0][1]

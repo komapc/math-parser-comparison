@@ -20,9 +20,17 @@ namespace {
 // original sense: one reduction pass per precedence level.
 //
 // Both produce a bit-identical arena AST; only the construction order differs.
-// reduceSegment recurses on the unary/power grammar (right-assoc ^, prefix
-// unary) so the ^-binds-tighter-than-unary corner (-2^2 = -4, 2^-3 = 0.125)
-// stays correct.
+//
+// Implementation notes:
+//  * All items live in ONE shared vector with stack discipline: each
+//    reduceRange works above its own base and truncates back on exit, so a
+//    whole eval does no per-range allocation (the buffers warm up once).
+//  * A ^/unary segment — (un* opd (^ un* opd)*) — is reduced the moment a
+//    * / + - barrier closes it, by a single RIGHT-TO-LEFT walk: right-assoc ^
+//    and the ^-binds-tighter-than-unary corner (-2^2 = -4, 2^-3 = 0.125) fall
+//    out naturally when folding from the right, with no recursion.
+//  * The per-level contractions then rewrite the item stack in place.
+//  The only recursion left is per paren group.
 
 ArenaAst::K binaryKind(TokenType t) {
     switch (t) {
@@ -53,6 +61,7 @@ public:
         vars_ = vars;
         nodes_.clear();
         nodes_.reserve(tokens_.size());
+        items_.clear();
         buildParenMatch();
         const int root = reduceRange(0, tokens_.size() - 1);
         return evalNode(root);
@@ -61,6 +70,7 @@ public:
 private:
     std::vector<Token>          tokens_;
     std::vector<ArenaAst::Node> nodes_;
+    std::vector<Item>           items_;  // shared item stack (see notes above)
     std::vector<std::size_t>    parenMatch_;
     const double*               vars_ = nullptr;
 
@@ -84,90 +94,90 @@ private:
         }
     }
 
-    static bool isBarrier(TokenType t) {
-        return t == TokenType::Plus || t == TokenType::Minus ||
-               t == TokenType::Star || t == TokenType::Slash;
+    // Reduce items_[segStart..end) — one ^/unary segment — to a single operand
+    // by folding right-to-left (right-assoc ^; ^ binds tighter than unary).
+    void reduceSegment(std::size_t segStart) {
+        std::size_t i = items_.size();
+        if (i == segStart) throw std::runtime_error("malformed segment");
+        if (i - segStart == 1) {  // common case: a lone operand, nothing to do
+            if (items_[segStart].tag != Tag::Opd)
+                throw std::runtime_error("malformed segment");
+            return;
+        }
+        --i;
+        if (items_[i].tag != Tag::Opd) throw std::runtime_error("malformed segment");
+        int acc = items_[i].node;
+        while (i > segStart) {
+            --i;
+            const Item& it = items_[i];
+            if (it.tag == Tag::Un) {
+                acc = emit({it.op == TokenType::Minus ? ArenaAst::K::Neg
+                                                      : ArenaAst::K::Pos,
+                            acc, -1, 0, 0.0});
+            } else if (it.tag == Tag::Op && it.op == TokenType::Caret &&
+                       i > segStart && items_[i - 1].tag == Tag::Opd) {
+                --i;
+                acc = emit({ArenaAst::K::Pow, items_[i].node, acc, 0, 0.0});
+            } else {
+                throw std::runtime_error("malformed segment");
+            }
+        }
+        items_.resize(segStart);
+        items_.push_back({Tag::Opd, acc, TokenType::End});
     }
 
-    // Reduce one ^/unary segment (operands, prefix unary, ^) to a single node.
-    int reduceSegment(const std::vector<Item>& seg) {
-        std::size_t pos = 0;
-        const int r = segUnary(seg, pos);
-        if (pos != seg.size()) throw std::runtime_error("malformed segment");
-        return r;
-    }
-    int segOperand(const std::vector<Item>& seg, std::size_t& pos) {
-        if (pos >= seg.size() || seg[pos].tag != Tag::Opd)
-            throw std::runtime_error("expected operand");
-        return seg[pos++].node;
-    }
-    int segPower(const std::vector<Item>& seg, std::size_t& pos) {
-        const int base = segOperand(seg, pos);
-        if (pos < seg.size() && seg[pos].tag == Tag::Op &&
-            seg[pos].op == TokenType::Caret) {
-            ++pos;
-            const int rhs = segUnary(seg, pos);  // right-assoc, exponent is a unary
-            return emit({ArenaAst::K::Pow, base, rhs, 0, 0.0});
-        }
-        return base;
-    }
-    int segUnary(const std::vector<Item>& seg, std::size_t& pos) {
-        if (pos < seg.size() && seg[pos].tag == Tag::Un) {
-            const TokenType op = seg[pos].op; ++pos;
-            const int c = segUnary(seg, pos);
-            return emit({op == TokenType::Minus ? ArenaAst::K::Neg : ArenaAst::K::Pos,
-                         c, -1, 0, 0.0});
-        }
-        return segPower(seg, pos);
-    }
-
-    // Left-to-right left-associative contraction of one binary level.
-    void reduceBinLevel(std::vector<Item>& flat, bool mulDiv) {
-        std::vector<Item> out;
-        out.reserve(flat.size());
-        out.push_back(flat[0]);
-        for (std::size_t i = 1; i + 1 < flat.size(); i += 2) {
-            const Item op = flat[i];
-            const Item rhs = flat[i + 1];
+    // Left-to-right left-associative contraction of one binary level, in place
+    // over items_[base..end) (which alternates Opd (Op Opd)*).
+    void reduceBinLevel(std::size_t base, bool mulDiv) {
+        std::size_t w = base;  // write index; never overtakes the read index
+        const std::size_t end = items_.size();
+        for (std::size_t r = base + 1; r + 1 < end; r += 2) {
+            const Item op  = items_[r];
+            const Item rhs = items_[r + 1];
             const bool inLevel = mulDiv
                 ? (op.op == TokenType::Star || op.op == TokenType::Slash)
                 : (op.op == TokenType::Plus || op.op == TokenType::Minus);
             if (inLevel) {
-                const Item left = out.back(); out.pop_back();
-                out.push_back({Tag::Opd,
-                               emit({binaryKind(op.op), left.node, rhs.node, 0, 0.0}),
-                               TokenType::End});
+                items_[w] = {Tag::Opd,
+                             emit({binaryKind(op.op), items_[w].node, rhs.node,
+                                   0, 0.0}),
+                             TokenType::End};
             } else {
-                out.push_back(op);
-                out.push_back(rhs);
+                items_[w + 1] = op;
+                items_[w + 2] = rhs;
+                w += 2;
             }
         }
-        flat = std::move(out);
+        items_.resize(w + 1);
     }
 
     int reduceRange(std::size_t lo, std::size_t hi) {
         if (lo >= hi) throw std::runtime_error("empty sub-expression");
+        const std::size_t base = items_.size();
 
-        // 1. materialise items, recursing into parens (innermost first)
-        std::vector<Item> raw;
+        // 1. materialise items, recursing into parens (innermost first);
+        //    a * / + - barrier closes the current ^/unary segment on the fly
+        std::size_t segStart = base;
         bool expectOperand = true;
         for (std::size_t i = lo; i < hi; ) {
             const Token& t = tokens_[i];
             switch (t.type) {
                 case TokenType::LParen: {
                     const std::size_t j = parenMatch_[i];
-                    raw.push_back({Tag::Opd, reduceRange(i + 1, j), TokenType::End});
+                    const int child = reduceRange(i + 1, j);
+                    items_.push_back({Tag::Opd, child, TokenType::End});
                     i = j + 1; expectOperand = false; break;
                 }
                 case TokenType::Number:
-                    raw.push_back({Tag::Opd, emit({ArenaAst::K::Num, -1, -1, 0, t.value}),
-                                   TokenType::End});
+                    items_.push_back({Tag::Opd,
+                                      emit({ArenaAst::K::Num, -1, -1, 0, t.value}),
+                                      TokenType::End});
                     ++i; expectOperand = false; break;
                 case TokenType::Ident:
-                    raw.push_back({Tag::Opd,
-                                   emit({ArenaAst::K::Var, -1, -1,
-                                         static_cast<int>(t.value), 0.0}),
-                                   TokenType::End});
+                    items_.push_back({Tag::Opd,
+                                      emit({ArenaAst::K::Var, -1, -1,
+                                            static_cast<int>(t.value), 0.0}),
+                                      TokenType::End});
                     ++i; expectOperand = false; break;
                 case TokenType::Plus:
                 case TokenType::Minus:
@@ -177,9 +187,15 @@ private:
                     if (expectOperand) {
                         if (t.type != TokenType::Plus && t.type != TokenType::Minus)
                             throw std::runtime_error("unexpected operator");
-                        raw.push_back({Tag::Un, -1, t.type}); ++i;
-                    } else {
-                        raw.push_back({Tag::Op, -1, t.type}); ++i; expectOperand = true;
+                        items_.push_back({Tag::Un, -1, t.type}); ++i;
+                    } else if (t.type == TokenType::Caret) {
+                        items_.push_back({Tag::Op, -1, t.type});
+                        ++i; expectOperand = true;
+                    } else {  // barrier: close the segment
+                        reduceSegment(segStart);
+                        items_.push_back({Tag::Op, -1, t.type});
+                        segStart = items_.size();
+                        ++i; expectOperand = true;
                     }
                     break;
                 default:
@@ -187,27 +203,18 @@ private:
             }
         }
         if (expectOperand) throw std::runtime_error("unexpected end of sub-expression");
+        reduceSegment(segStart);
 
-        // 2. split by * / + - barriers; reduce each ^/unary segment to one operand
-        std::vector<Item> flat;
-        std::vector<Item> seg;
-        for (const Item& it : raw) {
-            if (it.tag == Tag::Op && isBarrier(it.op)) {
-                flat.push_back({Tag::Opd, reduceSegment(seg), TokenType::End});
-                seg.clear();
-                flat.push_back(it);
-            } else {
-                seg.push_back(it);
-            }
+        // 2. contract * / then + - (skipped when the range was one segment)
+        if (items_.size() - base > 1) {
+            reduceBinLevel(base, /*mulDiv=*/true);
+            reduceBinLevel(base, /*mulDiv=*/false);
         }
-        flat.push_back({Tag::Opd, reduceSegment(seg), TokenType::End});
-
-        // 3. contract * / then + -
-        reduceBinLevel(flat, /*mulDiv=*/true);
-        reduceBinLevel(flat, /*mulDiv=*/false);
-        if (flat.size() != 1 || flat[0].tag != Tag::Opd)
+        if (items_.size() - base != 1 || items_[base].tag != Tag::Opd)
             throw std::runtime_error("reduction failed");
-        return flat[0].node;
+        const int r = items_[base].node;
+        items_.resize(base);
+        return r;
     }
 
     double evalNode(int i) const {
