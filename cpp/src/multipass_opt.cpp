@@ -50,6 +50,22 @@ struct Candidate {
     bool        unary;
 };
 
+// Sorted token positions of one depth's candidates, split by precedence class.
+// The sparse table makes findSplit O(1), but the flat-chain *check* was still
+// an O(k) scan — quadratic on a long same-precedence prefix rescanned before
+// every split (towerchain in bench/adversarial_bench.cpp). Past kScanBudget
+// candidates the check is answered from these buckets in O(log n) instead.
+struct Buckets {
+    std::vector<uint32_t> p1, p2, caret, un;
+};
+
+constexpr int kScanBudget = 16;
+
+static bool anyIn(const std::vector<uint32_t>& v, uint32_t lo, uint32_t hi) {
+    auto it = std::lower_bound(v.begin(), v.end(), lo);
+    return it != v.end() && *it < hi;
+}
+
 // ─────────────────────────────────────────────────── shared infrastructure ──
 //
 // All variants below share:
@@ -71,6 +87,7 @@ protected:
     std::vector<Token>                  tokens_;
     std::vector<ArenaAst::Node>         nodes_;
     std::vector<std::vector<Candidate>> candsByDepth_;
+    std::vector<Buckets>                bucketsByDepth_;
     const double*                       vars_ = nullptr;
     std::vector<std::size_t>            parenMatch_;
     // parenCandStart_[i] / parenCandEnd_[i]:  for '(' at position i,
@@ -87,7 +104,11 @@ protected:
         parenMatch_.assign(n, 0);
         parenCandStart_.assign(n, 0);
         parenCandEnd_.assign(n, 0);
-        candsByDepth_.clear();
+        // Clear contents but keep inner-vector capacities (no realloc churn).
+        for (auto& v : candsByDepth_) v.clear();
+        for (auto& b : bucketsByDepth_) {
+            b.p1.clear(); b.p2.clear(); b.caret.clear(); b.un.clear();
+        }
         st_.clear();
 
         int  depth = 0;
@@ -99,8 +120,10 @@ protected:
                 case TokenType::LParen:
                     parenStk.push_back(i);
                     ++depth;
-                    if (depth >= (int)candsByDepth_.size())
+                    if (depth >= (int)candsByDepth_.size()) {
                         candsByDepth_.resize(depth + 1);
+                        bucketsByDepth_.resize(depth + 1);
+                    }
                     parenCandStart_[i] = candsByDepth_[depth].size();
                     expectOperand = true;
                     break;
@@ -133,9 +156,17 @@ protected:
                         c.rightAssoc = (tokens_[i].type == TokenType::Caret);
                         c.unary      = false;
                     }
-                    if (depth >= (int)candsByDepth_.size())
+                    if (depth >= (int)candsByDepth_.size()) {
                         candsByDepth_.resize(depth + 1);
+                        bucketsByDepth_.resize(depth + 1);
+                    }
                     candsByDepth_[depth].push_back(c);
+                    auto& bk = bucketsByDepth_[depth];
+                    const auto pos32 = (uint32_t)i;
+                    if (c.unary)          bk.un.push_back(pos32);
+                    else if (c.prec == 1) bk.p1.push_back(pos32);
+                    else if (c.prec == 2) bk.p2.push_back(pos32);
+                    else                  bk.caret.push_back(pos32);
                     expectOperand = true;
                     break;
                 }
@@ -254,11 +285,24 @@ private:
         }
 
         auto& v = candsByDepth_[depth];
-        // flat-chain fold
+        // flat-chain fold — hybrid bounded check: scan a prefix (mixed ranges
+        // are usually disproved within a few candidates); only a uniform
+        // prefix longer than the budget asks the buckets for the rest
+        // (O(log n), never an O(k) rescan of a long flat run).
         const int cp = v[clo].prec; const bool cr = v[clo].rightAssoc;
         bool flat = true;
-        for (int i = clo; i < chi; ++i)
+        const int scanEnd = (chi - clo > kScanBudget) ? clo + kScanBudget : chi;
+        for (int i = clo; i < scanEnd; ++i)
             if (v[i].unary || v[i].prec != cp) { flat=false; break; }
+        if (flat && scanEnd != chi) {
+            const auto& bk = bucketsByDepth_[depth];
+            const uint32_t blo = (uint32_t)v[clo].pos,
+                           bhi = (uint32_t)v[chi-1].pos + 1;
+            flat = !anyIn(bk.un, blo, bhi) &&
+                   ((anyIn(bk.p1, blo, bhi) ? 1 : 0) +
+                    (anyIn(bk.p2, blo, bhi) ? 1 : 0) +
+                    (anyIn(bk.caret, blo, bhi) ? 1 : 0)) == 1;
+        }
         if (flat) {
             if (!cr) {
                 int acc = buildIdx(lo, v[clo].pos, depth, chi, chi);

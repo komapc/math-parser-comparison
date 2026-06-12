@@ -3,8 +3,10 @@
 #include "parser/lexer.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -41,11 +43,14 @@ namespace {
 // (a 7× reduction). Bracket-free expressions drop to 1 binary search total.
 //
 // ── COMPLEXITY ──────────────────────────────────────────────────────────────
-// The scan inside findSplit is still O(k) per call (candidates in range).
-// With the flat-chain fold eliminating same-precedence levels and iterator
-// passing eliminating binary-search overhead, the dominant remaining cost is
-// the inherent O(n log n) scan work of the divide-and-conquer structure.
-// That is irreducible without a sparse table / RMQ structure.
+// The two linear scans (findSplit and the flat-chain check) are BOUNDED: past
+// kScanBudget candidates without an answer, the rest comes from per-precedence
+// sorted position arrays ("buckets") via binary search. Common ranges never
+// notice (they resolve within the budget, same code path as before); the
+// adversarial chains that used to be Theta(n^2) — mixed-precedence powchain
+// (no prec-1 early exit) and towerchain (long same-precedence prefix rescanned
+// by the flat check before every split) — drop to O(n log n). See
+// bench/adversarial_bench.cpp.
 
 int binPrec(TokenType t) {
     switch (t) {
@@ -77,6 +82,92 @@ struct Candidate {
     bool        unary;
 };
 
+// Sorted token positions of one depth's candidates, split by precedence class
+// — the O(log n) fallback once a linear scan exceeds its budget.
+struct Buckets {
+    std::vector<uint32_t> p1, p2, caret, un;
+};
+
+// Linear scans give up after this many candidates and consult the buckets.
+constexpr std::ptrdiff_t kScanBudget = 16;
+
+constexpr std::size_t kNone = static_cast<std::size_t>(-1);
+
+// Rightmost position in sorted `v` within [lo, hi), or kNone.
+std::size_t rightmostIn(const std::vector<uint32_t>& v,
+                        std::size_t lo, std::size_t hi) {
+    auto it = std::lower_bound(v.begin(), v.end(), static_cast<uint32_t>(hi));
+    if (it == v.begin()) return kNone;
+    --it;
+    return (*it >= lo) ? static_cast<std::size_t>(*it) : kNone;
+}
+
+bool anyIn(const std::vector<uint32_t>& v, std::size_t lo, std::size_t hi) {
+    auto it = std::lower_bound(v.begin(), v.end(), static_cast<uint32_t>(lo));
+    return it != v.end() && *it < hi;
+}
+
+// ── SIMD WINDOW SCAN (AVX2, runtime-dispatched) ─────────────────────────────
+// A per-depth byte array mirrors the candidate list: 1 / 2 for binary + - and
+// * /, 3 for unary, 4 for ^ (padded with 32 zeros so unaligned loads stay in
+// bounds). One 32-byte load over the RIGHTMOST candidates of a range answers
+// the same questions as the scalar loops, branchlessly:
+//   prec==1 mask, highest set bit  → rightmost + - (the usual split);
+//   range ≤ 32: prec==2 mask       → rightmost * /; both empty → the range's
+//               first candidate (leading unary or leftmost right-assoc ^);
+//   range > 32 with no + - in the window → bucket fallback (O(log n)).
+// Flatness for ranges ≤ 32 is one compare against the first prec broadcast.
+#if defined(__x86_64__)
+#define MP_ARENA_SIMD 1
+#include <immintrin.h>
+#include <cstdlib>
+
+// MP_ARENA_NO_SIMD=1 forces the scalar path — lets an A/B benchmark compare
+// both paths inside one binary (no code-layout luck between two builds).
+const bool kHasAvx2 = __builtin_cpu_supports("avx2") &&
+                      std::getenv("MP_ARENA_NO_SIMD") == nullptr;
+
+// Split decision for prec bytes [ib, ie): index of the split candidate,
+// kWinFirst (use the range's first candidate), or kWinBuckets (fall back).
+constexpr long kWinFirst   = -1;
+constexpr long kWinBuckets = -2;
+
+__attribute__((target("avx2")))
+long simdWindowSplit(const int8_t* prec, long ib, long ie) {
+    const long k    = ie - ib;
+    const long base = (k >= 32) ? ie - 32 : ib;
+    const uint32_t valid = (k >= 32) ? 0xFFFFFFFFu : ((1u << k) - 1);
+    const __m256i v = _mm256_loadu_si256(
+        reinterpret_cast<const __m256i*>(prec + base));
+    const auto m1 = static_cast<uint32_t>(_mm256_movemask_epi8(
+        _mm256_cmpeq_epi8(v, _mm256_set1_epi8(1)))) & valid;
+    if (m1) return base + 31 - std::countl_zero(m1);
+    if (k > 32) return kWinBuckets;
+    const auto m2 = static_cast<uint32_t>(_mm256_movemask_epi8(
+        _mm256_cmpeq_epi8(v, _mm256_set1_epi8(2)))) & valid;
+    if (m2) return base + 31 - std::countl_zero(m2);
+    return kWinFirst;
+}
+
+// 1 = flat, 0 = not flat, -1 = the leading 32 are uniform but the range is
+// longer (ask the buckets to vouch for the rest). Checking the window first
+// keeps the common "disproved immediately" case off the bucket path.
+__attribute__((target("avx2")))
+int simdWindowFlat(const int8_t* prec, long ib, long ie) {
+    const long k = ie - ib;
+    const int8_t p0 = prec[ib];
+    if (p0 == 3) return 0;                       // leading unary: not flat
+    const long w = (k < 32) ? k : 32;
+    const uint32_t valid = (w == 32) ? 0xFFFFFFFFu : ((1u << w) - 1);
+    const __m256i v = _mm256_loadu_si256(
+        reinterpret_cast<const __m256i*>(prec + ib));
+    const auto eq = static_cast<uint32_t>(_mm256_movemask_epi8(
+        _mm256_cmpeq_epi8(v, _mm256_set1_epi8(p0))));
+    if ((eq & valid) != valid) return 0;
+    return (k <= 32) ? 1 : -1;
+}
+#endif  // __x86_64__
+
 class MultiPassArena final : public IEvaluator {
     using CIt = std::vector<Candidate>::const_iterator;
 
@@ -104,6 +195,10 @@ private:
     std::vector<Token>                  tokens_;
     std::vector<ArenaAst::Node>         nodes_;
     std::vector<std::vector<Candidate>> candsByDepth_;
+    std::vector<Buckets>                bucketsByDepth_;
+#if MP_ARENA_SIMD
+    std::vector<std::vector<int8_t>>    precByDepth_;  // mirrors candsByDepth_
+#endif
     std::vector<std::size_t>            parenMatch_;
     const double*                       vars_ = nullptr;
 
@@ -116,7 +211,15 @@ private:
 
     // One O(n) pass: build per-depth candidate lists + precomputed paren matches.
     void buildCandidates() {
-        candsByDepth_.clear();
+        // Clear contents but keep every inner vector's capacity — after a few
+        // evals no allocation happens here at all.
+        for (auto& v : candsByDepth_) v.clear();
+        for (auto& b : bucketsByDepth_) {
+            b.p1.clear(); b.p2.clear(); b.caret.clear(); b.un.clear();
+        }
+#if MP_ARENA_SIMD
+        for (auto& p : precByDepth_) p.clear();
+#endif
         const std::size_t n = tokens_.size();
         parenMatch_.assign(n, 0);
         int  depth = 0;
@@ -155,15 +258,35 @@ private:
                         c.rightAssoc = (tokens_[i].type == TokenType::Caret);
                         c.unary      = false;
                     }
-                    if (depth >= static_cast<int>(candsByDepth_.size()))
+                    if (depth >= static_cast<int>(candsByDepth_.size())) {
                         candsByDepth_.resize(static_cast<std::size_t>(depth) + 1);
+                        bucketsByDepth_.resize(static_cast<std::size_t>(depth) + 1);
+#if MP_ARENA_SIMD
+                        precByDepth_.resize(static_cast<std::size_t>(depth) + 1);
+#endif
+                    }
                     candsByDepth_[static_cast<std::size_t>(depth)].push_back(c);
+#if MP_ARENA_SIMD
+                    precByDepth_[static_cast<std::size_t>(depth)]
+                        .push_back(static_cast<int8_t>(c.prec));
+#endif
+                    auto& bk = bucketsByDepth_[static_cast<std::size_t>(depth)];
+                    const auto pos32 = static_cast<uint32_t>(i);
+                    if (c.unary)          bk.un.push_back(pos32);
+                    else if (c.prec == 1) bk.p1.push_back(pos32);
+                    else if (c.prec == 2) bk.p2.push_back(pos32);
+                    else                  bk.caret.push_back(pos32);
                     expectOperand = true;
                     break;
                 }
                 default: break;
             }
         }
+#if MP_ARENA_SIMD
+        // 32 zero bytes of padding so window loads never read out of bounds
+        // (zeros match no precedence class).
+        for (auto& p : precByDepth_) p.insert(p.end(), 32, 0);
+#endif
     }
 
     struct ByPos {
@@ -180,22 +303,53 @@ private:
         return {b, e};
     }
 
+    // Bucket-based equivalent of the full RTL scan, O(log n): the rightmost
+    // prec-1 candidate, else the rightmost prec-2, else the range's first
+    // candidate — which is then either a leading unary (lowest precedence
+    // present) or the leftmost ^ (right-assoc). A unary candidate that is not
+    // at the very start of the range cannot be first: the token before it is
+    // a same-depth operator, which would itself be the earlier candidate.
+    CIt findSplitBuckets(CIt beg, CIt end, int depth) const {
+        const auto& bk = bucketsByDepth_[static_cast<std::size_t>(depth)];
+        const std::size_t blo = beg->pos, bhi = end[-1].pos + 1;
+        std::size_t p = rightmostIn(bk.p1, blo, bhi);
+        if (p == kNone) p = rightmostIn(bk.p2, blo, bhi);
+        if (p == kNone) return beg;
+        return std::lower_bound(beg, end, p, ByPos{});
+    }
+
+    // True iff every candidate in [beg, end) is binary with one precedence.
+    // Answered from the buckets so a long flat prefix is never rescanned.
+    bool flatByBuckets(CIt beg, CIt end, int depth) const {
+        const auto& bk = bucketsByDepth_[static_cast<std::size_t>(depth)];
+        const std::size_t blo = beg->pos, bhi = end[-1].pos + 1;
+        if (anyIn(bk.un, blo, bhi)) return false;
+        const int classes = (anyIn(bk.p1, blo, bhi) ? 1 : 0) +
+                            (anyIn(bk.p2, blo, bhi) ? 1 : 0) +
+                            (anyIn(bk.caret, blo, bhi) ? 1 : 0);
+        return classes == 1;
+    }
+
     // Returns iterator to the split candidate, or `end` if none.
     // RTL scan: left-assoc tie-break (rightmost) = free; early exit at prec==1.
-    CIt findSplit(CIt beg, CIt end, std::size_t lo) const {
+    // Bounded: past kScanBudget candidates without a prec-1 hit, the answer
+    // comes from the buckets instead — O(log n), never O(k).
+    CIt findSplit(CIt beg, CIt end, std::size_t lo, int depth) const {
         if (beg == end) return end;
         CIt best = end;
-        for (auto it = end; it != beg; ) {
+        const CIt stop = (end - beg > kScanBudget) ? end - kScanBudget : beg;
+        for (auto it = end; it != stop; ) {
             --it;
             if (it->unary && it->pos != lo) continue;
             if (best == end || it->prec < best->prec) {
                 best = it;
-                if (best->prec == 1 && !best->rightAssoc) break;
+                if (best->prec == 1 && !best->rightAssoc) return best;
             } else if (it->prec == best->prec && best->rightAssoc) {
                 best = it;  // right-assoc: prefer leftmost
             }
         }
-        return best;
+        if (stop == beg) return best;     // scanned everything: exact answer
+        return findSplitBuckets(beg, end, depth);
     }
 
     int emit(ArenaAst::Node nd) {
@@ -215,9 +369,29 @@ private:
         if (cbeg != cend) {
             const int  chainPrec = cbeg->prec;
             const bool chainRa   = cbeg->rightAssoc;
-            bool flat = true;
-            for (auto it = cbeg; it != cend; ++it)
-                if (it->unary || it->prec != chainPrec) { flat = false; break; }
+            // Hybrid flatness check: scan a bounded prefix first — a mixed
+            // range is usually disproved within a few candidates (old cost).
+            // Only a uniform prefix longer than the budget asks the buckets
+            // to vouch for the rest (O(log n), never an O(k) rescan).
+            bool flat;
+#if MP_ARENA_SIMD
+            if (kHasAvx2) {
+                const auto& dv = candsByDepth_[static_cast<std::size_t>(depth)];
+                const int f = simdWindowFlat(
+                    precByDepth_[static_cast<std::size_t>(depth)].data(),
+                    cbeg - dv.begin(), cend - dv.begin());
+                flat = (f < 0) ? flatByBuckets(cbeg, cend, depth) : (f != 0);
+            } else
+#endif
+            {
+                flat = true;
+                const CIt scanEnd =
+                    (cend - cbeg > kScanBudget) ? cbeg + kScanBudget : cend;
+                for (auto it = cbeg; it != scanEnd; ++it)
+                    if (it->unary || it->prec != chainPrec) { flat = false; break; }
+                if (flat && scanEnd != cend)
+                    flat = flatByBuckets(cbeg, cend, depth);
+            }
 
             if (flat) {
                 if (!chainRa) {
@@ -253,7 +427,23 @@ private:
         }
 
         // General split: pass sliced iterators to sub-ranges — O(1), no search.
-        const CIt splitIt = findSplit(cbeg, cend, lo);
+        CIt splitIt;
+#if MP_ARENA_SIMD
+        if (kHasAvx2) {
+            if (cbeg == cend) {
+                splitIt = cend;
+            } else {
+                const auto& dv = candsByDepth_[static_cast<std::size_t>(depth)];
+                const long r = simdWindowSplit(
+                    precByDepth_[static_cast<std::size_t>(depth)].data(),
+                    cbeg - dv.begin(), cend - dv.begin());
+                splitIt = (r == kWinBuckets) ? findSplitBuckets(cbeg, cend, depth)
+                        : (r == kWinFirst)   ? cbeg
+                                             : dv.begin() + r;
+            }
+        } else
+#endif
+        splitIt = findSplit(cbeg, cend, lo, depth);
         if (splitIt != cend) {
             if (splitIt->unary) {
                 int operand = parseRange(splitIt->pos + 1, hi, depth,

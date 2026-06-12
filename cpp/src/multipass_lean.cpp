@@ -56,12 +56,38 @@ struct Cand {
     uint8_t  _pad{};
 };
 
+// Sorted token positions of one depth's candidates, split by precedence class
+// — the O(log n) fallback once a linear scan exceeds its budget.
+struct Buckets {
+    std::vector<uint32_t> p1, p2, caret, un;
+};
+
+// Linear scans give up after this many candidates and consult the buckets.
+constexpr int kScanBudget = 16;
+
+constexpr uint32_t kNoPos = UINT32_MAX;
+
+// Rightmost position in sorted `v` within [lo, hi), or kNoPos.
+static uint32_t rightmostIn(const std::vector<uint32_t>& v,
+                            uint32_t lo, uint32_t hi) {
+    auto it = std::lower_bound(v.begin(), v.end(), hi);
+    if (it == v.begin()) return kNoPos;
+    --it;
+    return (*it >= lo) ? *it : kNoPos;
+}
+
+static bool anyIn(const std::vector<uint32_t>& v, uint32_t lo, uint32_t hi) {
+    auto it = std::lower_bound(v.begin(), v.end(), lo);
+    return it != v.end() && *it < hi;
+}
+
 // ───────────────────────────────────────────── shared base ─────────────────
 
 class LeanBase {
 protected:
     std::vector<Token>               tokens_;
     std::vector<std::vector<Cand>>   cands_;
+    std::vector<Buckets>             bucks_;
     std::vector<uint32_t>            parenMatch_;
     std::vector<uint32_t>            pcStart_;  // parenCandStart
     std::vector<uint32_t>            pcEnd_;    // parenCandEnd
@@ -73,7 +99,11 @@ protected:
         parenMatch_.assign(n, 0);
         pcStart_.assign(n, 0);
         pcEnd_.assign(n, 0);
-        cands_.clear();
+        // Clear contents but keep inner-vector capacities (no realloc churn).
+        for (auto& v : cands_) v.clear();
+        for (auto& b : bucks_) {
+            b.p1.clear(); b.p2.clear(); b.caret.clear(); b.un.clear();
+        }
         int depth = 0;
         bool expectOperand = true;
         std::vector<uint32_t> stk;
@@ -81,7 +111,9 @@ protected:
             switch (tokens_[i].type) {
                 case TokenType::LParen:
                     stk.push_back(i); ++depth;
-                    if (depth >= (int)cands_.size()) cands_.resize(depth+1);
+                    if (depth >= (int)cands_.size()) {
+                        cands_.resize(depth+1); bucks_.resize(depth+1);
+                    }
                     pcStart_[i] = (uint32_t)cands_[depth].size();
                     expectOperand = true;
                     break;
@@ -107,8 +139,15 @@ protected:
                     } else {
                         c.prec = (int8_t)binPrec(ty); c.rightAssoc = (ty == TokenType::Caret); c.unary = false;
                     }
-                    if (depth >= (int)cands_.size()) cands_.resize(depth+1);
+                    if (depth >= (int)cands_.size()) {
+                        cands_.resize(depth+1); bucks_.resize(depth+1);
+                    }
                     cands_[depth].push_back(c);
+                    auto& bk = bucks_[depth];
+                    if (c.unary)          bk.un.push_back(i);
+                    else if (c.prec == 1) bk.p1.push_back(i);
+                    else if (c.prec == 2) bk.p2.push_back(i);
+                    else                  bk.caret.push_back(i);
                     expectOperand = true;
                     break;
                 }
@@ -151,20 +190,53 @@ public:
         return er(0, n, 0, clo, chi);
     }
 private:
+    // Bucket-based equivalent of the full RTL scan, O(log n): rightmost
+    // prec-1, else rightmost prec-2, else the range's first candidate (a
+    // leading unary or the leftmost right-assoc ^ — a unary not at the range
+    // start can't be first, the token before it is an earlier candidate).
+    int findSplitBuckets(int d, int clo, int chi) const {
+        auto& v = cands_[d];
+        const auto& bk = bucks_[d];
+        const uint32_t blo = v[clo].pos, bhi = v[chi-1].pos + 1;
+        uint32_t p = rightmostIn(bk.p1, blo, bhi);
+        if (p == kNoPos) p = rightmostIn(bk.p2, blo, bhi);
+        if (p == kNoPos) return clo;
+        return (int)(std::lower_bound(v.begin()+clo, v.begin()+chi, p,
+                         [](const Cand& c, uint32_t x){ return c.pos < x; })
+                     - v.begin());
+    }
+
+    // True iff every candidate in [clo, chi) is binary with one precedence,
+    // answered from the buckets — a long flat prefix is never rescanned.
+    bool flatByBuckets(int d, int clo, int chi) const {
+        auto& v = cands_[d];
+        const auto& bk = bucks_[d];
+        const uint32_t blo = v[clo].pos, bhi = v[chi-1].pos + 1;
+        if (anyIn(bk.un, blo, bhi)) return false;
+        const int classes = (anyIn(bk.p1, blo, bhi) ? 1 : 0) +
+                            (anyIn(bk.p2, blo, bhi) ? 1 : 0) +
+                            (anyIn(bk.caret, blo, bhi) ? 1 : 0);
+        return classes == 1;
+    }
+
+    // RTL scan, bounded: past kScanBudget candidates without a prec-1 hit,
+    // the answer comes from the buckets instead — O(log n), never O(k).
     int findSplit(int d, int clo, int chi, uint32_t lo) const {
         if (clo >= chi) return -1;
         auto& v = cands_[d];
         int best = -1;
-        for (int i = chi-1; i >= clo; --i) {
+        const int stop = (chi - clo > kScanBudget) ? chi - kScanBudget : clo;
+        for (int i = chi-1; i >= stop; --i) {
             if (v[i].unary && v[i].pos != lo) continue;
             if (best < 0 || v[i].prec < v[best].prec) {
                 best = i;
-                if (v[best].prec == 1 && !v[best].rightAssoc) break;
+                if (v[best].prec == 1 && !v[best].rightAssoc) return best;
             } else if (v[i].prec == v[best].prec && v[best].rightAssoc) {
                 best = i;
             }
         }
-        return best;
+        if (stop == clo) return best;     // scanned everything: exact answer
+        return findSplitBuckets(d, clo, chi);
     }
 
     double er(uint32_t lo, uint32_t hi, int d, int clo, int chi) {
@@ -172,9 +244,15 @@ private:
         if (clo < chi) {
             auto& v = cands_[d];
             int cp = v[clo].prec; bool cr = v[clo].rightAssoc;
+            // Hybrid flatness check: scan a bounded prefix (mixed ranges are
+            // usually disproved within a few candidates); only a uniform
+            // prefix longer than the budget asks the buckets for the rest.
             bool flat = true;
-            for (int i = clo; i < chi; ++i)
+            const int scanEnd = (chi - clo > kScanBudget) ? clo + kScanBudget : chi;
+            for (int i = clo; i < scanEnd; ++i)
                 if (v[i].unary || v[i].prec != cp) { flat = false; break; }
+            if (flat && scanEnd != chi)
+                flat = flatByBuckets(d, clo, chi);
             if (flat) {
                 if (!cr) {
                     double acc = er(lo, v[clo].pos, d, chi, chi);

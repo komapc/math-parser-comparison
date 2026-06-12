@@ -28,6 +28,13 @@ namespace {
 //       precedence level, build the sub-tree iteratively (left- or right-fold)
 //       instead of recursing O(n) deep — eliminates the O(n^2) worst case on
 //       skewed chains like 1+2+3+...+n.
+//   #7  Bounded scans + precedence buckets: #5 and #6 are still O(k) linear
+//       scans when their early exits never fire (mixed-precedence chains with
+//       no + or -; a long flat prefix rescanned before every split — see
+//       bench/adversarial_bench.cpp). Both scans now give up after
+//       kScanBudget candidates and answer from per-depth sorted position
+//       arrays (one per precedence class) by binary search: worst case drops
+//       from Theta(n^2) to O(n log n).
 //
 // The nesting depth is threaded through parseRange() so the correct per-depth
 // candidate list is consulted at every level of recursion, including inside
@@ -58,6 +65,30 @@ struct Candidate {
     bool        unary;      // only valid as root when pos == lo of the range
 };
 
+// Fix #7: sorted token positions of one depth's candidates, split by
+// precedence class — the O(log n) fallback once a linear scan exceeds its
+// budget.
+struct Buckets {
+    std::vector<std::size_t> p1, p2, caret, un;
+};
+
+constexpr std::ptrdiff_t kScanBudget = 16;
+constexpr std::size_t    kNone       = static_cast<std::size_t>(-1);
+
+// Rightmost position in sorted `v` within [lo, hi), or kNone.
+std::size_t rightmostIn(const std::vector<std::size_t>& v,
+                        std::size_t lo, std::size_t hi) {
+    auto it = std::lower_bound(v.begin(), v.end(), hi);
+    if (it == v.begin()) return kNone;
+    --it;
+    return (*it >= lo) ? *it : kNone;
+}
+
+bool anyIn(const std::vector<std::size_t>& v, std::size_t lo, std::size_t hi) {
+    auto it = std::lower_bound(v.begin(), v.end(), lo);
+    return it != v.end() && *it < hi;
+}
+
 class MultiPass final : public IParser {
 public:
     const char* name() const override { return "multipass"; }
@@ -71,12 +102,17 @@ public:
 private:
     std::vector<Token>              tokens_;
     std::vector<std::vector<Candidate>> candsByDepth_;
+    std::vector<Buckets>            bucketsByDepth_;  // fix #7
     std::vector<std::size_t>        parenMatch_;  // parenMatch_[i] = index of matching bracket
 
     // Single O(n) pass: record operators at every nesting depth AND precompute
     // matching-paren indices so paren-stripping in parseRange() is O(1) not O(n).
     void buildCandidates() {
-        candsByDepth_.clear();
+        // Clear contents but keep inner-vector capacities (no realloc churn).
+        for (auto& v : candsByDepth_) v.clear();
+        for (auto& b : bucketsByDepth_) {
+            b.p1.clear(); b.p2.clear(); b.caret.clear(); b.un.clear();
+        }
         const std::size_t n = tokens_.size();
         parenMatch_.assign(n, 0);
 
@@ -117,9 +153,16 @@ private:
                         c.rightAssoc = (tokens_[i].type == TokenType::Caret);
                         c.unary      = false;
                     }
-                    if (depth >= static_cast<int>(candsByDepth_.size()))
+                    if (depth >= static_cast<int>(candsByDepth_.size())) {
                         candsByDepth_.resize(static_cast<std::size_t>(depth) + 1);
+                        bucketsByDepth_.resize(static_cast<std::size_t>(depth) + 1);
+                    }
                     candsByDepth_[static_cast<std::size_t>(depth)].push_back(c);
+                    auto& bk = bucketsByDepth_[static_cast<std::size_t>(depth)];
+                    if (c.unary)          bk.un.push_back(i);
+                    else if (c.prec == 1) bk.p1.push_back(i);
+                    else if (c.prec == 2) bk.p2.push_back(i);
+                    else                  bk.caret.push_back(i);
                     expectOperand = true;
                     break;
                 }
@@ -144,23 +187,53 @@ private:
         return {b, e};
     }
 
+    // Fix #7: bucket-based equivalent of the full RTL scan, O(log n) — the
+    // rightmost prec-1 candidate, else the rightmost prec-2, else the range's
+    // first candidate (a leading unary, or the leftmost right-assoc ^; a unary
+    // not at the range start can't be first, since the token before it is a
+    // same-depth operator, which would itself be the earlier candidate).
+    const Candidate* findSplitBuckets(CIt beg, CIt end, int depth) const {
+        const auto& bk = bucketsByDepth_[static_cast<std::size_t>(depth)];
+        const std::size_t blo = beg->pos, bhi = end[-1].pos + 1;
+        std::size_t p = rightmostIn(bk.p1, blo, bhi);
+        if (p == kNone) p = rightmostIn(bk.p2, blo, bhi);
+        if (p == kNone) return &*beg;
+        return &*std::lower_bound(beg, end, p, ByPos{});
+    }
+
+    // Fix #7: flatness answered from the buckets — true iff every candidate
+    // in [beg, end) is binary with one precedence. O(log n), never O(k).
+    bool flatByBuckets(CIt beg, CIt end, int depth) const {
+        const auto& bk = bucketsByDepth_[static_cast<std::size_t>(depth)];
+        const std::size_t blo = beg->pos, bhi = end[-1].pos + 1;
+        if (anyIn(bk.un, blo, bhi)) return false;
+        const int classes = (anyIn(bk.p1, blo, bhi) ? 1 : 0) +
+                            (anyIn(bk.p2, blo, bhi) ? 1 : 0) +
+                            (anyIn(bk.caret, blo, bhi) ? 1 : 0);
+        return classes == 1;
+    }
+
     // Fix #5: scan RTL for left-assoc tie-break (rightmost wins = first found RTL).
     // Early exit the moment prec==1 is found. Right-assoc (^): override with the
     // leftmost by continuing to scan; can't early-exit in that case.
-    const Candidate* findSplit(CIt beg, CIt end, std::size_t lo) const {
+    // Fix #7: the scan is bounded — past kScanBudget candidates without a
+    // prec-1 hit, the answer comes from the buckets instead.
+    const Candidate* findSplit(CIt beg, CIt end, std::size_t lo, int depth) const {
         if (beg == end) return nullptr;
         const Candidate* best = nullptr;
-        for (auto it = end; it != beg; ) {
+        const CIt stop = (end - beg > kScanBudget) ? end - kScanBudget : beg;
+        for (auto it = end; it != stop; ) {
             --it;
             if (it->unary && it->pos != lo) continue;
             if (!best || it->prec < best->prec) {
                 best = &*it;
-                if (best->prec == 1 && !best->rightAssoc) break;  // fix #5: early exit
+                if (best->prec == 1 && !best->rightAssoc) return best;  // fix #5
             } else if (it->prec == best->prec && best->rightAssoc) {
                 best = &*it;  // right-assoc: prefer leftmost
             }
         }
-        return best;
+        if (stop == beg) return best;     // scanned everything: exact answer
+        return findSplitBuckets(beg, end, depth);
     }
 
     ExprPtr parseRange(std::size_t lo, std::size_t hi, int depth) {
@@ -173,9 +246,17 @@ private:
         if (cbeg != cend) {
             const int  chainPrec = cbeg->prec;
             const bool chainRa   = cbeg->rightAssoc;
+            // Fix #7 (hybrid): scan a bounded prefix — a mixed range is
+            // usually disproved within a few candidates (old cost); only a
+            // uniform prefix longer than the budget asks the buckets to vouch
+            // for the rest (O(log n), never an O(k) rescan).
             bool flat = true;
-            for (auto it = cbeg; it != cend; ++it)
+            const CIt scanEnd =
+                (cend - cbeg > kScanBudget) ? cbeg + kScanBudget : cend;
+            for (auto it = cbeg; it != scanEnd; ++it)
                 if (it->unary || it->prec != chainPrec) { flat = false; break; }
+            if (flat && scanEnd != cend)
+                flat = flatByBuckets(cbeg, cend, depth);
 
             if (flat) {
                 if (!chainRa) {
@@ -211,7 +292,7 @@ private:
         }
 
         // General case: find the one split point.
-        if (const Candidate* split = findSplit(cbeg, cend, lo)) {
+        if (const Candidate* split = findSplit(cbeg, cend, lo, depth)) {
             if (split->unary)
                 return unary(tokens_[split->pos].type,
                              parseRange(split->pos + 1, hi, depth));
