@@ -204,8 +204,13 @@ ranges resolve inside the budget on the unchanged fast path; adversarial
 chains drop from Θ(n²) to **O(n log n)**. `multipass-arena` in C++
 additionally answers both questions with a single AVX2 compare over a
 per-depth precedence byte array (runtime-dispatched, scalar fallback) — worth
-another ~5–10 % on the random corpus. The Python port builds its buckets
-lazily on first fallback; in Haskell laziness does that for free.
+another ~5–10 % on the random corpus. In Haskell the buckets only materialise
+if a budget is ever exceeded — laziness for free. Python — where per-split
+bisect overhead is itself expensive — goes one step further: when the budget
+trips, it folds the **whole precedence level** in one pass over the bucket
+slice (left-assoc level folds build the same tree as repeated rightmost
+splits), and the flat check is a precomputed O(1) "next class change" lookup
+instead of any scan at all.
 
 Effect at m=8192, ns/leaf on the **neutral 4-vCPU GitHub runner** (before =
 the last pre-fix CI run, after = the post-fix CI run; flat across
@@ -238,8 +243,9 @@ port, their towerchain climbed ~3× per 4× length on the neutral runner (Python
 top-down 61 000–62 000 ns/leaf at m=1024 with `multipass-bfs` at 27 873;
 Haskell 14 700–17 500 at m=4096 with bfs at 6 118 — versus flat 3 243 / 1 435
 for `multipass-reverse`); after it, both chains are flat on the local laptop
-(Python towerchain ~26 000–33 000 ns/leaf at every size, Haskell ~2 900–3 800)
-— neutral-runner numbers regenerate with the next CI bench run.
+(Python towerchain ~12 000–25 000 ns/leaf at every size — in line with its
+own sumchain control — and Haskell ~2 900–3 800) — neutral-runner numbers
+regenerate with the next CI bench run.
 
 Per-language detail and full tables: [`cpp/`](cpp/README.md) · [`python/`](python/README.md) · [`haskell/`](haskell/README.md).
 

@@ -355,17 +355,26 @@ def _better(a, b):
 SCAN_BUDGET = 16
 
 
-def _any_in(lst, b, e):
-    j = bisect_left(lst, b)
-    return j < len(lst) and lst[j] < e
-
-
 class _MP:
     def __init__(self, tokens, with_sparse):
         self.t = tokens
         self.cbd, self.pm = _build_candidates(tokens)
         self.st = self._build_sparse() if with_sparse else None
         self.bks = None  # per-depth precedence buckets, built on first need
+        # nd[d][i]: first index after i whose candidate has a different
+        # precedence class (unary prec 3 is its own class). One O(n) pass
+        # makes every "is [b, e) flat?" question a single O(1) lookup:
+        # flat iff v[b] is binary and nd[d][b] >= e.
+        self.nd = []
+        for vd in self.cbd:
+            k = len(vd)
+            nd = [0] * k
+            for i in range(k - 1, -1, -1):
+                if i + 1 < k and vd[i + 1][1] == vd[i][1]:
+                    nd[i] = nd[i + 1]
+                else:
+                    nd[i] = i + 1
+            self.nd.append(nd)
 
     # Per depth, the candidate *indices* of each precedence class, sorted —
     # (prec-1, prec-2, caret, unary). Lets a long range answer "rightmost
@@ -383,27 +392,35 @@ class _MP:
                 self.bks.append((b1, b2, bc, bu))
         return self.bks
 
-    def _split_buckets(self, depth, b, e):
-        # rightmost prec-1 candidate in [b, e), else rightmost prec-2, else
-        # the range's first candidate — a leading unary (lowest precedence
-        # present) or the leftmost right-assoc ^. A unary that is not at the
-        # range start cannot be first: the token before it is a same-depth
-        # operator, which would itself be the earlier candidate.
+    def _level_fold(self, B, v, b, e, lo, hi, depth):
+        # Bucket fallback, folding a whole precedence level at once: the
+        # lowest class present in [b, e) is prec-1, else prec-2 (both
+        # left-assoc, so an iterative left fold over *all* its operators
+        # builds the same tree as repeated rightmost splits — one bucket
+        # slice per level instead of per split). Otherwise the range is
+        # ^/unary only and its first candidate is the root — a leading unary
+        # (lowest precedence present) or the leftmost right-assoc ^. A unary
+        # not at the range start cannot be first: the token before it is a
+        # same-depth operator, itself the earlier candidate.
         b1, b2, _, _ = self._buckets()[depth]
-        j = bisect_left(b1, e) - 1
-        if j >= 0 and b1[j] >= b:
-            return b1[j]
-        j = bisect_left(b2, e) - 1
-        if j >= 0 and b2[j] >= b:
-            return b2[j]
-        return b
-
-    def _flat_buckets(self, depth, b, e):
-        # True iff every candidate in [b, e) is binary with one precedence.
-        b1, b2, bc, bu = self._buckets()[depth]
-        if _any_in(bu, b, e):
-            return False
-        return _any_in(b1, b, e) + _any_in(b2, b, e) + _any_in(bc, b, e) == 1
+        for bk in (b1, b2):
+            i0 = bisect_left(bk, b)
+            i1 = bisect_left(bk, e, lo=i0)
+            if i0 < i1:
+                acc = self._range(B, lo, v[bk[i0]][0], depth)
+                for j in range(i0, i1):
+                    pos = v[bk[j]][0]
+                    nhi = v[bk[j + 1]][0] if j + 1 < i1 else hi
+                    rhs = self._range(B, pos + 1, nhi, depth)
+                    acc = B.binop(BIN_CHAR[self.t[pos].kind], acc, rhs)
+                return acc
+        pos = v[b][0]
+        if v[b][3]:  # leading unary
+            operand = self._range(B, pos + 1, hi, depth)
+            return B.neg(operand) if self.t[pos].kind == MINUS else B.pos(operand)
+        l = self._range(B, lo, pos, depth)
+        r = self._range(B, pos + 1, hi, depth)
+        return B.binop(BIN_CHAR[self.t[pos].kind], l, r)
 
     # sparse table per depth: st[d][k][i] = argmin (_better) over [i, i+2^k)
     def _build_sparse(self):
@@ -451,8 +468,9 @@ class _MP:
                 return -1
             return si
         # linear right-to-left scan: free left-assoc tie-break + early exit.
-        # Bounded: past SCAN_BUDGET candidates without a prec-1 hit, the
-        # answer comes from the buckets instead — O(log k), never O(k).
+        # Bounded: past SCAN_BUDGET candidates without a prec-1 hit, signal
+        # the caller to fold the whole level from the buckets instead (-2) —
+        # one bucket slice per level, never an O(k) rescan per split.
         best = -1
         stop = e - SCAN_BUDGET if e - b > SCAN_BUDGET else b
         i = e
@@ -469,7 +487,7 @@ class _MP:
                 best = i
         if stop == b:
             return best  # scanned everything: exact answer
-        return self._split_buckets(depth, b, e)
+        return -2
 
     def parse(self, B):
         return self._range(B, 0, len(self.t) - 1, 0)
@@ -480,17 +498,10 @@ class _MP:
         v, b, e = self._cand_range(lo, hi, depth)
 
         # flat chain: all candidates share one precedence — fold iteratively.
-        # Hybrid check: a mixed range is usually disproved within a few
-        # candidates (scanned prefix); only a uniform prefix longer than the
-        # budget asks the buckets to vouch for the rest.
+        # O(1) check via the precomputed next-class-change index.
         if b < e:
             chain_prec, chain_ra = v[b][1], v[b][2]
-            scan_end = b + SCAN_BUDGET if e - b > SCAN_BUDGET else e
-            flat = all(not v[i][3] and v[i][1] == chain_prec
-                       for i in range(b, scan_end))
-            if flat and scan_end != e:
-                flat = self._flat_buckets(depth, b, e)
-            if flat:
+            if not v[b][3] and self.nd[depth][b] >= e:
                 if not chain_ra:  # left fold
                     acc = self._range(B, lo, v[b][0], depth)
                     for i in range(b, e):
@@ -514,6 +525,8 @@ class _MP:
 
         # general split
         s = self._split(v, b, e, lo, depth)
+        if s == -2:  # budget exhausted: fold the whole level from the buckets
+            return self._level_fold(B, v, b, e, lo, hi, depth)
         if s != -1:
             pos = v[s][0]
             if v[s][3]:  # unary
