@@ -277,6 +277,46 @@ better a b
 floorLog2 :: Int -> Int
 floorLog2 x = finiteBitSize x - 1 - countLeadingZeros x
 
+-- Per depth, the candidate *indices* of each precedence class, ascending:
+-- prec-1 (+ -), prec-2 (* /), caret, unary. Lets a long range answer
+-- "rightmost prec-1/-2 in [b, e)" and "is [b, e) single-class?" by binary
+-- search instead of an O(k) rescan — the fallback that caps the two former
+-- Theta(n^2) worst cases (powchain / towerchain in app/Adversarial.hs) at
+-- O(n log n). Thanks to laziness the arrays only materialise if a scan ever
+-- exceeds its budget.
+data Bucks = Bucks (Array Int Int) (Array Int Int) (Array Int Int) (Array Int Int)
+
+-- Linear scans give up after this many candidates and consult the buckets.
+mpScanBudget :: Int
+mpScanBudget = 16
+
+buildBuckets :: Array Int (Array Int Cand) -> Int -> Array Int Bucks
+buildBuckets candArr dCount =
+  listArray (0, max 0 (dCount - 1)) [ one (candArr ! d) | d <- [0 .. dCount - 1] ]
+  where
+    one a =
+      let idxs  = [0 .. rangeSize (bounds a) - 1]
+          sel p = let xs = [ i | i <- idxs, p (a ! i) ] in listArray (0, length xs - 1) xs
+      in Bucks (sel (\c -> not (cUnary c) && cPrec c == 1))
+               (sel (\c -> not (cUnary c) && cPrec c == 2))
+               (sel (\c -> not (cUnary c) && cPrec c == 4))
+               (sel cUnary)
+
+-- first index into the ascending array whose value is >= key
+lbVal :: Array Int Int -> Int -> Int
+lbVal a key = go 0 (rangeSize (bounds a))
+  where go l r | l >= r = l
+               | a ! m < key = go (m + 1) r
+               | otherwise = go l m
+          where m = (l + r) `div` 2
+
+rightmostIn :: Array Int Int -> Int -> Int -> Int   -- value in [b, e), or -1
+rightmostIn a b e = let j = lbVal a e - 1
+                    in if j >= 0 && a ! j >= b then a ! j else -1
+
+anyIn :: Array Int Int -> Int -> Int -> Bool
+anyIn a b e = let j = lbVal a b in j < rangeSize (bounds a) && a ! j < e
+
 mpRun :: Sym r => Bool -> [Tok] -> r
 mpRun useSparse toks = parseRange 0 hi0 0 a0 b0 e0
   where
@@ -286,6 +326,7 @@ mpRun useSparse toks = parseRange 0 hi0 0 a0 b0 e0
 
     (parenMatch, candArr, dCount) = buildCandidates arr n
     sparse   = if useSparse then Just (buildSparse candArr dCount) else Nothing
+    bucks    = buildBuckets candArr dCount
 
     emptyA   = listArray (0, -1) [] :: Array Int Cand
     candRangeAt depth lo hi
@@ -334,8 +375,14 @@ mpRun useSparse toks = parseRange 0 hi0 0 a0 b0 e0
       where
         chainPrec = cPrec (a ! b)
         chainRA   = cRA (a ! b)
-        flat      = b < e && all (\i -> not (cUnary (a ! i)) && cPrec (a ! i) == chainPrec)
-                                 [b .. e - 1]
+        -- hybrid flatness check: a mixed range is usually disproved within
+        -- the scanned prefix; only a uniform prefix longer than the budget
+        -- asks the buckets to vouch for the rest (never an O(k) rescan)
+        uniform i j = all (\x -> not (cUnary (a ! x)) && cPrec (a ! x) == chainPrec) [i .. j]
+        flat
+          | e - b <= mpScanBudget = b < e && uniform b (e - 1)
+          | uniform b (b + mpScanBudget - 1) = flatByBuckets depth b e
+          | otherwise = False
         s = splitAt' a b e lo depth
 
         leftFold =
@@ -355,6 +402,26 @@ mpRun useSparse toks = parseRange 0 hi0 0 a0 b0 e0
           in foldr (\(i, p) acc -> sBin (opOf (tKind (arr ! cPos (a ! i)))) p acc)
                    (last parts) (zip idxs (init parts))
 
+    -- True iff every candidate in [b, e) is binary with one precedence,
+    -- answered from the buckets in O(log k).
+    flatByBuckets depth b e =
+      let Bucks p1 p2 pc pu = bucks ! depth
+      in not (anyIn pu b e) &&
+         length (filter id [anyIn p1 b e, anyIn p2 b e, anyIn pc b e]) == 1
+
+    -- Bucket equivalent of the full RTL scan: rightmost prec-1 candidate in
+    -- [b, e), else rightmost prec-2, else the range's first candidate — a
+    -- leading unary (lowest precedence present) or the leftmost right-assoc
+    -- ^. A unary not at the range start cannot be first: the token before it
+    -- is a same-depth operator, itself the earlier candidate.
+    splitByBuckets depth b e =
+      let Bucks p1 p2 _ _ = bucks ! depth
+      in case rightmostIn p1 b e of
+           i | i >= 0 -> i
+           _ -> case rightmostIn p2 b e of
+                  i | i >= 0 -> i
+                  _          -> b
+
     -- split index, threading depth for the sparse path
     splitAt' a b e lo depth
       | Just _ <- sparse =
@@ -365,15 +432,18 @@ mpRun useSparse toks = parseRange 0 hi0 0 a0 b0 e0
                        then head ([ i | i <- [b .. e - 1]
                                       , not (cUnary (a ! i)) || cPos (a ! i) == lo ] ++ [-1])
                        else si
-      | otherwise = linear (e - 1) (-1)
+      | otherwise = linear (e - 1) (-1) mpScanBudget
       where
-        linear i best
+        -- bounded RTL scan: past the budget without a prec-1 hit, the answer
+        -- comes from the buckets instead (O(log k), never O(k))
+        linear i best fuel
           | i < b = best
-          | cUnary c && cPos c /= lo = linear (i - 1) best
+          | fuel <= 0 = splitByBuckets depth b e
+          | cUnary c && cPos c /= lo = linear (i - 1) best (fuel - 1)
           | best == (-1) || cPrec c < cPrec (a ! best) =
-              if cPrec c == 1 && not (cRA c) then i else linear (i - 1) i
-          | cPrec c == cPrec (a ! best) && cRA (a ! best) = linear (i - 1) i
-          | otherwise = linear (i - 1) best
+              if cPrec c == 1 && not (cRA c) then i else linear (i - 1) i (fuel - 1)
+          | cPrec c == cPrec (a ! best) && cRA (a ! best) = linear (i - 1) i (fuel - 1)
+          | otherwise = linear (i - 1) best (fuel - 1)
           where c = a ! i
 
 -- one O(n) scan: candidate lists per paren-depth + matching-paren array

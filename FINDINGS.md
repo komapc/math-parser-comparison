@@ -175,8 +175,8 @@ linear scans — top-down had two independent Θ(n²) holes, not one:
 Bottom-up `multipass-reverse` reduces each precedence level in one pass no
 matter how the operators interleave: **Θ(n)** on both.
 
-ns/leaf on the power chain, **before the C++ fix below** (neutral 4-vCPU
-GitHub runner; still current for Python and Haskell):
+ns/leaf on the power chain, **before the fix below** (neutral 4-vCPU
+GitHub runner; all three languages have since been patched):
 
 | family member | C++ m=8192 | Python m=1024 | Haskell m=4096 |
 |---|--:|--:|--:|
@@ -192,19 +192,20 @@ linear, confirming the blow-ups are about *mixed precedence*, not chain length.
 Reproduce with `./build/adversarial_bench`, `python3 python/adversarial.py`,
 `cabal run adversarial`.
 
-### The C++ fix: bounded scans + precedence buckets
+### The fix: bounded scans + precedence buckets
 
-Both holes have the same cure, applied to all four C++ top-down variants: each
-linear scan is **bounded at 16 candidates**, and past the budget the answer
-comes from per-depth **sorted position arrays, one per precedence class**
-(`+ -` / `* /` / `^` / unary), by binary search — the rightmost prec-1 in
-range, else the rightmost prec-2, else the range's first candidate; flatness
-is "exactly one non-unary class present in range". Common ranges resolve
-inside the budget on the unchanged fast path; adversarial chains drop from
-Θ(n²) to **O(n log n)**. `multipass-arena` additionally answers both questions
-with a single AVX2 compare over a per-depth precedence byte array
-(runtime-dispatched, scalar fallback) — worth another ~5–10 % on the random
-corpus.
+Both holes have the same cure, applied to the top-down variants in **all
+three languages**: each linear scan is **bounded at 16 candidates**, and past
+the budget the answer comes from per-depth **sorted position arrays, one per
+precedence class** (`+ -` / `* /` / `^` / unary), by binary search — the
+rightmost prec-1 in range, else the rightmost prec-2, else the range's first
+candidate; flatness is "exactly one non-unary class present in range". Common
+ranges resolve inside the budget on the unchanged fast path; adversarial
+chains drop from Θ(n²) to **O(n log n)**. `multipass-arena` in C++
+additionally answers both questions with a single AVX2 compare over a
+per-depth precedence byte array (runtime-dispatched, scalar fallback) — worth
+another ~5–10 % on the random corpus. The Python port builds its buckets
+lazily on first fallback; in Haskell laziness does that for free.
 
 Effect at m=8192, ns/leaf on the **neutral 4-vCPU GitHub runner** (before =
 the last pre-fix CI run, after = the post-fix CI run; flat across
@@ -230,12 +231,15 @@ Top-down C++ is now *linear* on its own worst case — `multipass-arena` and
 never asks a question whose answer lies elsewhere in the range. The random
 corpus is unaffected (deltas below the laptop's ±15 % noise floor — the two
 quadratic inputs needed an adversarial bench to find precisely because random
-expressions never trigger them). **Python and Haskell still carry both holes**
-— on the neutral runner's towerchain their top-down variants climb ~3× per 4×
-length (Python 61 000–62 000 ns/leaf at m=1024 with `multipass-bfs` at 27 873;
-Haskell 14 700–17 500 at m=4096 with bfs at 6 118, versus flat 3 243 / 1 435
-for `multipass-reverse`). The fix ports straightforwardly if the asymmetry
-ever matters.
+expressions never trigger them).
+
+The **Python and Haskell ports** close the same holes the same way. Before the
+port, their towerchain climbed ~3× per 4× length on the neutral runner (Python
+top-down 61 000–62 000 ns/leaf at m=1024 with `multipass-bfs` at 27 873;
+Haskell 14 700–17 500 at m=4096 with bfs at 6 118 — versus flat 3 243 / 1 435
+for `multipass-reverse`); after it, both chains are flat on the local laptop
+(Python towerchain ~26 000–33 000 ns/leaf at every size, Haskell ~2 900–3 800)
+— neutral-runner numbers regenerate with the next CI bench run.
 
 Per-language detail and full tables: [`cpp/`](cpp/README.md) · [`python/`](python/README.md) · [`haskell/`](haskell/README.md).
 

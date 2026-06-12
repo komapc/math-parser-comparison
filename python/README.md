@@ -6,7 +6,7 @@ Idiomatic Python port of all twelve strategies. Run from the repo root.
 python3 python/test_parsers.py     # correctness (252 checks)
 python3 bench/gen_corpus.py        # generate shared corpora (once)
 python3 python/bench.py            # cross-check + timing on shared corpora
-python3 python/adversarial.py      # structured chains: multipass top-down Θ(n²) vs reverse Θ(n)
+python3 python/adversarial.py      # structured chains: top-down multipass worst cases (now O(n log n)) vs reverse Θ(n)
 ```
 
 Requires Python 3.10+ (uses `bisect(..., key=...)`).

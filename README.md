@@ -63,9 +63,9 @@ Reading it:
   `^`-tower variant that even catches the RMQ-equipped `multipass-bfs`) the
   top-down splitters degenerate to **Θ(n²)** while bottom-up stays **Θ(n)** —
   measured **~8× (Haskell) to ~115× (C++)** in `multipass-reverse`'s favour,
-  growing with n. The C++ family has since been patched (bounded scans +
-  per-precedence position buckets cap it at **O(n log n)**, shrinking the gap
-  there to ~2–5×); Python and Haskell still carry the holes.
+  growing with n. The top-down family has since been patched in all three
+  languages (bounded scans + per-precedence position buckets cap it at
+  **O(n log n)**, shrinking the C++ gap to ~2–6×) — bottom-up needed no patch.
   See [FINDINGS.md](FINDINGS.md#where-bottom-up-provably-wins-mixed-precedence-chains).
 
 ### …and the same comparison at 4 cores

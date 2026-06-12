@@ -348,11 +348,62 @@ def _better(a, b):
     return (a[0] < b[0]) if a[2] else (a[0] > b[0])
 
 
+# Linear scans inside _MP give up after this many candidates and consult the
+# per-precedence buckets instead (see _MP._buckets) — caps the two former
+# Theta(n^2) worst cases (powchain / towerchain in adversarial.py) at
+# O(n log n) while leaving short ranges on the unchanged fast path.
+SCAN_BUDGET = 16
+
+
+def _any_in(lst, b, e):
+    j = bisect_left(lst, b)
+    return j < len(lst) and lst[j] < e
+
+
 class _MP:
     def __init__(self, tokens, with_sparse):
         self.t = tokens
         self.cbd, self.pm = _build_candidates(tokens)
         self.st = self._build_sparse() if with_sparse else None
+        self.bks = None  # per-depth precedence buckets, built on first need
+
+    # Per depth, the candidate *indices* of each precedence class, sorted —
+    # (prec-1, prec-2, caret, unary). Lets a long range answer "rightmost
+    # prec-1/-2 in [b, e)" and "is [b, e) single-class?" by bisect instead of
+    # an O(k) rescan. Built lazily: random expressions rarely need it.
+    def _buckets(self):
+        if self.bks is None:
+            self.bks = []
+            for vd in self.cbd:
+                b1, b2, bc, bu = [], [], [], []
+                for i, (_, prec, _, unary) in enumerate(vd):
+                    (bu if unary else
+                     b1 if prec == 1 else
+                     b2 if prec == 2 else bc).append(i)
+                self.bks.append((b1, b2, bc, bu))
+        return self.bks
+
+    def _split_buckets(self, depth, b, e):
+        # rightmost prec-1 candidate in [b, e), else rightmost prec-2, else
+        # the range's first candidate — a leading unary (lowest precedence
+        # present) or the leftmost right-assoc ^. A unary that is not at the
+        # range start cannot be first: the token before it is a same-depth
+        # operator, which would itself be the earlier candidate.
+        b1, b2, _, _ = self._buckets()[depth]
+        j = bisect_left(b1, e) - 1
+        if j >= 0 and b1[j] >= b:
+            return b1[j]
+        j = bisect_left(b2, e) - 1
+        if j >= 0 and b2[j] >= b:
+            return b2[j]
+        return b
+
+    def _flat_buckets(self, depth, b, e):
+        # True iff every candidate in [b, e) is binary with one precedence.
+        b1, b2, bc, bu = self._buckets()[depth]
+        if _any_in(bu, b, e):
+            return False
+        return _any_in(b1, b, e) + _any_in(b2, b, e) + _any_in(bc, b, e) == 1
 
     # sparse table per depth: st[d][k][i] = argmin (_better) over [i, i+2^k)
     def _build_sparse(self):
@@ -399,21 +450,26 @@ class _MP:
                         return i
                 return -1
             return si
-        # linear right-to-left scan: free left-assoc tie-break + early exit
+        # linear right-to-left scan: free left-assoc tie-break + early exit.
+        # Bounded: past SCAN_BUDGET candidates without a prec-1 hit, the
+        # answer comes from the buckets instead — O(log k), never O(k).
         best = -1
+        stop = e - SCAN_BUDGET if e - b > SCAN_BUDGET else b
         i = e
-        while i > b:
+        while i > stop:
             i -= 1
             pos, prec, ra, unary = v[i]
             if unary and pos != lo:
                 continue
             if best == -1 or prec < v[best][1]:
                 best = i
-                if v[best][1] == 1 and not v[best][2]:
-                    break
+                if prec == 1 and not ra:
+                    return best
             elif prec == v[best][1] and v[best][2]:
                 best = i
-        return best
+        if stop == b:
+            return best  # scanned everything: exact answer
+        return self._split_buckets(depth, b, e)
 
     def parse(self, B):
         return self._range(B, 0, len(self.t) - 1, 0)
@@ -424,9 +480,16 @@ class _MP:
         v, b, e = self._cand_range(lo, hi, depth)
 
         # flat chain: all candidates share one precedence — fold iteratively.
+        # Hybrid check: a mixed range is usually disproved within a few
+        # candidates (scanned prefix); only a uniform prefix longer than the
+        # budget asks the buckets to vouch for the rest.
         if b < e:
             chain_prec, chain_ra = v[b][1], v[b][2]
-            flat = all(not v[i][3] and v[i][1] == chain_prec for i in range(b, e))
+            scan_end = b + SCAN_BUDGET if e - b > SCAN_BUDGET else e
+            flat = all(not v[i][3] and v[i][1] == chain_prec
+                       for i in range(b, scan_end))
+            if flat and scan_end != e:
+                flat = self._flat_buckets(depth, b, e)
             if flat:
                 if not chain_ra:  # left fold
                     acc = self._range(B, lo, v[b][0], depth)

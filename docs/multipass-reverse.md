@@ -168,14 +168,14 @@ left sub-range after every right-end split and rereads it before each one —
 | mixed-precedence chain `b^e * b^e / …` | **Θ(n²)** † | Θ(n log n) | **Θ(n)** |
 | `^`-tower then `*`-run `1^1^…^1*1*1…` | **Θ(n²)** † | **Θ(n²)** † | **Θ(n)** |
 
-† In C++ these holes have since been patched: every linear scan is bounded at
-16 candidates and falls back to per-depth, per-precedence sorted position
-arrays (binary search), capping the whole family at **O(n log n)** on any
-input — see the [FINDINGS section](../FINDINGS.md#the-c-fix-bounded-scans--precedence-buckets)
-for before/after numbers. The Python and Haskell ports still carry both holes,
-and the structural point is unchanged: bottom-up needs no budget and no
-fallback, because it never asks a question whose answer lies elsewhere in the
-range.
+† These holes have since been patched in all three languages: every linear
+scan is bounded at 16 candidates and falls back to per-depth, per-precedence
+sorted position arrays (binary search), capping the whole family at
+**O(n log n)** on any input — see the
+[FINDINGS section](../FINDINGS.md#the-fix-bounded-scans--precedence-buckets)
+for before/after numbers. The structural point is unchanged: bottom-up needs
+no budget and no fallback, because it never asks a question whose answer lies
+elsewhere in the range.
 
 Measured on the neutral 4-vCPU GitHub runner **before that fix**
 (C++, ns/leaf on the power chain).
@@ -194,7 +194,7 @@ xychart-beta
 ```
 
 Cross-language, at the largest size each runtime was measured at (same
-pre-fix run; the Python and Haskell columns are still current):
+pre-fix run — all three languages have since been patched, see †):
 
 | family member | C++ m=8192 | Python m=1024 | Haskell m=4096 |
 |---|--:|--:|--:|
