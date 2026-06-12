@@ -1,20 +1,23 @@
 {-# LANGUAGE BangPatterns #-}
 
 -- | Adversarial (structured, non-random) inputs that separate the multipass
--- family. Two flat chains, no parentheses (mirrors
+-- family. Three flat chains, no parentheses (mirrors
 -- cpp/bench/adversarial_bench.cpp):
 --
---   powchain  3^2 * 2^2 / 2^2 * 3^3 / 3^3 ...   alternating-precedence (^ vs */)
---   sumchain  1 + 2 - 3 + 4 ...                 single-precedence (control)
+--   powchain   3^2 * 2^2 / 2^2 * 3^3 / 3^3 ...   alternating-precedence (^ vs */)
+--   towerchain 1^1^...^1 * 1 * 1 * ...           long ^ run, then a * run
+--   sumchain   1 + 2 - 3 + 4 ...                 single-precedence (control)
 --
 -- On powchain the top-down splitters degenerate: the candidate list mixes
 -- prec 2 and prec 4, so the flat-chain fold never applies and the linear
 -- right-to-left split scan has no prec-1 early exit — every split rescans its
 -- whole range: Theta(n^2) (multipass, multipass-arena, direct-mp). The
--- sparse-table RMQ (multipass-bfs) answers splits in O(1) — the one input
--- family where its precompute pays off. Bottom-up multipass-reverse reduces
--- each level in one pass regardless: Theta(n). sumchain is the control where
--- the whole family stays linear.
+-- sparse-table RMQ (multipass-bfs) answers splits in O(1). towerchain attacks
+-- the OTHER linear scan, the flat-chain *check*: every right-end * split
+-- leaves the long same-precedence ^ prefix in the left sub-range and rereads
+-- it — quadratic even with O(1) splits, so it also catches multipass-bfs.
+-- Bottom-up multipass-reverse reduces each level in one pass regardless:
+-- Theta(n). sumchain is the control where the whole family stays linear.
 module Main (main) where
 
 import Control.Monad (forM, forM_)
@@ -40,6 +43,12 @@ powChain m = concat $ "3 ^ 2" :
   | i <- [1 .. m - 1]
   , let k  = (i - 1) `div` 2
         op = if odd i then " * " else " / " ]
+
+-- m/2 ^ operators in one run, then m-m/2 * factors, all operands 1 — the
+-- value stays exactly 1.0.
+towerChain :: Int -> String
+towerChain m = "1" ++ concat (replicate (m `div` 2) " ^ 1")
+                   ++ concat (replicate (m - m `div` 2) " * 1")
 
 -- m terms; ops alternate + and -; value stays small.
 sumChain :: Int -> String
@@ -82,4 +91,5 @@ main :: IO ()
 main = do
   putStrLn "== Haskell: adversarial chains (structured inputs, no parens) ==\n"
   runShape "powchain: b^e * b^e / ... (mixed precedence)" powChain 2
+  runShape "towerchain: 1^1^...^1 * 1 * ... (flat-check attack)" towerChain 1
   runShape "sumchain: 1 + 2 - 3 + ... (single precedence — control)" sumChain 1

@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
 """Adversarial (structured, non-random) inputs that separate the multipass family.
 
-Two flat chains, no parentheses (mirrors cpp/bench/adversarial_bench.cpp):
+Three flat chains, no parentheses (mirrors cpp/bench/adversarial_bench.cpp):
 
-  powchain  3^2 * 2^2 / 2^2 * 3^3 / 3^3 ...   alternating-precedence (^ vs */)
-  sumchain  1 + 2 - 3 + 4 ...                 single-precedence (control)
+  powchain   3^2 * 2^2 / 2^2 * 3^3 / 3^3 ...   alternating-precedence (^ vs */)
+  towerchain 1^1^...^1 * 1 * 1 * ...           long ^ run, then a * run
+  sumchain   1 + 2 - 3 + 4 ...                 single-precedence (control)
 
 On powchain the top-down splitters degenerate: the candidate list mixes prec 2
 and prec 4, so the flat-chain fold never applies and the linear right-to-left
 split scan has no prec-1 early exit — every split rescans its whole range:
 Theta(n^2) (multipass, multipass-arena). The sparse-table RMQ (multipass-bfs)
-answers splits in O(1) — the one input family where its precompute pays off.
-Bottom-up multipass-reverse reduces each level in one pass regardless: Theta(n).
-sumchain is the control where the whole family stays linear.
+answers splits in O(1). towerchain attacks the OTHER linear scan, the
+flat-chain *check*: every right-end * split leaves the long same-precedence ^
+prefix in the left sub-range and rereads it — quadratic even with O(1) splits,
+so it also catches multipass-bfs. Bottom-up multipass-reverse reduces each
+level in one pass regardless: Theta(n). sumchain is the control where the
+whole family stays linear.
 """
 import sys
 import time
@@ -34,6 +38,11 @@ def pow_chain(m):
         parts.append(" * " if i % 2 else " / ")
         parts.append(f"{2 + k % 8} ^ {2 + k % 3}")
     return "".join(parts)
+
+
+def tower_chain(m):
+    # m//2 ^ ops in one run, then the rest * ops, all operands 1 — value 1.0
+    return "1" + " ^ 1" * (m // 2) + " * 1" * (m - m // 2)
 
 
 def sum_chain(m):
@@ -75,6 +84,7 @@ def _time_one(ev, expr):
 def main():
     print("== Python: adversarial chains (structured inputs, no parens) ==\n")
     run_shape("powchain: b^e * b^e / ... (mixed precedence)", pow_chain, 2)
+    run_shape("towerchain: 1^1^...^1 * 1 * ... (flat-check attack)", tower_chain, 1)
     run_shape("sumchain: 1 + 2 - 3 + ... (single precedence — control)", sum_chain, 1)
     return 0
 
