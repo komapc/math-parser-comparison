@@ -155,19 +155,28 @@ variant, neither beats the no-tree winners on the shared corpora.
 ### Where bottom-up provably wins: mixed-precedence chains
 
 The shared corpora are random and balanced, so top-down splits land near the
-middle. The structured input that separates the family is a flat
-**product-of-powers chain** — `3^2 * 2^2 / 2^2 * …`, no parentheses (think
-factored monomials). Its operator list mixes `^` (prec 4) with `*` `/` (prec 2),
-which defeats both top-down fast paths at once: the flat-chain fold never
-applies (two precedences), and the right-to-left split scan never takes its
-prec-1 early exit (there is no `+`/`-`) — so every split rescans its whole
-range: **Θ(n²)** for `multipass`, `multipass-arena`, and `direct-mp`. The
-sparse-table `multipass-bfs` answers splits in O(1) and stays ~O(n log n) — the
-first input family where its RMQ precompute beats the linear scan it replaces.
-Bottom-up `multipass-reverse` reduces each precedence level in one pass no
-matter how the operators interleave: **Θ(n)**.
+middle. The structured inputs that separate the family attack its **two**
+linear scans — top-down had two independent Θ(n²) holes, not one:
 
-ns/leaf on the power chain (neutral 4-vCPU GitHub runner):
+1. **The split scan** — a flat **product-of-powers chain**
+   `3^2 * 2^2 / 2^2 * …` (powchain; think factored monomials) mixes `^`
+   (prec 4) with `*` `/` (prec 2), defeating both fast paths at once: the
+   flat-chain fold never applies (two precedences), and the right-to-left
+   split scan never takes its prec-1 early exit (no `+`/`-`) — every split
+   rescans its whole range. Quadratic for `multipass`, `multipass-arena`,
+   `direct-mp`; the sparse-table `multipass-bfs` answers splits in O(1) and
+   survives.
+2. **The flat-chain *check*** — a long `^` run followed by a `*` run
+   (`1^1^…^1 * 1 * 1 * …`, towerchain) leaves the same-precedence `^` prefix
+   in the left sub-range after every right-end split, and the "is this range
+   flat?" scan rereads it each time. Quadratic *even with O(1) splits* — this
+   one catches `multipass-bfs` too.
+
+Bottom-up `multipass-reverse` reduces each precedence level in one pass no
+matter how the operators interleave: **Θ(n)** on both.
+
+ns/leaf on the power chain, **before the C++ fix below** (neutral 4-vCPU
+GitHub runner; still current for Python and Haskell):
 
 | family member | C++ m=8192 | Python m=1024 | Haskell m=4096 |
 |---|--:|--:|--:|
@@ -175,13 +184,47 @@ ns/leaf on the power chain (neutral 4-vCPU GitHub runner):
 | `multipass-bfs` (RMQ) | 84 | 13 709 | 3 010 |
 | **`multipass-reverse`** | **43** | **3 135** | **1 302** |
 
-That is **~8× (Haskell), ~17× (Python) and ~75–115× (C++) over top-down** at the
-largest sizes measured — growing with n — and **~2–4× over the RMQ variant** in
-every runtime. The control input — a single-precedence chain
+That was **~8× (Haskell), ~17× (Python) and ~75–115× (C++) over top-down** at
+the largest sizes measured — growing with n — and **~2–4× over the RMQ
+variant** in every runtime. The control input — a single-precedence chain
 `1 + 2 - 3 + …`, where the flat-chain fold does apply — keeps the whole family
-linear, confirming the blow-up is about *mixed precedence*, not chain length.
+linear, confirming the blow-ups are about *mixed precedence*, not chain length.
 Reproduce with `./build/adversarial_bench`, `python3 python/adversarial.py`,
 `cabal run adversarial`.
+
+### The C++ fix: bounded scans + precedence buckets
+
+Both holes have the same cure, applied to all four C++ top-down variants: each
+linear scan is **bounded at 16 candidates**, and past the budget the answer
+comes from per-depth **sorted position arrays, one per precedence class**
+(`+ -` / `* /` / `^` / unary), by binary search — the rightmost prec-1 in
+range, else the rightmost prec-2, else the range's first candidate; flatness
+is "exactly one non-unary class present in range". Common ranges resolve
+inside the budget on the unchanged fast path; adversarial chains drop from
+Θ(n²) to **O(n log n)**. `multipass-arena` additionally answers both questions
+with a single AVX2 compare over a per-depth precedence byte array
+(runtime-dispatched, scalar fallback) — worth another ~5–10 % on the random
+corpus.
+
+Effect at m=8192, ns/leaf (throttling laptop, order-balanced best-of-6 —
+trust the ratios; CI refresh pending):
+
+| | powchain before → after | towerchain before → after |
+|---|--:|--:|
+| `multipass` | 11 140 → **529** | 8 884 → **505** |
+| `multipass-arena` | 10 645 → **206** | 11 160 → **186** |
+| `direct-mp` | 9 455 → **171** | 8 071 → **172** |
+| `multipass-bfs` | 173 → 189 (splits were already O(1)) | 2 947 → **191** |
+| `multipass-reverse` (unchanged) | 92–102 | 88–103 |
+
+Top-down C++ is now *linear-ish* on its own worst case — `direct-mp` lands
+within ~1.7× of bottom-up instead of ~100×. The structural distinction stands:
+`multipass-reverse` needs no budget, no buckets and no fallback, because it
+never asks a question whose answer lies elsewhere in the range. The random
+corpus is unaffected (deltas below the laptop's ±15 % noise floor — the two
+quadratic inputs needed an adversarial bench to find precisely because random
+expressions never trigger them). **Python and Haskell still carry both holes**
+— the fix ports straightforwardly if the asymmetry ever matters.
 
 Per-language detail and full tables: [`cpp/`](cpp/README.md) · [`python/`](python/README.md) · [`haskell/`](haskell/README.md).
 

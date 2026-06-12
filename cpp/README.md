@@ -46,7 +46,7 @@ multipass                 ████████████████      
 
 - **Tier 1 (×1.0–1.4):** O(n), ≤1 allocation. `direct-rd` is fastest; `bytecode-vm` and the other direct forms sit within ~40% and trade places run-to-run. `ast-arena` is the **fastest AST builder** — recursive-descent + one arena vector beats every other AST approach.
 - **Tier 1.5 (×1.5):** D&C without an AST — O(n log n) pre-scan, result returned inline.
-- **Tier 2 (×1.6–2.3):** the rest of the multipass family, arena AST. `multipass-reverse` (bottom-up, allocation-free item stack — see [docs/multipass-reverse.md](../docs/multipass-reverse.md)) leads it and is the **second-fastest tree builder**; the top-down D&C forms are the only way to build a tree whose sub-ranges are split-independent.
+- **Tier 2 (×1.6–2.3):** the rest of the multipass family, arena AST. `multipass-reverse` (bottom-up, allocation-free item stack — see [docs/multipass-reverse.md](../docs/multipass-reverse.md)) leads it and is the **second-fastest tree builder**; the top-down D&C forms are the only way to build a tree whose sub-ranges are split-independent. Their two former Θ(n²) worst cases (mixed-precedence and `^`-tower chains) are now capped at O(n log n): every linear scan is bounded and falls back to per-precedence position buckets, with an AVX2 window scan in `multipass-arena` (runtime-dispatched).
 - **Tier 3 (×2.8–2.9):** One `make_unique` per node. Algorithm barely matters — allocator dominates.
 - **Tier 4 (×5.1):** O(n log n) *plus* N allocations.
 
@@ -153,7 +153,7 @@ ctest --test-dir build --output-on-failure   # 288 checks
 ./build/reeval                                # compile-once / eval-many
 ./build/parallel_bench                        # batch scaling 1–8 threads
 ./build/single_par_bench                      # single-expression fork-join scaling
-./build/adversarial_bench                     # structured chains: multipass top-down Θ(n²) vs reverse Θ(n)
+./build/adversarial_bench                     # structured chains: top-down multipass worst cases (now O(n log n)) vs reverse Θ(n)
 ```
 
 Requires GCC 14 + CMake ≥ 3.20. No external dependencies. `corpus_bench` reads

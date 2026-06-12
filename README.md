@@ -59,9 +59,13 @@ Reading it:
   the **second-fastest tree builder in C++** — it never scans for a split, and
   after its hot-path rewrite it parses allocation-free into an arena.
 - **And on structured inputs the family gap becomes a blow-out:** on flat
-  mixed-precedence chains (`3^2 * 2^2 / …` — factored monomials) the top-down
-  splitters degenerate to **Θ(n²)** while bottom-up stays **Θ(n)** — measured
-  **~8× (Haskell) to ~115× (C++)** in `multipass-reverse`'s favour, growing with n.
+  mixed-precedence chains (`3^2 * 2^2 / …` — factored monomials, plus a
+  `^`-tower variant that even catches the RMQ-equipped `multipass-bfs`) the
+  top-down splitters degenerate to **Θ(n²)** while bottom-up stays **Θ(n)** —
+  measured **~8× (Haskell) to ~115× (C++)** in `multipass-reverse`'s favour,
+  growing with n. The C++ family has since been patched (bounded scans +
+  per-precedence position buckets cap it at **O(n log n)**, shrinking the gap
+  there to ~2–5×); Python and Haskell still carry the holes.
   See [FINDINGS.md](FINDINGS.md#where-bottom-up-provably-wins-mixed-precedence-chains).
 
 ### …and the same comparison at 4 cores

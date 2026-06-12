@@ -149,19 +149,36 @@ The top-down family is *usually* fine too, but only thanks to two fast paths:
    `+`/`-`, since nothing binds looser.
 
 A flat **mixed-precedence chain** with no `+`/`-` — a product of powers, like a
-factored monomial `3^2 * 2^2 / 2^2 * 3^3 …` — defeats both at once: two
-precedences mean no flat fold, and no `+`/`-` means no early exit. Every split
-rescans its whole range: **Θ(n²)**. The sparse-table RMQ variant
+factored monomial `3^2 * 2^2 / 2^2 * 3^3 …` (powchain) — defeats both at once:
+two precedences mean no flat fold, and no `+`/`-` means no early exit. Every
+split rescans its whole range: **Θ(n²)**. The sparse-table RMQ variant
 (`multipass-bfs`) answers splits in O(1) and survives — the one input family
 where its precompute pays off — but still pays the O(n log n) table.
+
+And fast path 1 is itself a linear scan: *checking* that every candidate in a
+range shares one precedence costs O(k). A long `^` run followed by a `*` run
+(`1^1^…^1 * 1 * 1 * …`, towerchain) leaves the same-precedence prefix in the
+left sub-range after every right-end split and rereads it before each one —
+**Θ(n²) even with O(1) splits**, which catches `multipass-bfs` too.
 
 | input shape | `multipass` / `-arena` / `direct-mp` | `multipass-bfs` | `multipass-reverse` |
 |---|---|---|---|
 | random corpus (balanced) | ~Θ(n log n) | Θ(n log n) | **Θ(n)** |
 | single-precedence chain `1+2-3+…` | Θ(n) (flat-chain fold) | Θ(n) | **Θ(n)** |
-| mixed-precedence chain `b^e * b^e / …` | **Θ(n²)** | Θ(n log n) | **Θ(n)** |
+| mixed-precedence chain `b^e * b^e / …` | **Θ(n²)** † | Θ(n log n) | **Θ(n)** |
+| `^`-tower then `*`-run `1^1^…^1*1*1…` | **Θ(n²)** † | **Θ(n²)** † | **Θ(n)** |
 
-Measured on the neutral 4-vCPU GitHub runner (C++, ns/leaf on the power chain).
+† In C++ these holes have since been patched: every linear scan is bounded at
+16 candidates and falls back to per-depth, per-precedence sorted position
+arrays (binary search), capping the whole family at **O(n log n)** on any
+input — see the [FINDINGS section](../FINDINGS.md#the-c-fix-bounded-scans--precedence-buckets)
+for before/after numbers. The Python and Haskell ports still carry both holes,
+and the structural point is unchanged: bottom-up needs no budget and no
+fallback, because it never asks a question whose answer lies elsewhere in the
+range.
+
+Measured on the neutral 4-vCPU GitHub runner **before that fix**
+(C++, ns/leaf on the power chain).
 The climbing curve is top-down `multipass-arena` — ns/leaf growing ~4× per 4×
 length means quadratic total cost. The two flat lines hugging the axis are
 `multipass-bfs` (RMQ, ~72–84) and `multipass-reverse` (~39–43):
@@ -176,7 +193,8 @@ xychart-beta
     line "multipass-reverse (bottom-up)" [38.7, 41.4, 42.5]
 ```
 
-Cross-language, at the largest size each runtime was measured at:
+Cross-language, at the largest size each runtime was measured at (same
+pre-fix run; the Python and Haskell columns are still current):
 
 | family member | C++ m=8192 | Python m=1024 | Haskell m=4096 |
 |---|--:|--:|--:|
@@ -184,9 +202,11 @@ Cross-language, at the largest size each runtime was measured at:
 | `multipass-bfs` (RMQ) | 84 | 13 709 | 3 010 |
 | **`multipass-reverse`** | **43** | **3 135** | **1 302** |
 
-**~75–115× (C++), ~17× (Python), ~8× (Haskell) over top-down — growing with n —
-and ~2–4× over the RMQ variant.** On the single-precedence control chain the
-whole family stays linear, isolating *mixed precedence* as the trigger.
+**~75–115× (C++ pre-fix), ~17× (Python), ~8× (Haskell) over top-down — growing
+with n — and ~2–4× over the RMQ variant.** On the single-precedence control
+chain the whole family stays linear, isolating *mixed precedence* as the
+trigger. After the C++ bucket fix the gap there narrows to ~2–5× — still in
+bottom-up's favour, with no fallback machinery needed.
 
 ## Where it lands on the random corpora
 
