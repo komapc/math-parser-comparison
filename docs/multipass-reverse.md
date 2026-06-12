@@ -205,8 +205,9 @@ pre-fix run; the Python and Haskell columns are still current):
 **~75–115× (C++ pre-fix), ~17× (Python), ~8× (Haskell) over top-down — growing
 with n — and ~2–4× over the RMQ variant.** On the single-precedence control
 chain the whole family stays linear, isolating *mixed precedence* as the
-trigger. After the C++ bucket fix the gap there narrows to ~2–5× — still in
-bottom-up's favour, with no fallback machinery needed.
+trigger. After the C++ bucket fix the gap there narrows to ~2× for the arena
+and direct forms (~6× for pointer-AST `multipass`) — still in bottom-up's
+favour, with no fallback machinery needed.
 
 ## Where it lands on the random corpora
 

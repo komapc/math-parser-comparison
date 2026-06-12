@@ -206,25 +206,36 @@ with a single AVX2 compare over a per-depth precedence byte array
 (runtime-dispatched, scalar fallback) — worth another ~5–10 % on the random
 corpus.
 
-Effect at m=8192, ns/leaf (throttling laptop, order-balanced best-of-6 —
-trust the ratios; CI refresh pending):
+Effect at m=8192, ns/leaf on the **neutral 4-vCPU GitHub runner** (before =
+the last pre-fix CI run, after = the post-fix CI run; flat across
+m=512/2048/8192 in every "after" cell):
 
-| | powchain before → after | towerchain before → after |
+| | powchain before → after | towerchain after † |
 |---|--:|--:|
-| `multipass` | 11 140 → **529** | 8 884 → **505** |
-| `multipass-arena` | 10 645 → **206** | 11 160 → **186** |
-| `direct-mp` | 9 455 → **171** | 8 071 → **172** |
-| `multipass-bfs` | 173 → 189 (splits were already O(1)) | 2 947 → **191** |
-| `multipass-reverse` (unchanged) | 92–102 | 88–103 |
+| `multipass` | 3 791 → **258** | 217 |
+| `multipass-arena` | 4 864 → **82** | 82 |
+| `direct-mp` | 3 236 → **78** | 82 |
+| `multipass-bfs` | 84 → 86 (splits were already O(1)) | **89** |
+| `multipass-reverse` (unchanged) | 43 → 41 | 42 |
 
-Top-down C++ is now *linear-ish* on its own worst case — `direct-mp` lands
-within ~1.7× of bottom-up instead of ~100×. The structural distinction stands:
+† towerchain landed in the same push as the fix, so it has no pre-fix CI run.
+On the discovery laptop it measured 2 947 ns/leaf for `multipass-bfs` and
+8 000–11 000 for the other top-down variants before the fix — versus the flat
+~80–220 above after it.
+
+Top-down C++ is now *linear* on its own worst case — `multipass-arena` and
+`direct-mp` land within ~2× of bottom-up instead of ~80–115×, and even match
+`multipass-bfs` without its sparse table. The structural distinction stands:
 `multipass-reverse` needs no budget, no buckets and no fallback, because it
 never asks a question whose answer lies elsewhere in the range. The random
 corpus is unaffected (deltas below the laptop's ±15 % noise floor — the two
 quadratic inputs needed an adversarial bench to find precisely because random
 expressions never trigger them). **Python and Haskell still carry both holes**
-— the fix ports straightforwardly if the asymmetry ever matters.
+— on the neutral runner's towerchain their top-down variants climb ~3× per 4×
+length (Python 61 000–62 000 ns/leaf at m=1024 with `multipass-bfs` at 27 873;
+Haskell 14 700–17 500 at m=4096 with bfs at 6 118, versus flat 3 243 / 1 435
+for `multipass-reverse`). The fix ports straightforwardly if the asymmetry
+ever matters.
 
 Per-language detail and full tables: [`cpp/`](cpp/README.md) · [`python/`](python/README.md) · [`haskell/`](haskell/README.md).
 
