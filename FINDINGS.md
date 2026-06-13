@@ -72,7 +72,7 @@ per-size: **trust the tiers, not the digits.**
 | ast-pratt | 2.7 | 1.1 | 1.0 |
 | ast-recursive-descent | 2.7 | 1.1 | **1.0** |
 | **ast-arena** | **1.3** | **1.3** | **1.2** |
-| multipass (pointer) | 4.9 | 2.3 | 1.4 |
+| multipass (pointer) | 3.5 | 2.3 | 1.4 |
 | multipass-arena | 2.1 | 2.4 | 1.6 |
 | multipass-bfs (sparse RMQ) | 2.3 | 2.7 | 1.8 |
 | multipass-reverse | 1.5 | 1.5 | 1.5 |
@@ -93,7 +93,8 @@ explains every row below.
    fastest tier is everything *contiguous*: `direct-*` (no tree), `bytecode-vm`
    (flat opcode stream), and `ast-arena` (flat node buffer) all cluster at
    1.0–1.3. The pointer-walking forms — pointer-AST (`ast-*` ≈ 2.7) and `multipass`
-   (4.9) — lose by chasing `make_unique`'d nodes around the heap. Layout, not
+   (3.5, down from 4.9 after iterator-passing eliminated per-call `candRange` binary
+   searches) — lose by chasing `make_unique`'d nodes around the heap. Layout, not
    algorithm, sets the tiers.
 
 2. **In managed runtimes that layout signal washes out.** Once the runtime boxes
@@ -212,26 +213,35 @@ slice (left-assoc level folds build the same tree as repeated rightmost
 splits), and the flat check is a precomputed O(1) "next class change" lookup
 instead of any scan at all.
 
+A complementary fix closes the per-call binary-search overhead on the **random
+corpus**: `multipass` (C++) previously recomputed candidate sub-range boundaries
+with `candRange(lo, hi, d)` (O(log n)) on every recursive entry. Passing the
+`(cbeg, cend)` iterator slice directly makes sub-range splits O(1) — no search
+at all. This alone cuts the random-corpus ratio from **4.9× → 3.5×** for
+`multipass` on the neutral runner (−29 % at n=1000). The same AVX2 SIMD flat/split
+check is also wired into `direct-mp`, but the random corpus rarely exercises long
+flat chains so the gain is within noise there.
+
 Effect at m=8192, ns/leaf on the **neutral 4-vCPU GitHub runner** (before =
-the last pre-fix CI run, after = the post-fix CI run; flat across
+the last pre-fix CI run, after = the latest CI run; flat across
 m=512/2048/8192 in every "after" cell):
 
 | | powchain before → after | towerchain after † |
 |---|--:|--:|
-| `multipass` | 3 791 → **258** | 217 |
-| `multipass-arena` | 4 864 → **82** | 82 |
-| `direct-mp` | 3 236 → **78** | 82 |
-| `multipass-bfs` | 84 → 86 (splits were already O(1)) | **89** |
-| `multipass-reverse` (unchanged) | 43 → 41 | 42 |
+| `multipass` | 3 791 → **126** | 131 |
+| `multipass-arena` | 4 864 → **65** | 67 |
+| `direct-mp` | 3 236 → **55** | 56 |
+| `multipass-bfs` | 84 → 72 (splits were already O(1)) | **73** |
+| `multipass-reverse` (unchanged) | 43 → 34 | 34 |
 
 † towerchain landed in the same push as the fix, so it has no pre-fix CI run.
 On the discovery laptop it measured 2 947 ns/leaf for `multipass-bfs` and
 8 000–11 000 for the other top-down variants before the fix — versus the flat
-~80–220 above after it.
+~55–130 above after it.
 
 Top-down C++ is now *linear* on its own worst case — `multipass-arena` and
-`direct-mp` land within ~2× of bottom-up instead of ~80–115×, and even match
-`multipass-bfs` without its sparse table. The structural distinction stands:
+`direct-mp` land within **~2× of bottom-up** instead of ~80–115×, and
+**beat `multipass-bfs`** without its sparse table. The structural distinction stands:
 `multipass-reverse` needs no budget, no buckets and no fallback, because it
 never asks a question whose answer lies elsewhere in the range. The random
 corpus is unaffected (deltas below the laptop's ±15 % noise floor — the two
