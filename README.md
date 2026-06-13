@@ -34,14 +34,14 @@ The eight strategies that build a syntax tree, ns/leaf at n=1000 on a neutral
 
 | tree builder | representation | C++ | Python | Haskell |
 |---|---|--:|--:|--:|
-| `ast-recursive-descent` | pointer AST | 2.09 | **1.00** | 1.00 |
-| `ast-shunting-yard` | pointer AST | 2.15 | 1.01 | 1.04 |
-| `ast-pratt` | pointer AST | 2.10 | 1.02 | **1.00** |
-| `ast-arena` | arena AST | **1.00** | 1.17 | 1.20 |
-| `multipass` | pointer AST | 4.01 | 2.34 | 1.37 |
-| `multipass-arena` | arena AST | 1.58 | 2.48 | 1.58 |
-| `multipass-bfs` | arena AST | 1.67 | 2.80 | 1.72 |
-| `multipass-reverse` | arena AST | 1.19 | 1.37 | 1.44 |
+| `ast-recursive-descent` | pointer AST | 2.12 | **1.00** | **1.00** |
+| `ast-shunting-yard` | pointer AST | 2.16 | 1.02 | 1.11 |
+| `ast-pratt` | pointer AST | 2.09 | 1.04 | 1.03 |
+| `ast-arena` | arena AST | **1.00** | 1.16 | 1.26 |
+| `multipass` | pointer AST | 2.78 | 2.30 | 1.36 |
+| `multipass-arena` | arena AST | 1.57 | 2.46 | 1.52 |
+| `multipass-bfs` | arena AST | 1.67 | 2.89 | 1.62 |
+| `multipass-reverse` | arena AST | 1.19 | 1.41 | 1.41 |
 
 Reading it:
 
@@ -49,8 +49,8 @@ Reading it:
   `multipass-reverse` ×1.19; every pointer-AST form is ~2.1× on per-node
   `make_unique`). Contiguous memory layout is the whole game.
 - **Python & Haskell: a pointer-AST builder wins, and `ast-arena` is *slower*.**
-  Which pointer form is nominally fastest (recursive descent in Python, Pratt in
-  Haskell — by 0.4% this run) is within run-to-run noise — they cluster inside
+  Which pointer form is nominally fastest (recursive descent in both this run;
+  Pratt trails by ~3% in Haskell) is within run-to-run noise — they cluster inside
   ~5%. The robust fact is that the arena's advantage was memory *layout*, which a
   boxed/GC'd runtime hides, so the trick evaporates.
 - **The top-down divide-and-conquer variants lose everywhere** — they do more
@@ -65,7 +65,7 @@ Reading it:
   measured **~8× (Haskell) to ~115× (C++)** in `multipass-reverse`'s favour,
   growing with n. The top-down family has since been patched in all three
   languages (bounded scans + per-precedence position buckets cap it at
-  **O(n log n)**, shrinking the C++ gap to ~2–6×) — bottom-up needed no patch.
+  **O(n log n)**, shrinking the C++ gap to ~2–4×) — bottom-up needed no patch.
   See [FINDINGS.md](FINDINGS.md#where-bottom-up-provably-wins-mixed-precedence-chains).
 
 ### …and the same comparison at 4 cores
@@ -77,23 +77,23 @@ builder *in that column* (**bold**):
 
 | tree builder | C++ W1 | C++ W4 | Python W1 | Python W4 | Haskell W1 | Haskell W4 |
 |---|--:|--:|--:|--:|--:|--:|
-| `ast-recursive-descent` | 1.97 | 2.04 | 1.03 | 1.03 | **1.00** | **1.00** |
-| `ast-shunting-yard` | 1.99 | 2.08 | **1.00** | **1.00** | 1.11 | 1.10 |
-| `ast-pratt` | 1.97 | 1.99 | 1.06 | 1.07 | 1.06 | 1.03 |
-| `ast-arena` | 1.04 | 1.00 | 1.17 | 1.10 | 1.23 | 1.17 |
-| `multipass` | 3.52 | 3.42 | 2.13 | 2.06 | 1.40 | 1.28 |
-| `multipass-arena` | 1.38 | 1.27 | 2.13 | 2.13 | 1.59 | 1.41 |
-| `multipass-bfs` | 1.45 | 1.39 | 2.27 | 2.29 | 1.79 | 1.59 |
-| `multipass-reverse` | **1.00** | **1.00** | 1.36 | 1.31 | 1.44 | 1.30 |
+| `ast-recursive-descent` | 2.29 | 1.84 | 1.10 | 1.05 | **1.00** | **1.00** |
+| `ast-shunting-yard` | 2.31 | 1.90 | **1.00** | **1.00** | 1.08 | 1.08 |
+| `ast-pratt` | 2.27 | 1.84 | 1.10 | 1.10 | 1.08 | 1.02 |
+| `ast-arena` | **1.00** | **1.00** | 1.16 | 1.12 | 1.23 | 1.16 |
+| `multipass` | 2.91 | 2.38 | 2.00 | 1.94 | 1.39 | 1.30 |
+| `multipass-arena` | 1.57 | 1.25 | 2.10 | 1.98 | 1.58 | 1.45 |
+| `multipass-bfs` | 1.73 | 1.39 | 2.32 | 2.24 | 1.73 | 1.61 |
+| `multipass-reverse` | 1.25 | 1.01 | 1.42 | 1.35 | 1.39 | 1.29 |
 
 Compare the **W1 and W4 columns within each language** (not against the one-shot
 table above — that's a different harness). The takeaway: **adding cores does not
-reorder the builders.** C++ is identical W1→W4 (`multipass-reverse` and
-`ast-arena` are a ~3% near-tie at the top in this harness); Python and Haskell
-preserve the tiers, with only adjacent *near-ties* trading places (Haskell's
-whole spread is ~1.0–1.8×, so neighbours are statistical ties). The absolute gaps
-wobble between runs — parallel-efficiency noise on a shared VM (arena's
-efficiency alone has spanned 0.53–0.80 across runs), not a core-count effect.
+reorder the builders.** C++ is identical W1→W4 (`ast-arena` leads; `multipass-reverse`
+closes to a ~1% near-tie at W=4); Python and Haskell preserve the tiers, with only
+adjacent *near-ties* trading places (Haskell's whole spread is ~1.0–1.7×, so
+neighbours are statistical ties). The absolute gaps wobble between runs —
+parallel-efficiency noise on a shared VM (arena's efficiency alone has spanned
+0.53–0.80 across runs), not a core-count effect.
 **The AST-builder ranking is core-count-invariant.**
 
 ## When you build the tree and re-evaluate
