@@ -242,10 +242,12 @@ The **Python and Haskell ports** close the same holes the same way. Before the
 port, their towerchain climbed ~3× per 4× length on the neutral runner (Python
 top-down 61 000–62 000 ns/leaf at m=1024 with `multipass-bfs` at 27 873;
 Haskell 14 700–17 500 at m=4096 with bfs at 6 118 — versus flat 3 243 / 1 435
-for `multipass-reverse`); after it, both chains are flat on the local laptop
-(Python towerchain ~12 000–25 000 ns/leaf at every size — in line with its
-own sumchain control — and Haskell ~2 900–3 800) — neutral-runner numbers
-regenerate with the next CI bench run.
+for `multipass-reverse`); after it, both chains are flat on the neutral runner
+too (CI run 27417707827): Python towerchain 3 700–8 100 ns/leaf across sizes
+and strategies, vs 3 300–6 100 for sumchain — same tier; Haskell 1 200–2 600
+vs 900–1 400 for sumchain. (`multipass-bfs` is 30–40 % above the other
+top-down forms on both adversarial shapes in both languages — its sparse-table
+build overhead shows through — but the growth is flat, not quadratic.)
 
 Per-language detail and full tables: [`cpp/`](cpp/README.md) · [`python/`](python/README.md) · [`haskell/`](haskell/README.md).
 
