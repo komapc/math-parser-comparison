@@ -3,12 +3,32 @@
 // The arena-AST variants build nodes_ then walk it in a second O(n) pass.
 // direct-mp collapses both passes: the recursion returns a double directly,
 // so there is no intermediate tree and no evalNode overhead.
+//
+// Improvements in this version:
+//
+//   #7  Bounded scans + precedence buckets (same as other multipass variants):
+//       cap Theta(n^2) worst cases at O(n log n).
+//
+//   #8  Index passing: the split already passes (d, clo, chi) slices to sub-
+//       ranges, avoiding a binary search on every call (only paren strips need
+//       one, via parenRange which uses the precomputed pcStart_/pcEnd_ arrays).
+//
+//   #9  Iterative evaluation (explicit work/value stack): replaces the recursive
+//       er() with a loop over Task items. Eliminates per-call frame overhead and
+//       removes the O(n) recursion-depth risk on left-heavy inputs like
+//       a+b*c+d*e+… where every split is at the right end of the range.
+//
+//   #10 AVX2 SIMD flat check and split (same design as multipass-arena):
+//       a per-depth int8_t prec array lets a single 32-byte load answer both
+//       questions branchlessly. Runtime-dispatched; set MP_LEAN_NO_SIMD=1 to
+//       force the scalar path.
 
 #include "parser/evaluator.hpp"
 #include "parser/lexer.hpp"
 #include "parser/token.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -47,7 +67,6 @@ constexpr int kUnaryPrec = 3;
     return (t == TokenType::Minus) ? -v : v;
 }
 
-// Compact candidate — 8 bytes vs 16 in the arena variant.
 struct Cand {
     uint32_t pos;
     int8_t   prec;
@@ -56,20 +75,15 @@ struct Cand {
     uint8_t  _pad{};
 };
 
-// Sorted token positions of one depth's candidates, split by precedence class
-// — the O(log n) fallback once a linear scan exceeds its budget.
 struct Buckets {
     std::vector<uint32_t> p1, p2, caret, un;
 };
 
-// Linear scans give up after this many candidates and consult the buckets.
 constexpr int kScanBudget = 16;
-
 constexpr uint32_t kNoPos = UINT32_MAX;
 
-// Rightmost position in sorted `v` within [lo, hi), or kNoPos.
 static uint32_t rightmostIn(const std::vector<uint32_t>& v,
-                            uint32_t lo, uint32_t hi) {
+                             uint32_t lo, uint32_t hi) {
     auto it = std::lower_bound(v.begin(), v.end(), hi);
     if (it == v.begin()) return kNoPos;
     --it;
@@ -81,6 +95,51 @@ static bool anyIn(const std::vector<uint32_t>& v, uint32_t lo, uint32_t hi) {
     return it != v.end() && *it < hi;
 }
 
+// ── AVX2 SIMD window (runtime-dispatched) ──────────────────────────────────
+#if defined(__x86_64__)
+#define MP_LEAN_SIMD 1
+#include <cstdlib>
+#include <immintrin.h>
+
+const bool kHasSIMD = __builtin_cpu_supports("avx2") &&
+                      std::getenv("MP_LEAN_NO_SIMD") == nullptr;
+
+constexpr long kWinFirst   = -1;
+constexpr long kWinBuckets = -2;
+
+__attribute__((target("avx2")))
+long simdWindowSplit(const int8_t* prec, long ib, long ie) {
+    const long k    = ie - ib;
+    const long base = (k >= 32) ? ie - 32 : ib;
+    const uint32_t valid = (k >= 32) ? 0xFFFFFFFFu : ((1u << k) - 1);
+    const __m256i v = _mm256_loadu_si256(
+        reinterpret_cast<const __m256i*>(prec + base));
+    const auto m1 = static_cast<uint32_t>(_mm256_movemask_epi8(
+        _mm256_cmpeq_epi8(v, _mm256_set1_epi8(1)))) & valid;
+    if (m1) return base + 31 - std::countl_zero(m1);
+    if (k > 32) return kWinBuckets;
+    const auto m2 = static_cast<uint32_t>(_mm256_movemask_epi8(
+        _mm256_cmpeq_epi8(v, _mm256_set1_epi8(2)))) & valid;
+    if (m2) return base + 31 - std::countl_zero(m2);
+    return kWinFirst;
+}
+
+__attribute__((target("avx2")))
+int simdWindowFlat(const int8_t* prec, long ib, long ie) {
+    const long k = ie - ib;
+    const int8_t p0 = prec[ib];
+    if (p0 == 3) return 0;
+    const long w = (k < 32) ? k : 32;
+    const uint32_t valid = (w == 32) ? 0xFFFFFFFFu : ((1u << w) - 1);
+    const __m256i v = _mm256_loadu_si256(
+        reinterpret_cast<const __m256i*>(prec + ib));
+    const auto eq = static_cast<uint32_t>(_mm256_movemask_epi8(
+        _mm256_cmpeq_epi8(v, _mm256_set1_epi8(p0))));
+    if ((eq & valid) != valid) return 0;
+    return (k <= 32) ? 1 : -1;
+}
+#endif  // __x86_64__
+
 // ───────────────────────────────────────────── shared base ─────────────────
 
 class LeanBase {
@@ -88,22 +147,26 @@ protected:
     std::vector<Token>               tokens_;
     std::vector<std::vector<Cand>>   cands_;
     std::vector<Buckets>             bucks_;
+#if MP_LEAN_SIMD
+    std::vector<std::vector<int8_t>> prec_;   // mirrors cands_: prec byte per candidate
+#endif
     std::vector<uint32_t>            parenMatch_;
-    std::vector<uint32_t>            pcStart_;  // parenCandStart
-    std::vector<uint32_t>            pcEnd_;    // parenCandEnd
+    std::vector<uint32_t>            pcStart_;
+    std::vector<uint32_t>            pcEnd_;
     const double*                    vars_ = nullptr;
 
-    // ── buildAll: full token scan ────────────────────────────────────────────
     void buildAll_full() {
         const auto n = (uint32_t)tokens_.size();
         parenMatch_.assign(n, 0);
         pcStart_.assign(n, 0);
         pcEnd_.assign(n, 0);
-        // Clear contents but keep inner-vector capacities (no realloc churn).
         for (auto& v : cands_) v.clear();
         for (auto& b : bucks_) {
             b.p1.clear(); b.p2.clear(); b.caret.clear(); b.un.clear();
         }
+#if MP_LEAN_SIMD
+        for (auto& p : prec_) p.clear();
+#endif
         int depth = 0;
         bool expectOperand = true;
         std::vector<uint32_t> stk;
@@ -112,7 +175,11 @@ protected:
                 case TokenType::LParen:
                     stk.push_back(i); ++depth;
                     if (depth >= (int)cands_.size()) {
-                        cands_.resize(depth+1); bucks_.resize(depth+1);
+                        cands_.resize(depth+1);
+                        bucks_.resize(depth+1);
+#if MP_LEAN_SIMD
+                        prec_.resize(depth+1);
+#endif
                     }
                     pcStart_[i] = (uint32_t)cands_[depth].size();
                     expectOperand = true;
@@ -129,7 +196,7 @@ protected:
                 }
                 case TokenType::Number:
                 case TokenType::Ident: expectOperand = false; break;
-                default: {                              // Plus Minus Star Slash Caret
+                default: {
                     TokenType ty = tokens_[i].type;
                     Cand c; c.pos = i;
                     if (expectOperand) {
@@ -137,12 +204,21 @@ protected:
                             throw std::runtime_error("unexpected operator");
                         c.prec = kUnaryPrec; c.rightAssoc = false; c.unary = true;
                     } else {
-                        c.prec = (int8_t)binPrec(ty); c.rightAssoc = (ty == TokenType::Caret); c.unary = false;
+                        c.prec = (int8_t)binPrec(ty);
+                        c.rightAssoc = (ty == TokenType::Caret);
+                        c.unary = false;
                     }
                     if (depth >= (int)cands_.size()) {
-                        cands_.resize(depth+1); bucks_.resize(depth+1);
+                        cands_.resize(depth+1);
+                        bucks_.resize(depth+1);
+#if MP_LEAN_SIMD
+                        prec_.resize(depth+1);
+#endif
                     }
                     cands_[depth].push_back(c);
+#if MP_LEAN_SIMD
+                    prec_[depth].push_back(c.prec);
+#endif
                     auto& bk = bucks_[depth];
                     if (c.unary)          bk.un.push_back(i);
                     else if (c.prec == 1) bk.p1.push_back(i);
@@ -153,19 +229,20 @@ protected:
                 }
             }
         }
+#if MP_LEAN_SIMD
+        for (auto& p : prec_) p.insert(p.end(), 32, 0);
+#endif
     }
 
-    // ── leaf evaluation ──────────────────────────────────────────────────────
     [[gnu::always_inline]] double evalLeaf(uint32_t lo, uint32_t hi) const {
-        if (hi - lo != 1) throw std::runtime_error("syntax error at " + std::to_string(tokens_[lo].pos));
+        if (hi - lo != 1)
+            throw std::runtime_error("syntax error at " + std::to_string(tokens_[lo].pos));
         const Token& t = tokens_[lo];
         if (t.type == TokenType::Number) return t.value;
         if (t.type == TokenType::Ident)  return vars_ ? vars_[static_cast<int>(t.value)] : 0.0;
         throw std::runtime_error("syntax error at " + std::to_string(t.pos));
     }
 
-    // ── paren-strip helper ───────────────────────────────────────────────────
-    // Returns (nb, ne) — the candidate index range for depth nd inside paren at lo.
     std::pair<int,int> parenRange(uint32_t lo, int nd) const {
         if (nd < (int)cands_.size())
             return {(int)pcStart_[lo], (int)pcEnd_[lo]};
@@ -174,9 +251,7 @@ protected:
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Variant 1 — direct-mp
-// Direct evaluation with linear RTL findSplit (same logic as multipass-arena
-// but no AST emitted — returns double from the recursion instead).
+// Variant 1 — direct-mp  (iterative, no AST)
 // ═══════════════════════════════════════════════════════════════════════════
 class DirectMp final : public LeanBase, public IEvaluator {
 public:
@@ -186,14 +261,14 @@ public:
         vars_ = vars;
         buildAll_full();
         const uint32_t n = (uint32_t)(tokens_.size() - 1);
-        int clo = 0, chi = cands_.empty() ? 0 : (int)cands_[0].size();
-        return er(0, n, 0, clo, chi);
+        const int clo = 0;
+        const int chi = cands_.empty() ? 0 : (int)cands_[0].size();
+        return evalIter(0, n, 0, clo, chi);
     }
+
 private:
-    // Bucket-based equivalent of the full RTL scan, O(log n): rightmost
-    // prec-1, else rightmost prec-2, else the range's first candidate (a
-    // leading unary or the leftmost right-assoc ^ — a unary not at the range
-    // start can't be first, the token before it is an earlier candidate).
+    // Bucket-based O(log n) split: rightmost prec-1, else rightmost prec-2,
+    // else the range's first candidate (leading unary or leftmost ^).
     int findSplitBuckets(int d, int clo, int chi) const {
         auto& v = cands_[d];
         const auto& bk = bucks_[d];
@@ -206,8 +281,6 @@ private:
                      - v.begin());
     }
 
-    // True iff every candidate in [clo, chi) is binary with one precedence,
-    // answered from the buckets — a long flat prefix is never rescanned.
     bool flatByBuckets(int d, int clo, int chi) const {
         auto& v = cands_[d];
         const auto& bk = bucks_[d];
@@ -219,8 +292,6 @@ private:
         return classes == 1;
     }
 
-    // RTL scan, bounded: past kScanBudget candidates without a prec-1 hit,
-    // the answer comes from the buckets instead — O(log n), never O(k).
     int findSplit(int d, int clo, int chi, uint32_t lo) const {
         if (clo >= chi) return -1;
         auto& v = cands_[d];
@@ -235,60 +306,153 @@ private:
                 best = i;
             }
         }
-        if (stop == clo) return best;     // scanned everything: exact answer
+        if (stop == clo) return best;
         return findSplitBuckets(d, clo, chi);
     }
 
-    double er(uint32_t lo, uint32_t hi, int d, int clo, int chi) {
-        if (lo >= hi) throw std::runtime_error("empty sub-expression");
-        if (clo < chi) {
-            auto& v = cands_[d];
-            int cp = v[clo].prec; bool cr = v[clo].rightAssoc;
-            // Hybrid flatness check: scan a bounded prefix (mixed ranges are
-            // usually disproved within a few candidates); only a uniform
-            // prefix longer than the budget asks the buckets for the rest.
-            bool flat = true;
-            const int scanEnd = (chi - clo > kScanBudget) ? clo + kScanBudget : chi;
-            for (int i = clo; i < scanEnd; ++i)
-                if (v[i].unary || v[i].prec != cp) { flat = false; break; }
-            if (flat && scanEnd != chi)
-                flat = flatByBuckets(d, clo, chi);
-            if (flat) {
-                if (!cr) {
-                    double acc = er(lo, v[clo].pos, d, chi, chi);
-                    for (int i = clo; i < chi; ++i) {
-                        uint32_t nhi = (i+1<chi) ? v[i+1].pos : hi;
-                        acc = applyBinary(tokens_[v[i].pos].type, acc,
-                                          er(v[i].pos+1, nhi, d, chi, chi));
+    // ── iterative evaluation ─────────────────────────────────────────────────
+    // Each Range task is pushed as (lo, hi, d, clo, chi); when popped it either
+    // produces a leaf value or pushes sub-tasks. Bin/Un tasks consume values
+    // from the value stack and push one result, just like a postfix machine.
+    //
+    // Left-fold push sequence (processes seg0 first):
+    //   push Binary(opN-1), Range(segN), ..., Binary(op0), Range(seg1), Range(seg0)
+    // Right-fold push sequence:
+    //   push Binary(op0), ..., Binary(opN-1), Range(segN), ..., Range(seg1), Range(seg0)
+    // Split:
+    //   push Binary(op), Range(right), Range(left)  — left processed first
+    // Unary:
+    //   push Unary(op), Range(operand)
+
+    struct Task {
+        enum class K : uint8_t { Range, Bin, Un } kind;
+        uint8_t  opRaw{};
+        uint32_t lo{}, hi{};
+        int      d{}, clo{}, chi{};
+    };
+
+    double evalIter(uint32_t lo0, uint32_t hi0, int d0, int clo0, int chi0) {
+        std::vector<Task> work;
+        std::vector<double> vals;
+        work.reserve(64);
+        vals.reserve(32);
+
+        auto pushR = [&](uint32_t lo, uint32_t hi, int d, int clo, int chi) {
+            work.push_back({Task::K::Range, 0, lo, hi, d, clo, chi});
+        };
+        auto pushBin = [&](TokenType op) {
+            work.push_back({Task::K::Bin, static_cast<uint8_t>(op)});
+        };
+        auto pushUn = [&](TokenType op) {
+            work.push_back({Task::K::Un, static_cast<uint8_t>(op)});
+        };
+
+        pushR(lo0, hi0, d0, clo0, chi0);
+
+        while (!work.empty()) {
+            const Task t = work.back(); work.pop_back();
+
+            if (t.kind == Task::K::Bin) {
+                const double r = vals.back(); vals.pop_back();
+                const double l = vals.back(); vals.pop_back();
+                vals.push_back(applyBinary(static_cast<TokenType>(t.opRaw), l, r));
+                continue;
+            }
+            if (t.kind == Task::K::Un) {
+                vals.back() = applyUnary(static_cast<TokenType>(t.opRaw), vals.back());
+                continue;
+            }
+
+            // Task::K::Range
+            const uint32_t lo = t.lo, hi = t.hi;
+            const int d = t.d, clo = t.clo, chi = t.chi;
+
+            if (lo >= hi) throw std::runtime_error("empty sub-expression");
+
+            if (clo < chi) {
+                auto& v = cands_[d];
+                const int cp = v[clo].prec;
+                const bool cr = v[clo].rightAssoc;
+
+                bool flat;
+#if MP_LEAN_SIMD
+                if (kHasSIMD) {
+                    const int f = simdWindowFlat(prec_[d].data(), clo, chi);
+                    flat = (f < 0) ? flatByBuckets(d, clo, chi) : (f != 0);
+                } else
+#endif
+                {
+                    flat = true;
+                    const int scanEnd = (chi - clo > kScanBudget) ? clo + kScanBudget : chi;
+                    for (int i = clo; i < scanEnd; ++i)
+                        if (v[i].unary || v[i].prec != cp) { flat = false; break; }
+                    if (flat && scanEnd != chi)
+                        flat = flatByBuckets(d, clo, chi);
+                }
+
+                if (flat) {
+                    if (!cr) {
+                        // Left fold: push ops + right-segs right-to-left, then left seg on top.
+                        for (int i = chi - 1; i >= clo; --i) {
+                            pushBin(tokens_[v[i].pos].type);
+                            const uint32_t rslo = v[i].pos + 1;
+                            const uint32_t rshi = (i + 1 < chi) ? (uint32_t)v[i+1].pos : hi;
+                            pushR(rslo, rshi, d, chi, chi);
+                        }
+                        pushR(lo, (uint32_t)v[clo].pos, d, chi, chi);
+                    } else {
+                        // Right fold: push all ops first (bottom), then segments right-to-left.
+                        for (int i = clo; i < chi; ++i)
+                            pushBin(tokens_[v[i].pos].type);
+                        pushR((uint32_t)v[chi-1].pos + 1, hi, d, chi, chi);
+                        for (int i = chi - 2; i >= clo; --i)
+                            pushR((uint32_t)v[i].pos + 1, (uint32_t)v[i+1].pos, d, chi, chi);
+                        pushR(lo, (uint32_t)v[clo].pos, d, chi, chi);
                     }
-                    return acc;
-                } else {
-                    double acc = er(v[chi-1].pos+1, hi, d, chi, chi);
-                    for (int i = chi-1; i >= clo; --i) {
-                        uint32_t slo = (i == clo) ? lo : v[i-1].pos+1;
-                        acc = applyBinary(tokens_[v[i].pos].type,
-                                          er(slo, v[i].pos, d, chi, chi), acc);
+                    continue;
+                }
+
+                // General split.
+                int si;
+#if MP_LEAN_SIMD
+                if (kHasSIMD) {
+                    const long r = simdWindowSplit(prec_[d].data(), clo, chi);
+                    si = (r == kWinBuckets) ? findSplitBuckets(d, clo, chi)
+                       : (r == kWinFirst)   ? clo
+                                            : (int)r;
+                } else
+#endif
+                si = findSplit(d, clo, chi, lo);
+
+                if (si >= 0) {
+                    const auto& c = v[si];
+                    if (c.unary) {
+                        pushUn(tokens_[c.pos].type);
+                        pushR(c.pos + 1, hi, d, si + 1, chi);
+                    } else {
+                        pushBin(tokens_[c.pos].type);
+                        pushR(c.pos + 1, hi, d, si + 1, chi);
+                        pushR(lo, c.pos, d, clo, si);
                     }
-                    return acc;
+                    continue;
                 }
             }
+
+            // No depth-d operator: paren strip or leaf.
+            if (tokens_[lo].type == TokenType::LParen && parenMatch_[lo] == hi - 1) {
+                const int nd = d + 1;
+                auto [nb, ne] = parenRange(lo, nd);
+                pushR(lo + 1, hi - 1, nd, nb, ne);
+                continue;
+            }
+            vals.push_back(evalLeaf(lo, hi));
         }
-        int si = findSplit(d, clo, chi, lo);
-        if (si >= 0) {
-            auto& c = cands_[d][si];
-            if (c.unary) return applyUnary(tokens_[c.pos].type, er(c.pos+1, hi, d, si+1, chi));
-            return applyBinary(tokens_[c.pos].type,
-                               er(lo, c.pos, d, clo, si),
-                               er(c.pos+1, hi, d, si+1, chi));
-        }
-        if (tokens_[lo].type == TokenType::LParen && parenMatch_[lo] == hi-1) {
-            int nd = d+1; auto [nb, ne] = parenRange(lo, nd);
-            return er(lo+1, hi-1, nd, nb, ne);
-        }
-        return evalLeaf(lo, hi);
+
+        if (vals.size() != 1)
+            throw std::runtime_error("evaluation stack imbalance");
+        return vals[0];
     }
 };
-
 
 }  // namespace
 

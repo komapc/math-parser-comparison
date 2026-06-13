@@ -1,5 +1,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 -- | The eleven strategies, idiomatic Haskell.
 --
@@ -18,7 +19,8 @@ module MathParser.Strategies
   , reevalForms
   ) where
 
-import           Data.Array
+import           Data.Array          hiding ((!), bounds, listArray)
+import           Data.Array.Unboxed  (UArray, (!), bounds, listArray)
 import           Data.Bits (countLeadingZeros, finiteBitSize)
 import           Data.List (foldl')
 import qualified Data.IntMap.Strict as IM
@@ -284,7 +286,7 @@ floorLog2 x = finiteBitSize x - 1 - countLeadingZeros x
 -- Theta(n^2) worst cases (powchain / towerchain in app/Adversarial.hs) at
 -- O(n log n). Thanks to laziness the arrays only materialise if a scan ever
 -- exceeds its budget.
-data Bucks = Bucks (Array Int Int) (Array Int Int) (Array Int Int) (Array Int Int)
+data Bucks = Bucks (UArray Int Int) (UArray Int Int) (UArray Int Int) (UArray Int Int)
 
 -- Linear scans give up after this many candidates and consult the buckets.
 mpScanBudget :: Int
@@ -303,18 +305,18 @@ buildBuckets candArr dCount =
                (sel cUnary)
 
 -- first index into the ascending array whose value is >= key
-lbVal :: Array Int Int -> Int -> Int
+lbVal :: UArray Int Int -> Int -> Int
 lbVal a key = go 0 (rangeSize (bounds a))
   where go l r | l >= r = l
                | a ! m < key = go (m + 1) r
                | otherwise = go l m
           where m = (l + r) `div` 2
 
-rightmostIn :: Array Int Int -> Int -> Int -> Int   -- value in [b, e), or -1
+rightmostIn :: UArray Int Int -> Int -> Int -> Int   -- value in [b, e), or -1
 rightmostIn a b e = let j = lbVal a e - 1
                     in if j >= 0 && a ! j >= b then a ! j else -1
 
-anyIn :: Array Int Int -> Int -> Int -> Bool
+anyIn :: UArray Int Int -> Int -> Int -> Bool
 anyIn a b e = let j = lbVal a b in j < rangeSize (bounds a) && a ! j < e
 
 mpRun :: Sym r => Bool -> [Tok] -> r
