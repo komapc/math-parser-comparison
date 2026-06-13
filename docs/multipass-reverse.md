@@ -205,8 +205,8 @@ pre-fix run — all three languages have since been patched, see †):
 **~75–115× (C++ pre-fix), ~17× (Python), ~8× (Haskell) over top-down — growing
 with n — and ~2–4× over the RMQ variant.** On the single-precedence control
 chain the whole family stays linear, isolating *mixed precedence* as the
-trigger. After the C++ bucket fix the gap there narrows to ~2× for the arena
-and direct forms (~6× for pointer-AST `multipass`) — still in bottom-up's
+trigger. After the C++ bucket fix plus iterator-passing, the gap narrows to ~2× for the
+arena and direct forms (~4× for pointer-AST `multipass`) — still in bottom-up's
 favour, with no fallback machinery needed.
 
 ## Where it lands on the random corpora
@@ -216,18 +216,18 @@ Neutral runner, ns/leaf at n=1000 (full tables in
 
 | | C++ | Python | Haskell |
 |---|--:|--:|--:|
-| fastest tree builder | `ast-arena` 84 | `ast-rd` 3 012 | `ast-pratt` 1 139 |
-| **`multipass-reverse`** | **99** | **4 120** | **1 635** |
-| best *top-down* multipass (`direct-mp`) | 99 | 6 887 | 1 518 |
-| fastest *no-tree* strategy (`direct-rd`) | 62 | 2 814 | 1 230 |
+| fastest tree builder | `ast-arena` 71 | `ast-rd` 2 356 | `ast-rd` 1 007 |
+| **`multipass-reverse`** | **85** | **3 318** | **1 422** |
+| best *top-down* multipass | `direct-mp` 89 | `direct-mp` 5 252 | `multipass` 1 368 |
+| fastest *no-tree* strategy (`direct-rd`) | 53 | 2 122 | 1 105 |
 
-Best of the multipass family in Python by ~1.7×; in C++ it's a dead heat with
-`direct-mp` at this size and a clear lead at n=10000 (101 vs 107 ns/leaf — and
-`direct-mp` builds *no tree* at all); a tie in Haskell. In C++ it is also the
-**second-fastest tree builder of all eight** — ahead of every pointer-AST
-parser — because it shares `ast-arena`'s two structural advantages: a
-contiguous arena output and (after the hot-path rewrite below) no per-node
-allocation during parsing.
+Best of the multipass family in Python by ~1.6× at n=1000 (growing to ~1.9× at
+n=10000); in C++ within ~5% of `direct-mp` across sizes (85 vs 89 at n=1000,
+97 vs 100 at n=10000 — and `direct-mp` builds *no tree* at all); effectively a
+tie in Haskell. In C++ it is also the **second-fastest tree builder of all
+eight** — ahead of every pointer-AST parser — because it shares `ast-arena`'s
+two structural advantages: a contiguous arena output and (after the hot-path
+rewrite below) no per-node allocation during parsing.
 
 ## Implementation notes
 
