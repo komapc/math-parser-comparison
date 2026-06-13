@@ -13,12 +13,7 @@
 //       ranges, avoiding a binary search on every call (only paren strips need
 //       one, via parenRange which uses the precomputed pcStart_/pcEnd_ arrays).
 //
-//   #9  Iterative evaluation (explicit work/value stack): replaces the recursive
-//       er() with a loop over Task items. Eliminates per-call frame overhead and
-//       removes the O(n) recursion-depth risk on left-heavy inputs like
-//       a+b*c+d*e+… where every split is at the right end of the range.
-//
-//   #10 AVX2 SIMD flat check and split (same design as multipass-arena):
+//   #9  AVX2 SIMD flat check and split (same design as multipass-arena):
 //       a per-depth int8_t prec array lets a single 32-byte load answer both
 //       questions branchlessly. Runtime-dispatched; set MP_LEAN_NO_SIMD=1 to
 //       force the scalar path.
@@ -67,6 +62,7 @@ constexpr int kUnaryPrec = 3;
     return (t == TokenType::Minus) ? -v : v;
 }
 
+// Compact candidate — 8 bytes vs 16 in the arena variant.
 struct Cand {
     uint32_t pos;
     int8_t   prec;
@@ -75,6 +71,8 @@ struct Cand {
     uint8_t  _pad{};
 };
 
+// Sorted token positions of one depth's candidates, split by precedence class
+// — the O(log n) fallback once a linear scan exceeds its budget.
 struct Buckets {
     std::vector<uint32_t> p1, p2, caret, un;
 };
@@ -251,7 +249,7 @@ protected:
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Variant 1 — direct-mp  (iterative, no AST)
+// Variant 1 — direct-mp  (recursive, no AST)
 // ═══════════════════════════════════════════════════════════════════════════
 class DirectMp final : public LeanBase, public IEvaluator {
 public:
@@ -261,14 +259,10 @@ public:
         vars_ = vars;
         buildAll_full();
         const uint32_t n = (uint32_t)(tokens_.size() - 1);
-        const int clo = 0;
-        const int chi = cands_.empty() ? 0 : (int)cands_[0].size();
-        return evalIter(0, n, 0, clo, chi);
+        int clo = 0, chi = cands_.empty() ? 0 : (int)cands_[0].size();
+        return er(0, n, 0, clo, chi);
     }
-
 private:
-    // Bucket-based O(log n) split: rightmost prec-1, else rightmost prec-2,
-    // else the range's first candidate (leading unary or leftmost ^).
     int findSplitBuckets(int d, int clo, int chi) const {
         auto& v = cands_[d];
         const auto& bk = bucks_[d];
@@ -310,147 +304,73 @@ private:
         return findSplitBuckets(d, clo, chi);
     }
 
-    // ── iterative evaluation ─────────────────────────────────────────────────
-    // Each Range task is pushed as (lo, hi, d, clo, chi); when popped it either
-    // produces a leaf value or pushes sub-tasks. Bin/Un tasks consume values
-    // from the value stack and push one result, just like a postfix machine.
-    //
-    // Left-fold push sequence (processes seg0 first):
-    //   push Binary(opN-1), Range(segN), ..., Binary(op0), Range(seg1), Range(seg0)
-    // Right-fold push sequence:
-    //   push Binary(op0), ..., Binary(opN-1), Range(segN), ..., Range(seg1), Range(seg0)
-    // Split:
-    //   push Binary(op), Range(right), Range(left)  — left processed first
-    // Unary:
-    //   push Unary(op), Range(operand)
+    double er(uint32_t lo, uint32_t hi, int d, int clo, int chi) {
+        if (lo >= hi) throw std::runtime_error("empty sub-expression");
+        if (clo < chi) {
+            auto& v = cands_[d];
+            int cp = v[clo].prec; bool cr = v[clo].rightAssoc;
 
-    struct Task {
-        enum class K : uint8_t { Range, Bin, Un } kind;
-        uint8_t  opRaw{};
-        uint32_t lo{}, hi{};
-        int      d{}, clo{}, chi{};
-    };
-
-    double evalIter(uint32_t lo0, uint32_t hi0, int d0, int clo0, int chi0) {
-        std::vector<Task> work;
-        std::vector<double> vals;
-        work.reserve(64);
-        vals.reserve(32);
-
-        auto pushR = [&](uint32_t lo, uint32_t hi, int d, int clo, int chi) {
-            work.push_back({Task::K::Range, 0, lo, hi, d, clo, chi});
-        };
-        auto pushBin = [&](TokenType op) {
-            work.push_back({Task::K::Bin, static_cast<uint8_t>(op)});
-        };
-        auto pushUn = [&](TokenType op) {
-            work.push_back({Task::K::Un, static_cast<uint8_t>(op)});
-        };
-
-        pushR(lo0, hi0, d0, clo0, chi0);
-
-        while (!work.empty()) {
-            const Task t = work.back(); work.pop_back();
-
-            if (t.kind == Task::K::Bin) {
-                const double r = vals.back(); vals.pop_back();
-                const double l = vals.back(); vals.pop_back();
-                vals.push_back(applyBinary(static_cast<TokenType>(t.opRaw), l, r));
-                continue;
-            }
-            if (t.kind == Task::K::Un) {
-                vals.back() = applyUnary(static_cast<TokenType>(t.opRaw), vals.back());
-                continue;
-            }
-
-            // Task::K::Range
-            const uint32_t lo = t.lo, hi = t.hi;
-            const int d = t.d, clo = t.clo, chi = t.chi;
-
-            if (lo >= hi) throw std::runtime_error("empty sub-expression");
-
-            if (clo < chi) {
-                auto& v = cands_[d];
-                const int cp = v[clo].prec;
-                const bool cr = v[clo].rightAssoc;
-
-                bool flat;
+            bool flat;
 #if MP_LEAN_SIMD
-                if (kHasSIMD) {
-                    const int f = simdWindowFlat(prec_[d].data(), clo, chi);
-                    flat = (f < 0) ? flatByBuckets(d, clo, chi) : (f != 0);
-                } else
+            if (kHasSIMD) {
+                const int f = simdWindowFlat(prec_[d].data(), clo, chi);
+                flat = (f < 0) ? flatByBuckets(d, clo, chi) : (f != 0);
+            } else
 #endif
-                {
-                    flat = true;
-                    const int scanEnd = (chi - clo > kScanBudget) ? clo + kScanBudget : chi;
-                    for (int i = clo; i < scanEnd; ++i)
-                        if (v[i].unary || v[i].prec != cp) { flat = false; break; }
-                    if (flat && scanEnd != chi)
-                        flat = flatByBuckets(d, clo, chi);
-                }
+            {
+                flat = true;
+                const int scanEnd = (chi - clo > kScanBudget) ? clo + kScanBudget : chi;
+                for (int i = clo; i < scanEnd; ++i)
+                    if (v[i].unary || v[i].prec != cp) { flat = false; break; }
+                if (flat && scanEnd != chi)
+                    flat = flatByBuckets(d, clo, chi);
+            }
 
-                if (flat) {
-                    if (!cr) {
-                        // Left fold: push ops + right-segs right-to-left, then left seg on top.
-                        for (int i = chi - 1; i >= clo; --i) {
-                            pushBin(tokens_[v[i].pos].type);
-                            const uint32_t rslo = v[i].pos + 1;
-                            const uint32_t rshi = (i + 1 < chi) ? (uint32_t)v[i+1].pos : hi;
-                            pushR(rslo, rshi, d, chi, chi);
-                        }
-                        pushR(lo, (uint32_t)v[clo].pos, d, chi, chi);
-                    } else {
-                        // Right fold: push all ops first (bottom), then segments right-to-left.
-                        for (int i = clo; i < chi; ++i)
-                            pushBin(tokens_[v[i].pos].type);
-                        pushR((uint32_t)v[chi-1].pos + 1, hi, d, chi, chi);
-                        for (int i = chi - 2; i >= clo; --i)
-                            pushR((uint32_t)v[i].pos + 1, (uint32_t)v[i+1].pos, d, chi, chi);
-                        pushR(lo, (uint32_t)v[clo].pos, d, chi, chi);
+            if (flat) {
+                if (!cr) {
+                    double acc = er(lo, v[clo].pos, d, chi, chi);
+                    for (int i = clo; i < chi; ++i) {
+                        uint32_t nhi = (i+1<chi) ? v[i+1].pos : hi;
+                        acc = applyBinary(tokens_[v[i].pos].type, acc,
+                                          er(v[i].pos+1, nhi, d, chi, chi));
                     }
-                    continue;
+                    return acc;
+                } else {
+                    double acc = er(v[chi-1].pos+1, hi, d, chi, chi);
+                    for (int i = chi-1; i >= clo; --i) {
+                        uint32_t slo = (i == clo) ? lo : v[i-1].pos+1;
+                        acc = applyBinary(tokens_[v[i].pos].type,
+                                          er(slo, v[i].pos, d, chi, chi), acc);
+                    }
+                    return acc;
                 }
+            }
 
-                // General split.
-                int si;
+            int si;
 #if MP_LEAN_SIMD
-                if (kHasSIMD) {
-                    const long r = simdWindowSplit(prec_[d].data(), clo, chi);
-                    si = (r == kWinBuckets) ? findSplitBuckets(d, clo, chi)
-                       : (r == kWinFirst)   ? clo
-                                            : (int)r;
-                } else
+            if (kHasSIMD) {
+                const long r = simdWindowSplit(prec_[d].data(), clo, chi);
+                si = (r == kWinBuckets) ? findSplitBuckets(d, clo, chi)
+                   : (r == kWinFirst)   ? clo
+                                        : (int)r;
+            } else
 #endif
-                si = findSplit(d, clo, chi, lo);
+            si = findSplit(d, clo, chi, lo);
 
-                if (si >= 0) {
-                    const auto& c = v[si];
-                    if (c.unary) {
-                        pushUn(tokens_[c.pos].type);
-                        pushR(c.pos + 1, hi, d, si + 1, chi);
-                    } else {
-                        pushBin(tokens_[c.pos].type);
-                        pushR(c.pos + 1, hi, d, si + 1, chi);
-                        pushR(lo, c.pos, d, clo, si);
-                    }
-                    continue;
-                }
+            if (si >= 0) {
+                auto& c = cands_[d][si];
+                if (c.unary)
+                    return applyUnary(tokens_[c.pos].type, er(c.pos+1, hi, d, si+1, chi));
+                return applyBinary(tokens_[c.pos].type,
+                                   er(lo, c.pos, d, clo, si),
+                                   er(c.pos+1, hi, d, si+1, chi));
             }
-
-            // No depth-d operator: paren strip or leaf.
-            if (tokens_[lo].type == TokenType::LParen && parenMatch_[lo] == hi - 1) {
-                const int nd = d + 1;
-                auto [nb, ne] = parenRange(lo, nd);
-                pushR(lo + 1, hi - 1, nd, nb, ne);
-                continue;
-            }
-            vals.push_back(evalLeaf(lo, hi));
         }
-
-        if (vals.size() != 1)
-            throw std::runtime_error("evaluation stack imbalance");
-        return vals[0];
+        if (tokens_[lo].type == TokenType::LParen && parenMatch_[lo] == hi-1) {
+            int nd = d+1; auto [nb, ne] = parenRange(lo, nd);
+            return er(lo+1, hi-1, nd, nb, ne);
+        }
+        return evalLeaf(lo, hi);
     }
 };
 
