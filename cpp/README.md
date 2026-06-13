@@ -26,29 +26,27 @@ A dependency-free C++26 project implementing classic (and not-so-classic) algori
 > Throttling laptop: **absolute ns drift ±40% run-to-run — trust the ratios**.
 
 ```
-direct-recursive-descent  ███                                199 ns   ×1.0   ← fastest
-bytecode-vm               ████                               247 ns   ×1.2
-ast-arena                 ████                               264 ns   ×1.3   ← fastest AST builder
-direct-shunting-yard      ████                               276 ns   ×1.4
-──────────────────────────────── tier break: D&C pre-scan + direct eval ──
-direct-mp                 █████                              294 ns   ×1.5   ← D&C, no AST
-──────────────────────────────── tier break: multipass AST build + walk ───
-multipass-reverse         █████                              310 ns   ×1.6   ← bottom-up + arena AST
-multipass-arena           ██████                             367 ns   ×1.8   ← D&C + arena AST
-multipass-bfs             ███████                            463 ns   ×2.3   ← D&C + sparse-table RMQ
+direct-shunting-yard      ███                                213 ns   ×1.0
+direct-recursive-descent  ███                                219 ns   ×1.0   ← typically fastest
+bytecode-vm               ████                               256 ns   ×1.2
+ast-arena                 ████                               270 ns   ×1.3   ← fastest AST builder
+──────────────────────────────── tier break: multipass family + direct-mp ─
+multipass-reverse         █████                              339 ns   ×1.6   ← bottom-up + arena AST
+direct-mp                 █████                              352 ns   ×1.6   ← D&C, no AST
+multipass-arena           ██████                             446 ns   ×2.0   ← D&C + arena AST
+multipass-bfs             ███████                            533 ns   ×2.4   ← D&C + sparse-table RMQ
 ──────────────────────────────── tier break: N heap allocations ───────────
-ast-pratt                 █████████                          564 ns   ×2.8
-ast-shunting-yard         █████████                          578 ns   ×2.9
-ast-recursive-descent     █████████                          584 ns   ×2.9
+ast-recursive-descent     █████████                          660 ns   ×3.0
+ast-shunting-yard         ██████████                         726 ns   ×3.3
+ast-pratt                 ██████████                         736 ns   ×3.4
 ──────────────────────────────── tier break: super-linear ─────────────────
-multipass                 ████████████████                  1012 ns   ×5.1   ← O(n log n) + N allocs
+multipass                 █████████████                      927 ns   ×4.2   ← O(n log n) + N allocs
 ```
 
-- **Tier 1 (×1.0–1.4):** O(n), ≤1 allocation. `direct-rd` is fastest; `bytecode-vm` and the other direct forms sit within ~40% and trade places run-to-run. `ast-arena` is the **fastest AST builder** — recursive-descent + one arena vector beats every other AST approach.
-- **Tier 1.5 (×1.5):** D&C without an AST — O(n log n) pre-scan, result returned inline.
-- **Tier 2 (×1.6–2.3):** the rest of the multipass family, arena AST. `multipass-reverse` (bottom-up, allocation-free item stack — see [docs/multipass-reverse.md](../docs/multipass-reverse.md)) leads it and is the **second-fastest tree builder**; the top-down D&C forms are the only way to build a tree whose sub-ranges are split-independent. Their two former Θ(n²) worst cases (mixed-precedence and `^`-tower chains) are now capped at O(n log n): every linear scan is bounded and falls back to per-precedence position buckets, with an AVX2 window scan in `multipass-arena` (runtime-dispatched).
-- **Tier 3 (×2.8–2.9):** One `make_unique` per node. Algorithm barely matters — allocator dominates.
-- **Tier 4 (×5.1):** O(n log n) *plus* N allocations.
+- **Tier 1 (×1.0–1.3):** O(n), ≤1 allocation. `direct-sy` and `direct-rd` trade the top spot run-to-run (within 3% here); `bytecode-vm` and `ast-arena` sit within ~30%. `ast-arena` is the **fastest AST builder** — recursive-descent + one arena vector beats every other AST approach.
+- **Tier 2 (×1.6–2.4):** the multipass family and `direct-mp`. `multipass-reverse` (bottom-up, allocation-free — see [docs/multipass-reverse.md](../docs/multipass-reverse.md)) and `direct-mp` (D&C, no AST) both land at ×1.6 and are the **second- and third-fastest tree/eval variants**; the top-down D&C forms are the only way to build a tree whose sub-ranges are split-independent. Their two former Θ(n²) worst cases (mixed-precedence and `^`-tower chains) are now capped at O(n log n): every linear scan is bounded and falls back to per-precedence position buckets, with iterator passing and an AVX2 SIMD window in `multipass` / `multipass-arena` (runtime-dispatched).
+- **Tier 3 (×3.0–3.4):** One `make_unique` per node. Algorithm barely matters — allocator dominates.
+- **Tier 4 (×4.2):** O(n log n) *plus* N allocations.
 
 ## 📐 Grammar
 
@@ -82,18 +80,18 @@ ns/leaf, 1 000-leaf expressions; `×` relative to fastest:
 
 | Strategy | ns/leaf | × | allocations / expr |
 |---|--:|--:|---|
-| [`direct-recursive-descent`](src/direct_recursive_descent.cpp) | 199 | **1.0** | ~0 (call stack) |
-| [`bytecode-vm`](src/bytecode.cpp) | 247 | **1.2** | member vectors, reused |
-| [`ast-arena`](src/arena_ast.cpp) | 264 | 1.3 | **one** (node vector) |
-| [`direct-shunting-yard`](src/direct_shunting_yard.cpp) | 276 | 1.4 | member vectors, reused |
-| [`direct-mp`](src/multipass_lean.cpp) | 294 | **1.5** | pre-scan vectors (no AST) |
-| [`multipass-reverse`](src/multipass_reverse.cpp) | 310 | **1.6** | one (node vector); item stack reused |
-| [`multipass-arena`](src/multipass_arena.cpp) | 367 | **1.8** | one (node vector) + pre-scan |
-| [`multipass-bfs`](src/multipass_opt.cpp) | 463 | **2.3** | one + sparse table + pre-index |
-| [`ast-pratt`](src/pratt.cpp) | 564 | 2.8 | **one per node** |
-| [`ast-shunting-yard`](src/shunting_yard.cpp) | 578 | 2.9 | **one per node** |
-| [`ast-recursive-descent`](src/recursive_descent.cpp) | 584 | 2.9 | **one per node** |
-| [`multipass`](src/multipass.cpp) | 1012 | 5.1 | one per node + pre-scan |
+| [`direct-shunting-yard`](src/direct_shunting_yard.cpp) | 213 | **1.0** | member vectors, reused |
+| [`direct-recursive-descent`](src/direct_recursive_descent.cpp) | 219 | **1.0** | ~0 (call stack) |
+| [`bytecode-vm`](src/bytecode.cpp) | 256 | **1.2** | member vectors, reused |
+| [`ast-arena`](src/arena_ast.cpp) | 270 | 1.3 | **one** (node vector) |
+| [`multipass-reverse`](src/multipass_reverse.cpp) | 339 | **1.6** | one (node vector); item stack reused |
+| [`direct-mp`](src/multipass_lean.cpp) | 352 | **1.6** | pre-scan vectors (no AST) |
+| [`multipass-arena`](src/multipass_arena.cpp) | 446 | **2.0** | one (node vector) + pre-scan |
+| [`multipass-bfs`](src/multipass_opt.cpp) | 533 | **2.4** | one + sparse table + pre-index |
+| [`ast-recursive-descent`](src/recursive_descent.cpp) | 660 | 3.0 | **one per node** |
+| [`ast-shunting-yard`](src/shunting_yard.cpp) | 726 | 3.3 | **one per node** |
+| [`ast-pratt`](src/pratt.cpp) | 736 | 3.4 | **one per node** |
+| [`multipass`](src/multipass.cpp) | 927 | 4.2 | one per node + pre-scan |
 
 ### Re-eval — compile once, evaluate many
 

@@ -45,30 +45,30 @@ tiers, not the digits.** Reproduce locally with `cabal run bench`.
 
 | strategy | n=10 | n=100 | n=1000 | n=10000 |
 |---|--:|--:|--:|--:|
-| **ast-recursive-descent** | **981** | **977** | 1144 | **1085** |
-| ast-shunting-yard | 1081 | 1104 | 1182 | 1506 |
-| **ast-pratt** | 1012 | 1029 | **1139** | 1169 |
-| ast-arena | 1160 | 1174 | 1370 | 1639 |
-| multipass | 1348 | 1365 | 1566 | 2137 |
-| multipass-arena | 1560 | 1547 | 1799 | 2987 |
-| direct-mp | 1398 | 1391 | 1518 | 2155 |
-| multipass-bfs | 1806 | 1722 | 1959 | 3999 |
-| multipass-reverse | 1360 | 1396 | 1635 | 2389 |
-| direct-recursive-descent | 994 | 1015 | 1230 | 1176 |
-| direct-shunting-yard | 1069 | 1109 | 1299 | 1602 |
-| bytecode-vm | 1094 | 1120 | 1304 | 1485 |
+| **ast-recursive-descent** | **959** | **959** | **1007** | **886** |
+| ast-shunting-yard | 1062 | 1020 | 1120 | 1236 |
+| ast-pratt | 992 | 969 | 1038 | 937 |
+| ast-arena | 1113 | 1065 | 1265 | 1453 |
+| multipass | 1268 | 1212 | 1368 | 1916 |
+| multipass-arena | 1390 | 1374 | 1526 | 2586 |
+| direct-mp | 1313 | 1262 | 1442 | 1905 |
+| multipass-bfs | 1565 | 1534 | 1631 | 3501 |
+| multipass-reverse | 1302 | 1229 | 1422 | 2001 |
+| direct-recursive-descent | 980 | 959 | 1105 | 1028 |
+| direct-shunting-yard | 1339 | 1297 | 1484 | 1629 |
+| bytecode-vm | 1336 | 1292 | 1494 | 1975 |
 
 Correctness: all corpus expressions agree across all 12 strategies. The spread is
-much tighter than C++ (~1.8× fastest-to-slowest on the median vs ~4.9×) — GC and
+much tighter than C++ (~1.6× fastest-to-slowest on the median vs ~3.5×) — GC and
 laziness overhead dominate. `multipass-reverse` is among the better mp variants
 here (beats `multipass-arena`/`-bfs` at scale, ties `multipass`/`direct-mp`); the
 `multipass-bfs` blow-up at n=10000 is the sparse-table build cost showing through.
 
 ## What changes versus C++
 
-- **The arena trick disappears** — `ast-arena` (1370 @ n=1000) is *slower* than
-  the pointer-AST `Expr` builders (`ast-recursive-descent` 1144, `ast-pratt`
-  1139). A flat `Array` of boxed, GC'd nodes is no cheaper than the tree; the C++
+- **The arena trick disappears** — `ast-arena` (1265 @ n=1000) is *slower* than
+  the pointer-AST `Expr` builders (`ast-recursive-descent` 1007, `ast-pratt`
+  1038). A flat `Array` of boxed, GC'd nodes is no cheaper than the tree; the C++
   win was about contiguous memory *layout*, which a managed runtime hides.
 - **"No tree" stops winning, too.** In C++ the `direct-*` forms are fastest; in
   Haskell a pointer-AST builder is nominally fastest and `direct-rd`/`bytecode-vm`
@@ -77,7 +77,7 @@ here (beats `multipass-arena`/`-bfs` at scale, ties `multipass`/`direct-mp`); th
 - **The sparse-table `multipass-bfs` is the slowest at scale** — building the
   `Array`-based RMQ costs more than the linear split scan it replaces, exactly as
   in C++. The precompute loses to a plain linear scan in every runtime.
-- **The spread compresses** to ~1.8× on the median (vs C++'s ~4.9×): GC and
+- **The spread compresses** to ~1.6× on the median (vs C++'s ~3.5×): GC and
   laziness overhead dominate, shrinking the gaps between algorithms.
 
 See the top-level [README](../README.md) for the cross-language table.
