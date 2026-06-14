@@ -6,6 +6,9 @@ compile_commands.json
 .cache/
 a.out
 
+# Claude Code local config / transient state
+.claude/
+
 # generated benchmark corpora (reproduce with: python3 bench/gen_corpus.py)
 bench/corpus/
 
