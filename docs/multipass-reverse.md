@@ -1,11 +1,14 @@
 # `multipass-reverse` — bottom-up, one pass per precedence level
 
-The newest of the [twelve strategies](../FINDINGS.md#the-twelve-strategies): a
-**bottom-up** expression parser that reduces the *tightest-binding* constructs
-first — deepest parentheses, then `^`, then `*` `/`, then `+` `-` —
-agglomerating outward until a single node remains. It is "multipass" in the
-original sense of the word: **one reduction pass per precedence level**, like a
-human simplifying an expression on paper.
+A **bottom-up** expression parser that reduces the *tightest-binding*
+constructs first — deepest parentheses, then `^`, then `*` `/`, then `+` `-` —
+until a single node remains: "multipass" in the original sense, **one
+reduction pass per precedence level**, like a human simplifying on paper.
+
+The two results, in one line each ([data](../FINDINGS.md)):
+**vs the classics it is competitive** — second-fastest tree builder of eight
+in C++, ahead of every pointer-AST parser; **vs its top-down family it is
+strictly better** — the only member whose worst case is its average case.
 
 Implementations: [C++](../cpp/src/multipass_reverse.cpp) ·
 [Python](../python/mathparser/evaluators.py) ·
@@ -14,12 +17,9 @@ Implementations: [C++](../cpp/src/multipass_reverse.cpp) ·
 ## Top-down vs bottom-up
 
 Classic `multipass` (and `multipass-arena`, `multipass-bfs`, `direct-mp`) is
-**top-down** divide-and-conquer: scan the operator candidates for the
-*lowest-precedence* one — the **root**, the operator evaluated *last* — split
-the token range there, and recurse on each half. The root is *decided first*,
-the leaves last.
-
-`multipass-reverse` is its exact dual:
+**top-down** divide-and-conquer: scan for the *lowest-precedence* operator —
+the root, evaluated *last* — split there, recurse. `multipass-reverse` is its
+exact dual:
 
 | | top-down (`multipass*`) | bottom-up (`multipass-reverse`) |
 |---|---|---|
@@ -29,13 +29,11 @@ the leaves last.
 | recursion | per split (depth ~ tree height) | per parenthesis group only |
 | result | the same tree | the same tree, built in reverse order |
 
-Both produce a **structurally identical tree** — the construction order (and
-therefore the node indices inside the arena) differs, but parent/child
-structure and every leaf are the same. Structural equivalence is enforced
-indirectly: the differential fuzz suites
-([C++](../cpp/tests/fuzz_differential.cpp) ·
-[Python](../python/test_fuzz.py)) require every strategy to agree with every
-other on thousands of random inputs.
+Both produce a **structurally identical tree** (construction order — and hence
+arena node indices — differs). Equivalence is enforced by the differential
+fuzz suites ([C++](../cpp/tests/fuzz_differential.cpp) ·
+[Python](../python/test_fuzz.py)): every strategy must agree with every other
+on thousands of random and mutated inputs.
 
 ## The pipeline
 
@@ -49,18 +47,12 @@ flowchart LR
     F --> G["root node"]
 ```
 
-The working state is a flat list of **items**, each one of:
-
-- `Opd` — an operand: a number, a variable, or an already-reduced subtree;
-- `Un` — a pending prefix `+`/`-`;
-- `Op` — a pending binary operator.
-
-A `*` `/` `+` `-` operator is a **barrier**: the moment one arrives, everything
-accumulated since the previous barrier — a *segment*, containing only operands,
-prefix signs and `^` — is folded down to a single `Opd`. After the scan, the
-item list is a flat alternation `Opd (Op Opd)*` with only `* / + -` left, and
-two in-place left-to-right passes (first `* /`, then `+ -`) contract it to one
-node.
+The working state is a flat list of **items**: `Opd` (number, variable, or
+reduced subtree), `Un` (pending prefix sign), `Op` (pending binary operator).
+A `*` `/` `+` `-` is a **barrier**: the moment one arrives, everything since
+the previous barrier — a *segment* of operands, prefix signs and `^` — folds
+to a single `Opd`. After the scan the list is `Opd (Op Opd)*` with only
+`* / + -` left; two in-place passes (`* /`, then `+ -`) contract it to one node.
 
 ## Worked example
 
@@ -88,9 +80,6 @@ pass + - :  [R]              where R = N+M      ← the root
 evaluate:  N = -4,  S = 3,  M = 9,  R = 5
 ```
 
-The tree it builds — identical to what every other strategy builds — with the
-order each node is *decided*:
-
 ```mermaid
 graph TD
     R["+ (root — decided LAST)"]
@@ -114,20 +103,16 @@ graph TD
     S --> e
 ```
 
-Top-down multipass walks this picture from the root down (`+` first, parens
-last); `multipass-reverse` walks it from the parens up.
+Top-down multipass walks this picture from the root down; `multipass-reverse`
+walks it from the parens up.
 
 ## Why fold segments right-to-left?
 
-A segment is `un* opd (^ un* opd)*` — operands, prefix signs, and `^`. The
-grammar has two corners:
-
-- `^` is **right-associative**: `2^3^2 = 2^(3^2) = 512`;
-- `^` binds **tighter than unary minus**: `-2^2 = -(2^2) = -4`, but `2^-3 = 2^(-3) = 0.125`.
-
-Folding **right-to-left** makes both fall out with no recursion and no
-look-ahead: walking leftward you always hold the *fully-folded exponent* in an
-accumulator, so
+A segment is `un* opd (^ un* opd)*`, and the grammar has two corners:
+`^` is **right-associative** (`2^3^2 = 512`) and binds **tighter than unary
+minus** (`-2^2 = -4`, `2^-3 = 0.125`). Folding right-to-left makes both fall
+out with no recursion or look-ahead — walking leftward you always hold the
+fully-folded exponent in an accumulator:
 
 ```text
 2 ^ -3 ^ 2   (reversed walk)        -2 ^ 2   (reversed walk)
@@ -137,56 +122,30 @@ un−  → acc = -(acc)    = -(3^2)     un−  → acc = -(acc)  = -(2^2)  ✓
 '^'  → acc = 2 ^ acc   = 2^(-(3^2)) ✓
 ```
 
-A prefix sign always applies to the power already folded to its right; a `^`
-always pairs the operand on its left with the accumulator. One loop, done.
-
 ## Complexity — and the input family where bottom-up wins
 
-Every token enters the item list once, every item is touched once per
-precedence pass, and parenthesis recursion partitions the input — so
-`multipass-reverse` is **Θ(n) regardless of operator structure**.
-
-The top-down family is *usually* fine too, but only thanks to two fast paths:
-
-1. the **flat-chain fold** — if every candidate in a range has one precedence,
-   fold the chain iteratively instead of splitting;
-2. the **prec-1 early exit** — the right-to-left split scan stops at the first
-   `+`/`-`, since nothing binds looser.
-
-A flat **mixed-precedence chain** with no `+`/`-` — a product of powers, like a
-factored monomial `3^2 * 2^2 / 2^2 * 3^3 …` (powchain) — defeats both at once:
-two precedences mean no flat fold, and no `+`/`-` means no early exit. Every
-split rescans its whole range: **Θ(n²)**. The sparse-table RMQ variant
-(`multipass-bfs`) answers splits in O(1) and survives — the one input family
-where its precompute pays off — but still pays the O(n log n) table.
-
-And fast path 1 is itself a linear scan: *checking* that every candidate in a
-range shares one precedence costs O(k). A long `^` run followed by a `*` run
-(`1^1^…^1 * 1 * 1 * …`, towerchain) leaves the same-precedence prefix in the
-left sub-range after every right-end split and rereads it before each one —
-**Θ(n²) even with O(1) splits**, which catches `multipass-bfs` too.
+Every token enters the item list once, every item is touched once per level
+pass, and paren recursion partitions the input: **Θ(n) regardless of operator
+structure**. The top-down family is usually fine too — but only thanks to two
+fast paths (a flat-chain fold, and a prec-1 early exit in the split scan), and
+each has an input that defeats it:
 
 | input shape | `multipass` / `-arena` / `direct-mp` | `multipass-bfs` | `multipass-reverse` |
 |---|---|---|---|
 | random corpus (balanced) | ~Θ(n log n) | Θ(n log n) | **Θ(n)** |
 | single-precedence chain `1+2-3+…` | Θ(n) (flat-chain fold) | Θ(n) | **Θ(n)** |
-| mixed-precedence chain `b^e * b^e / …` | **Θ(n²)** † | Θ(n log n) | **Θ(n)** |
-| `^`-tower then `*`-run `1^1^…^1*1*1…` | **Θ(n²)** † | **Θ(n²)** † | **Θ(n)** |
+| mixed-precedence chain `b^e * b^e / …` (powchain) | **Θ(n²)** † | Θ(n log n) | **Θ(n)** |
+| `^`-tower then `*`-run (towerchain) | **Θ(n²)** † | **Θ(n²)** † | **Θ(n)** |
+| deep parens (nestchain — *bottom-up's* worst case) | Θ(n) | Θ(n) | **Θ(n)**, flat |
 
-† These holes have since been patched in all three languages: every linear
-scan is bounded at 16 candidates and falls back to per-depth, per-precedence
-sorted position arrays (binary search), capping the whole family at
-**O(n log n)** on any input — see the
-[FINDINGS section](../FINDINGS.md#the-fix-bounded-scans--precedence-buckets)
-for before/after numbers. The structural point is unchanged: bottom-up needs
-no budget and no fallback, because it never asks a question whose answer lies
-elsewhere in the range.
+† Since patched in all three languages: scans bounded at 16 candidates with a
+per-depth precedence-bucket fallback caps the family at **O(n log n)** —
+[before/after numbers](../FINDINGS.md#result-2--vs-its-family-strictly-better).
+Bottom-up needs no budget and no fallback, because it never asks a question
+whose answer lies elsewhere in the range.
 
-Measured on the neutral 4-vCPU GitHub runner **before that fix**
-(C++, ns/leaf on the power chain).
-The climbing curve is top-down `multipass-arena` — ns/leaf growing ~4× per 4×
-length means quadratic total cost. The two flat lines hugging the axis are
-`multipass-bfs` (RMQ, ~72–84) and `multipass-reverse` (~39–43):
+Measured pre-fix on the neutral CI runner — the climbing line is quadratic
+(ns/leaf ~4× per 4× length), the flat ones are not:
 
 ```mermaid
 xychart-beta
@@ -198,28 +157,14 @@ xychart-beta
     line "multipass-reverse (bottom-up)" [38.7, 41.4, 42.5]
 ```
 
-Cross-language, at the largest size each runtime was measured at (same
-pre-fix run — all three languages have since been patched, see †). The sizes
-differ per language and the gap grows with size, so the per-language ratios
-below are not cross-language comparable:
-
-| family member | C++ m=8192 | Python m=1024 | Haskell m=4096 |
-|---|--:|--:|--:|
-| top-down (three variants) | 3 236–4 864 | 52 368–53 140 | 9 757–10 943 |
-| `multipass-bfs` (RMQ) | 84 | 13 709 | 3 010 |
-| **`multipass-reverse`** | **43** | **3 135** | **1 302** |
-
-**~75–115× (C++ pre-fix), ~17× (Python), ~8× (Haskell) over top-down — growing
-with n — and ~2–4× over the RMQ variant.** On the single-precedence control
-chain the whole family stays linear, isolating *mixed precedence* as the
-trigger. After the C++ bucket fix plus iterator-passing, the gap narrows to ~2× for the
-arena and direct forms (~4× for pointer-AST `multipass`) — still in bottom-up's
-favour, with no fallback machinery needed.
+That was ~75–115× over top-down in C++ at m=8192 (~17× Python at m=1024, ~8×
+Haskell at m=4096 — sizes differ, so ratios aren't cross-language comparable).
+Post-fix the shipped binaries reproduce a ~1.7–3.6× gap, still in bottom-up's
+favour, with no machinery on its side.
 
 ## Where it lands on the random corpora
 
-Neutral runner, ns/leaf at n=1000 (full tables in
-[FINDINGS.md](../FINDINGS.md#cross-language-results)):
+Neutral runner, ns/leaf at n=1000 ([full tables](../FINDINGS.md#cross-language-results)):
 
 | | C++ | Python | Haskell |
 |---|--:|--:|--:|
@@ -228,48 +173,36 @@ Neutral runner, ns/leaf at n=1000 (full tables in
 | best *top-down* multipass | `direct-mp` 102 | `direct-mp` 7 007 | `multipass` 1 624 |
 | fastest *no-tree* strategy (`direct-rd`) | 62 | 2 965 | 1 465 |
 
-Best of the multipass family in Python by ~1.6× at n=1000 (growing to ~1.8× at
-n=10000); in C++ within ~4% of `direct-mp` at n=1000 (98 vs 102) and a dead
-tie at n=10000 (114 vs 114 — and `direct-mp` builds *no tree* at all);
-effectively a tie in Haskell. In C++ it is also the **second-fastest tree
-builder of all eight** — ahead of every pointer-AST parser — because it shares
-`ast-arena`'s two structural advantages: a contiguous arena output and (after
-the hot-path rewrite below) no per-node allocation during parsing.
+Best of the family in Python by ~1.6× (→ ~1.8× at n=10000); a dead tie with
+`direct-mp` in C++ at n=10000 (114 vs 114 — and `direct-mp` builds no tree);
+effectively a tie in Haskell. Second-fastest tree builder of eight in C++ —
+it shares `ast-arena`'s two structural advantages: contiguous arena output and
+allocation-free parsing.
 
 ## Implementation notes
 
-Three things make the hot path fast (added in a rewrite that measured ~1.9×
-in C++ and ~1.6× in Python by interleaved A/B, parity in Haskell):
+Three things make the hot path fast (a rewrite measuring ~1.9× in C++, ~1.6×
+in Python by interleaved A/B):
 
-1. **One shared item stack.** Every `reduceRange` works above its own base
-   index in a single reusable vector and truncates back on exit — stack
-   discipline, zero per-range allocation. The only recursion left is per
-   parenthesis group.
-2. **Fold-on-barrier.** Segments are folded right-to-left *the moment* a
-   `* / + -` barrier closes them (the loop above), so there is no separate
-   "split into segments" pass and no per-segment list. A lone-operand segment —
-   the common case — is a no-op.
-3. **In-place level contraction.** The `* /` and `+ -` passes rewrite the item
-   list in place with a read/write index, allocating nothing.
+1. **One shared item stack** — each `reduceRange` works above its own base in
+   one reusable vector and truncates on exit; recursion only per paren group.
+2. **Fold-on-barrier** — segments fold right-to-left the moment a barrier
+   closes them; a lone-operand segment (the common case) is a no-op.
+3. **In-place level contraction** — the `* /` and `+ -` passes rewrite the
+   list with a read/write index, allocating nothing.
 
-The Haskell version expresses the same idea idiomatically: segments accumulate
-naturally in reverse order, and `reduceSegRev` folds that reversed list
-directly — the right-to-left walk for free.
+The Haskell port gets the right-to-left walk for free: segments accumulate in
+reverse order and `reduceSegRev` folds the reversed list directly.
 
 ## Reproduce
 
 ```sh
-./build/adversarial_bench          # C++   (cmake --build build first)
-python3 python/adversarial.py      # Python
+./build/adversarial_bench            # C++   (cmake --build build first)
+python3 python/adversarial.py        # Python
 cd haskell && cabal run adversarial  # Haskell
 ```
 
-Each prints four shapes for all twelve strategies: the power chain (mixed
-precedence), the tower chain (flat-check attack), the control chain (single
-precedence), and the nest chain (deep parentheses — the shape adversarial to
-*bottom-up*, whose only recursion is per paren group; it stays Θ(n) there).
-The shipped top-down variants include the bounded-scan/bucket fix (†), so
-these commands reproduce the **post-fix** ~2–4× gaps — the pre-fix table
-above is preserved from the last CI run before the fix and cannot be
-regenerated from current sources. Current numbers come from the
-[CI bench workflow](../.github/workflows/bench.yml) on a neutral GitHub runner.
+Each prints all four shapes for all twelve strategies. The shipped top-down
+variants include the bounded-scan fix, so these reproduce the **post-fix**
+gaps; the pre-fix numbers above are preserved from the last CI run before the
+fix. Current numbers: [CI bench workflow](../.github/workflows/bench.yml).
