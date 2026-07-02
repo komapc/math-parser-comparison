@@ -34,25 +34,26 @@ The eight strategies that build a syntax tree, ns/leaf at n=1000 on a neutral
 
 | tree builder | representation | C++ | Python | Haskell |
 |---|---|--:|--:|--:|
-| `ast-recursive-descent` | pointer AST | 2.12 | **1.00** | **1.00** |
-| `ast-shunting-yard` | pointer AST | 2.16 | 1.02 | 1.11 |
-| `ast-pratt` | pointer AST | 2.09 | 1.04 | 1.03 |
-| `ast-arena` | arena AST | **1.00** | 1.16 | 1.26 |
-| `multipass` | pointer AST | 2.78 | 2.30 | 1.36 |
-| `multipass-arena` | arena AST | 1.57 | 2.46 | 1.52 |
-| `multipass-bfs` | arena AST | 1.67 | 2.89 | 1.62 |
-| `multipass-reverse` | arena AST | 1.19 | 1.41 | 1.41 |
+| `ast-recursive-descent` | pointer AST | 2.13 | 1.00 | **1.00** |
+| `ast-shunting-yard` | pointer AST | 2.23 | **1.00** | 1.11 |
+| `ast-pratt` | pointer AST | 2.10 | 1.04 | 1.03 |
+| `ast-arena` | arena AST | **1.00** | 1.15 | 1.26 |
+| `multipass` | pointer AST | 2.81 | 2.28 | 1.28 |
+| `multipass-arena` | arena AST | 1.58 | 2.44 | 1.53 |
+| `multipass-bfs` | arena AST | 1.72 | 2.75 | 1.76 |
+| `multipass-reverse` | arena AST | 1.18 | 1.37 | 1.36 |
 
 Reading it:
 
 - **C++: the arena tree-builders win decisively** (`ast-arena` ×1.0,
-  `multipass-reverse` ×1.19; every pointer-AST form is ~2.1× on per-node
+  `multipass-reverse` ×1.18; every pointer-AST form is ~2.1× on per-node
   `make_unique`). Contiguous memory layout is the whole game.
 - **Python & Haskell: a pointer-AST builder wins, and `ast-arena` is *slower*.**
-  Which pointer form is nominally fastest (recursive descent in both this run;
-  Pratt trails by ~3% in Haskell) is within run-to-run noise — they cluster inside
-  ~5%. The robust fact is that the arena's advantage was memory *layout*, which a
-  boxed/GC'd runtime hides, so the trick evaporates.
+  Which pointer form is nominally fastest (shunting-yard vs recursive descent
+  in Python this run is a 0.4% coin flip; Pratt trails by ~3% in Haskell) is
+  within run-to-run noise — they cluster inside ~5%. The robust fact is that
+  the arena's advantage was memory *layout*, which a boxed/GC'd runtime hides,
+  so the trick evaporates.
 - **The top-down divide-and-conquer variants lose everywhere** — they do more
   work (repeated split-scans) to build the same tree. The bottom-up
   `multipass-reverse` is the exception: best of the family in C++ and Python and
@@ -80,23 +81,23 @@ builder *in that column* (**bold**):
 
 | tree builder | C++ W1 | C++ W4 | Python W1 | Python W4 | Haskell W1 | Haskell W4 |
 |---|--:|--:|--:|--:|--:|--:|
-| `ast-recursive-descent` | 2.29 | 1.84 | 1.10 | 1.05 | **1.00** | **1.00** |
-| `ast-shunting-yard` | 2.31 | 1.90 | **1.00** | **1.00** | 1.08 | 1.08 |
-| `ast-pratt` | 2.27 | 1.84 | 1.10 | 1.10 | 1.08 | 1.02 |
-| `ast-arena` | **1.00** | **1.00** | 1.16 | 1.12 | 1.23 | 1.16 |
-| `multipass` | 2.91 | 2.38 | 2.00 | 1.94 | 1.39 | 1.30 |
-| `multipass-arena` | 1.57 | 1.25 | 2.10 | 1.98 | 1.58 | 1.45 |
-| `multipass-bfs` | 1.73 | 1.39 | 2.32 | 2.24 | 1.73 | 1.61 |
-| `multipass-reverse` | 1.25 | 1.01 | 1.42 | 1.35 | 1.39 | 1.29 |
+| `ast-recursive-descent` | 2.36 | 2.51 | 1.03 | 1.03 | **1.00** | 1.01 |
+| `ast-shunting-yard` | 2.40 | 2.63 | **1.00** | **1.00** | 1.08 | 1.06 |
+| `ast-pratt` | 2.34 | 2.47 | 1.07 | 1.12 | 1.03 | **1.00** |
+| `ast-arena` | **1.00** | **1.00** | 1.14 | 1.16 | 1.21 | 1.15 |
+| `multipass` | 2.99 | 3.26 | 2.00 | 1.87 | 1.30 | 1.27 |
+| `multipass-arena` | 1.64 | 1.70 | 2.00 | 1.92 | 1.49 | 1.41 |
+| `multipass-bfs` | 1.81 | 1.91 | 2.13 | 2.15 | 1.64 | 1.58 |
+| `multipass-reverse` | 1.28 | 1.29 | 1.33 | 1.30 | 1.24 | 1.21 |
 
 Compare the **W1 and W4 columns within each language** (not against the one-shot
 table above — that's a different harness). The takeaway: **adding cores does not
-reorder the builders.** C++ is identical W1→W4 (`ast-arena` leads; `multipass-reverse`
-closes to a ~1% near-tie at W=4); Python and Haskell preserve the tiers, with only
-adjacent *near-ties* trading places (Haskell's whole spread is ~1.0–1.7×, so
+reorder the builders.** C++ is identical W1→W4 (`ast-arena` leads,
+`multipass-reverse` second); Python and Haskell preserve the tiers, with only
+adjacent *near-ties* trading places (Haskell's whole spread is ~1.0–1.6×, so
 neighbours are statistical ties). The absolute gaps wobble between runs —
-parallel-efficiency noise on a shared VM (arena's efficiency alone has spanned
-0.53–0.80 across runs), not a core-count effect.
+parallel-efficiency noise on a shared VM (an earlier run had reverse closing to
+a ~1% near-tie with arena at W=4; this one doesn't), not a core-count effect.
 **The AST-builder ranking is core-count-invariant.**
 
 ## When you build the tree and re-evaluate
@@ -104,15 +105,16 @@ parallel-efficiency noise on a shared VM (arena's efficiency alone has spanned
 The comparison above is **one-shot** (parse + evaluate once). If instead you build
 the tree once and evaluate it many times with **different variable values**, the
 verdict flips — building a reusable form is worth it after just **≲ 4 evaluations**,
-because re-parsing every time is **~9–21× slower per eval**:
+because re-parsing every time is **~7–26× slower per eval**:
 
 | per-eval, n=1000 | C++ | Python | Haskell |
 |---|--:|--:|--:|
-| best compiled form | 18k (bytecode) | 264k (bytecode) | 43k (ast-arena) |
-| re-parse every time | 192k | 2.94M | 772k |
+| best compiled form | 18k (rpn) | 280k (ast-ptr) | 35k (ast-ptr) |
+| re-parse every time | 186k | 2.90M | 936k |
 
 And *which* form is fastest to re-evaluate is itself runtime-specific: flat
-bytecode/arena in C++, bytecode in Python, an AST in Haskell (pointer and arena
+rpn/bytecode in C++, a statistical tie between pointer-AST and bytecode in
+Python (they trade places run to run), an AST in Haskell (pointer and arena
 trade places run to run; flat bytecode is the one form that *loses* there).
 Details and the full table in [FINDINGS.md](FINDINGS.md).
 
@@ -124,9 +126,9 @@ parallelism model decides whether more cores help:
 
 | runtime | throughput scaling @ 4 workers |
 |---|--:|
-| C++ (`std::thread`) | ~2.1–2.9× across runs |
-| Haskell (`-threaded`) | ~2.0–2.8× across runs |
-| Python — **processes** | ~1.9–2.5× across runs |
+| C++ (`std::thread`) | ~2.1–2.9× across runs (this run 2.7–2.9×) |
+| Haskell (`-threaded`) | ~2.0–2.8× across runs (this run 2.4–2.5×) |
+| Python — **processes** | ~1.9–2.5× across runs (this run 2.2–2.4×) |
 | Python — **threads** | ~0.9–1.0× (flat — the GIL) |
 
 Per-strategy (and per-run aggregate) efficiency differences are run-to-run noise
@@ -136,5 +138,5 @@ on a shared VM; real 8-core scaling needs dedicated hardware. (Regenerated by th
 The headline across all twelve strategies — *in C++ memory layout dominates (flat
 representations beat pointer-chasing ~2.7×), but in managed runtimes that signal
 washes out and everything lands within ~1.5× — except the top-down multipass
-variants, which do more work and lose everywhere (their bottom-up sibling now
-holds ×1.5 in all three languages)* — is in **[FINDINGS.md](FINDINGS.md)**.
+variants, which do more work and lose everywhere (their bottom-up sibling
+holds ×1.3–1.6 in all three languages)* — is in **[FINDINGS.md](FINDINGS.md)**.

@@ -223,18 +223,18 @@ Neutral runner, ns/leaf at n=1000 (full tables in
 
 | | C++ | Python | Haskell |
 |---|--:|--:|--:|
-| fastest tree builder | `ast-arena` 71 | `ast-rd` 2 356 | `ast-rd` 1 007 |
-| **`multipass-reverse`** | **85** | **3 318** | **1 422** |
-| best *top-down* multipass | `direct-mp` 89 | `direct-mp` 5 252 | `multipass` 1 368 |
-| fastest *no-tree* strategy (`direct-rd`) | 53 | 2 122 | 1 105 |
+| fastest tree builder | `ast-arena` 83 | `ast-sy` 3 204 | `ast-rd` 1 271 |
+| **`multipass-reverse`** | **98** | **4 374** | **1 730** |
+| best *top-down* multipass | `direct-mp` 102 | `direct-mp` 7 007 | `multipass` 1 624 |
+| fastest *no-tree* strategy (`direct-rd`) | 62 | 2 965 | 1 465 |
 
-Best of the multipass family in Python by ~1.6× at n=1000 (growing to ~1.9× at
-n=10000); in C++ within ~5% of `direct-mp` across sizes (85 vs 89 at n=1000,
-97 vs 100 at n=10000 — and `direct-mp` builds *no tree* at all); effectively a
-tie in Haskell. In C++ it is also the **second-fastest tree builder of all
-eight** — ahead of every pointer-AST parser — because it shares `ast-arena`'s
-two structural advantages: a contiguous arena output and (after the hot-path
-rewrite below) no per-node allocation during parsing.
+Best of the multipass family in Python by ~1.6× at n=1000 (growing to ~1.8× at
+n=10000); in C++ within ~4% of `direct-mp` at n=1000 (98 vs 102) and a dead
+tie at n=10000 (114 vs 114 — and `direct-mp` builds *no tree* at all);
+effectively a tie in Haskell. In C++ it is also the **second-fastest tree
+builder of all eight** — ahead of every pointer-AST parser — because it shares
+`ast-arena`'s two structural advantages: a contiguous arena output and (after
+the hot-path rewrite below) no per-node allocation during parsing.
 
 ## Implementation notes
 
