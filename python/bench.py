@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Benchmark the eleven strategies on the shared corpora (bench/corpus/).
+"""Benchmark the twelve strategies on the shared corpora (bench/corpus/).
 
 First cross-checks that every strategy agrees with the first on the random
 corpus (the real correctness test), then prints ns/leaf per strategy.
@@ -18,7 +18,9 @@ from mathparser import all_evaluators  # noqa: E402
 
 CORPUS = os.path.normpath(os.path.join(HERE, "..", "bench", "corpus"))
 SIZES = [10, 100, 1000, 10000]
-REPS = {10: 3, 100: 3, 1000: 2, 10000: 1}
+# every cell is a best-of-N; N>=3 so no published number rests on a single
+# unrepeated measurement
+REPS = {10: 5, 100: 5, 1000: 3, 10000: 3}
 
 
 def load(size):

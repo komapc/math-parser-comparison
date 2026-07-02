@@ -1,12 +1,13 @@
 {-# LANGUAGE BangPatterns #-}
 
 -- | Adversarial (structured, non-random) inputs that separate the multipass
--- family. Three flat chains, no parentheses (mirrors
+-- family. Three flat chains plus one nested shape (mirrors
 -- cpp/bench/adversarial_bench.cpp):
 --
 --   powchain   3^2 * 2^2 / 2^2 * 3^3 / 3^3 ...   alternating-precedence (^ vs */)
 --   towerchain 1^1^...^1 * 1 * 1 * ...           long ^ run, then a * run
 --   sumchain   1 + 2 - 3 + 4 ...                 single-precedence (control)
+--   nestchain  (((...(1 + 1)...) + 1)            deep parenthesis nesting
 --
 -- On powchain the top-down splitters degenerate: the candidate list mixes
 -- prec 2 and prec 4, so the flat-chain fold never applies and the linear
@@ -18,6 +19,11 @@
 -- it — quadratic even with O(1) splits, so it also catches multipass-bfs.
 -- Bottom-up multipass-reverse reduces each level in one pass regardless:
 -- Theta(n). sumchain is the control where the whole family stays linear.
+--
+-- NOTE: the shipped top-down variants include the O(n log n) bounded-scan +
+-- bucket fix, so the quadratic behaviour above is pre-fix; nestchain is the
+-- shape adversarial to BOTTOM-UP (its only recursion is per paren group).
+-- Full pre/post-fix expectations: docs/multipass-reverse.md.
 module Main (main) where
 
 import Control.Monad (forM, forM_)
@@ -57,6 +63,10 @@ sumChain m = concat $ "1" :
   | i <- [1 .. m - 1]
   , let op = if odd i then " + " else " - " ]
 
+-- m nested paren groups: (((...(1 + 1)...) + 1) — value m+1, m+1 leaves.
+nestChain :: Int -> String
+nestChain m = replicate m '(' ++ "1" ++ concat (replicate m " + 1)")
+
 bestNs :: Evaluator -> String -> Int -> IO Double
 bestNs ev expr salt = do
   ts <- forM [1 .. reps] $ \r -> do
@@ -66,8 +76,8 @@ bestNs ev expr salt = do
     pure (realToFrac (diffUTCTime t1 t0) :: Double)
   pure (minimum ts * 1e9)
 
-runShape :: String -> (Int -> String) -> Int -> IO ()
-runShape title gen leavesPerFactor = do
+runShape :: String -> (Int -> String) -> (Int -> Int) -> IO ()
+runShape title gen leaves = do
   printf "-- %s --\n" title
   printf "%-26s%12s%12s%12s   (ns/leaf; flat = linear, ~4x/col = quadratic)\n"
          "strategy" ("m=" ++ show (sizes !! 0)) ("m=" ++ show (sizes !! 1))
@@ -83,13 +93,15 @@ runShape title gen leavesPerFactor = do
     printf "%-26s" (evName ev)
     forM_ (zip sizes exprs) $ \(m, expr) -> do
       ns <- bestNs ev expr salt
-      printf "%12.0f" (ns / fromIntegral (m * leavesPerFactor))
+      printf "%12.0f" (ns / fromIntegral (leaves m))
     printf "\n"
   printf "\n"
 
 main :: IO ()
 main = do
-  putStrLn "== Haskell: adversarial chains (structured inputs, no parens) ==\n"
-  runShape "powchain: b^e * b^e / ... (mixed precedence)" powChain 2
-  runShape "towerchain: 1^1^...^1 * 1 * ... (flat-check attack)" towerChain 1
-  runShape "sumchain: 1 + 2 - 3 + ... (single precedence — control)" sumChain 1
+  putStrLn "== Haskell: adversarial chains (structured inputs) ==\n"
+  runShape "powchain: b^e * b^e / ... (mixed precedence)" powChain (* 2)
+  runShape "towerchain: 1^1^...^1 * 1 * ... (flat-check attack)" towerChain (+ 1)
+  runShape "sumchain: 1 + 2 - 3 + ... (single precedence — control)" sumChain id
+  runShape "nestchain: (((...(1 + 1)...) + 1) (deep nesting — bottom-up's turn)"
+           nestChain (+ 1)

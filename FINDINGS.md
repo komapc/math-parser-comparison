@@ -187,11 +187,21 @@ GitHub runner; all three languages have since been patched):
 
 That was **~8× (Haskell), ~17× (Python) and ~75–115× (C++) over top-down** at
 the largest sizes measured — growing with n — and **~2–4× over the RMQ
-variant** in every runtime. The control input — a single-precedence chain
-`1 + 2 - 3 + …`, where the flat-chain fold does apply — keeps the whole family
-linear, confirming the blow-ups are about *mixed precedence*, not chain length.
-Reproduce with `./build/adversarial_bench`, `python3 python/adversarial.py`,
-`cabal run adversarial`.
+variant** in every runtime. Note the three languages were measured at
+*different* chain lengths (the column headers above), and a quadratic-vs-linear
+gap grows with length, so the per-language ratios are **not cross-language
+comparable** — at a common m the spread would be far narrower. The control
+input — a single-precedence chain `1 + 2 - 3 + …`, where the flat-chain fold
+does apply — keeps the whole family linear, confirming the blow-ups are about
+*mixed precedence*, not chain length. The suite also runs the mirror-image
+shape — `nestchain`, deep parenthesis nesting, the one construct where
+*bottom-up* still recurses — so the adversarial testing points both ways;
+`multipass-reverse` stays flat there too.
+`./build/adversarial_bench`, `python3 python/adversarial.py`, and
+`cabal run adversarial` rerun these shapes — but the shipped top-down variants
+now include the fix below, so expect the post-fix ~2–4× gaps, **not** this
+table: the pre-fix numbers above are preserved from the last CI run before the
+fix and cannot be regenerated from the current sources.
 
 ### The fix: bounded scans + precedence buckets
 

@@ -80,7 +80,7 @@ main = do
     tputs <- forM workers $ \w -> do
       setNumCapabilities w
       let parts = splitN w work
-      t <- bestTime 2 (parRun ev parts)
+      t <- bestTime 3 (parRun ev parts)
       pure (leaves / t / 1e6)
     printf "%-26s%10.2f%10.2f%10.2f%11.2fx\n"
            name (tputs !! 0) (tputs !! 1) (tputs !! 2)

@@ -29,8 +29,13 @@ the leaves last.
 | recursion | per split (depth ~ tree height) | per parenthesis group only |
 | result | the same tree | the same tree, built in reverse order |
 
-Both produce a **bit-identical arena AST** — only the order in which the tree's
-internal nodes get decided differs.
+Both produce a **structurally identical tree** — the construction order (and
+therefore the node indices inside the arena) differs, but parent/child
+structure and every leaf are the same. Structural equivalence is enforced
+indirectly: the differential fuzz suites
+([C++](../cpp/tests/fuzz_differential.cpp) ·
+[Python](../python/test_fuzz.py)) require every strategy to agree with every
+other on thousands of random inputs.
 
 ## The pipeline
 
@@ -194,7 +199,9 @@ xychart-beta
 ```
 
 Cross-language, at the largest size each runtime was measured at (same
-pre-fix run — all three languages have since been patched, see †):
+pre-fix run — all three languages have since been patched, see †). The sizes
+differ per language and the gap grows with size, so the per-language ratios
+below are not cross-language comparable:
 
 | family member | C++ m=8192 | Python m=1024 | Haskell m=4096 |
 |---|--:|--:|--:|
@@ -257,6 +264,12 @@ python3 python/adversarial.py      # Python
 cd haskell && cabal run adversarial  # Haskell
 ```
 
-Each prints the power chain (mixed precedence) and the control chain (single
-precedence) for all twelve strategies; the numbers above are from the
+Each prints four shapes for all twelve strategies: the power chain (mixed
+precedence), the tower chain (flat-check attack), the control chain (single
+precedence), and the nest chain (deep parentheses — the shape adversarial to
+*bottom-up*, whose only recursion is per paren group; it stays Θ(n) there).
+The shipped top-down variants include the bounded-scan/bucket fix (†), so
+these commands reproduce the **post-fix** ~2–4× gaps — the pre-fix table
+above is preserved from the last CI run before the fix and cannot be
+regenerated from current sources. Current numbers come from the
 [CI bench workflow](../.github/workflows/bench.yml) on a neutral GitHub runner.

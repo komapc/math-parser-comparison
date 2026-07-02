@@ -70,7 +70,7 @@ Precedence: `+ -` < `* /` < unary < `^` (right-associative). So `-2^2 = -4`, `2^
 | [`direct-mp`](src/multipass_lean.cpp) | D&C | none — returns `double` |
 | [`bytecode-vm`](src/bytecode.cpp) | Shunting-yard → [bytecode](https://en.wikipedia.org/wiki/Bytecode) + VM | flat opcode stream |
 
-The pointer-AST strategies produce bit-identical trees; the three left-to-right variants (`ast-rd`, `ast-sy`, `ast-pratt`) cluster tightly — algorithm barely matters, only allocation. The arena layout gives ~2× speedup over pointer nodes.
+The pointer-AST strategies produce structurally identical trees; the three left-to-right variants (`ast-rd`, `ast-sy`, `ast-pratt`) cluster tightly — algorithm barely matters, only allocation. The arena layout gives ~2× speedup over pointer nodes.
 
 ## 📊 Benchmarks
 

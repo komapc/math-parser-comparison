@@ -20,7 +20,7 @@ operator (the root, evaluated last), split there, recurse on each half.
 *tightest-binding* things first: deepest parentheses, then `^`, then `*` `/`, then
 `+` `-`, agglomerating outward until one node remains. It's "multipass" in the
 original sense — **one reduction pass per precedence level** — and produces a
-bit-identical tree, just built in the opposite order. ([C++](cpp/src/multipass_reverse.cpp) ·
+structurally identical tree, just built in the opposite order. ([C++](cpp/src/multipass_reverse.cpp) ·
 [Python](python/mathparser/evaluators.py) · [Haskell](haskell/src/MathParser/Strategies.hs))
 
 **→ Full algorithm walk-through, with diagrams and complexity analysis:
@@ -62,10 +62,13 @@ Reading it:
   mixed-precedence chains (`3^2 * 2^2 / …` — factored monomials, plus a
   `^`-tower variant that even catches the RMQ-equipped `multipass-bfs`) the
   top-down splitters degenerate to **Θ(n²)** while bottom-up stays **Θ(n)** —
-  measured **~8× (Haskell) to ~115× (C++)** in `multipass-reverse`'s favour,
-  growing with n. The top-down family has since been patched in all three
-  languages (bounded scans + per-precedence position buckets cap it at
-  **O(n log n)**, shrinking the C++ gap to ~2–4×) — bottom-up needed no patch.
+  measured pre-fix at **~8× (Haskell, m=4096), ~17× (Python, m=1024) and
+  ~75–115× (C++, m=8192)** in `multipass-reverse`'s favour. The gap is
+  quadratic-vs-linear, so it grows with chain length — those per-language
+  ratios reflect the measured size as much as the runtime. The top-down family
+  has since been patched in all three languages (bounded scans +
+  per-precedence position buckets cap it at **O(n log n)**, shrinking the C++
+  gap to the ~2–4× the current binaries reproduce) — bottom-up needed no patch.
   See [FINDINGS.md](FINDINGS.md#where-bottom-up-provably-wins-mixed-precedence-chains).
 
 ### …and the same comparison at 4 cores

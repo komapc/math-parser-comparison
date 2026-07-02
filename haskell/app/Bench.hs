@@ -1,4 +1,4 @@
--- | Benchmark the eleven strategies on the shared corpora (bench/corpus/).
+-- | Benchmark the twelve strategies on the shared corpora (bench/corpus/).
 -- Cross-checks all strategies agree, then prints ns/leaf per strategy.
 -- Uses only boot libraries (Data.Time) — no external dependencies.
 module Main (main) where
@@ -14,8 +14,10 @@ import MathParser.Strategies
 sizes :: [Int]
 sizes = [10, 100, 1000, 10000]
 
+-- best-of-N with N >= 3 everywhere, so no published number rests on a
+-- single unrepeated measurement
 reps :: Int -> Int
-reps n = if n <= 1000 then 5 else 2
+reps n = if n <= 1000 then 5 else 3
 
 corpusPath :: Int -> String
 corpusPath n = "../bench/corpus/n" ++ show n ++ ".txt"

@@ -53,7 +53,7 @@ def chunks(work, w):
     return [work[i::w] for i in range(w)]
 
 
-def time_pool(pool_factory, name, work, w, reps=1):
+def time_pool(pool_factory, name, work, w, reps=3):
     best = float("inf")
     pool = pool_factory(w, initializer=_init, initargs=(name,))
     try:
