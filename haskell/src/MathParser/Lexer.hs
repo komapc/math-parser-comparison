@@ -65,6 +65,10 @@ spanNumber s =
   in (intp ++ fracp ++ expp, r3)
 
 readNum :: String -> Int -> Double
+readNum lexeme i
+  -- A lexeme with no digits (a bare ".") is not a number; without this guard
+  -- the padding below would turn it into "0.0" and silently accept it.
+  | not (any isDigit lexeme) = errorAt i "invalid number"
 readNum lexeme i =
   -- Pad a leading/trailing '.' so Haskell's `reads` accepts it (".5" -> "0.5",
   -- "2." -> "2.0"); corpus values are integers, tests use well-formed decimals.

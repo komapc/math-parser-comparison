@@ -1,19 +1,32 @@
 #include "parser/evaluator.hpp"
 #include "parser/arena_ast.hpp"
 #include "parser/parser.hpp"
+#include "parser/reeval.hpp"
 
 #include <utility>
 
 namespace mp {
 namespace {
 
+// The multipass family treats null vars as all-zero with a per-leaf branch;
+// the classic builders keep their leaf code branch-free and honour the same
+// contract by substituting this table once per eval.
+constexpr double kZeroVars[kNumVars]{};
+
 // Arena AST wrapped as a one-shot evaluator (constant expression -> value).
+// The arena is a member so its node-buffer capacity is reused across evals —
+// the same warm-buffer discipline the multipass family gets from its member
+// vectors, keeping the ast-arena vs multipass-reverse comparison fair.
 class ArenaEvaluator final : public IEvaluator {
 public:
     const char* name() const override { return "ast-arena"; }
     double eval(std::string_view src, const double* vars = nullptr) override {
-        return ArenaAst::parse(src).eval(vars);
+        ast_.reparse(src);
+        return ast_.eval(vars ? vars : kZeroVars);
     }
+
+private:
+    ArenaAst ast_;
 };
 
 class AstEvaluator final : public IEvaluator {
@@ -23,7 +36,7 @@ public:
 
     const char* name() const override { return label_; }
     double eval(std::string_view src, const double* vars = nullptr) override {
-        return parser_->parse(src)->eval(vars);
+        return parser_->parse(src)->eval(vars ? vars : kZeroVars);
     }
 
 private:

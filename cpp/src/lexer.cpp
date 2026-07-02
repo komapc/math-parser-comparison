@@ -8,7 +8,9 @@ namespace mp {
 
 std::vector<Token> tokenize(std::string_view src) {
     std::vector<Token> out;
-    out.reserve(src.size() / 2 + 1);  // rough upper bound: every other char is a token
+    out.reserve(src.size() / 2 + 1);  // heuristic (spaced input); unspaced
+                                      // input like "1+1" can exceed it and
+                                      // grow the vector once more
     const std::size_t n = src.size();
     std::size_t i = 0;
 

@@ -1,4 +1,4 @@
-"""The eleven strategies, idiomatic Python.
+"""The twelve strategies, idiomatic Python.
 
 The axis that actually distinguishes them is *representation* × *parse order*:
 
@@ -41,20 +41,38 @@ def bin_prec(kind: int) -> int:
 
 
 # ---- IEEE-faithful arithmetic (match C++ double: no exceptions, nan/inf) -----
+def _odd_int(e: float) -> bool:
+    return e == int(e) and int(e) % 2 != 0
+
+
 def _div(a: float, b: float) -> float:
     try:
         return a / b
     except ZeroDivisionError:
-        return float("nan") if a == 0.0 else math.copysign(math.inf, a)
+        # IEEE: 0/0 and nan/0 are nan; otherwise the sign of x/±0 is the
+        # XOR of both signs (1/-0 = -inf), not the numerator's alone
+        if a == 0.0 or math.isnan(a):
+            return float("nan")
+        neg = (math.copysign(1.0, a) < 0) != (math.copysign(1.0, b) < 0)
+        return -math.inf if neg else math.inf
 
 
 def _pow(a: float, b: float) -> float:
     try:
         return math.pow(a, b)
     except ValueError:
-        return float("nan")        # e.g. negative base, fractional exponent
+        # math.pow refuses two IEEE-defined cases C++ std::pow handles:
+        # pow(±0, negative) = ±inf (negative only for -0 with an odd
+        # integral exponent); negative base with fractional exponent = nan
+        if a == 0.0 and b < 0.0:
+            neg = math.copysign(1.0, a) < 0 and _odd_int(b)
+            return -math.inf if neg else math.inf
+        return float("nan")
     except OverflowError:
-        return math.inf
+        # magnitude overflow; the result is negative only for a negative
+        # base raised to an odd integral exponent
+        neg = a < 0.0 and _odd_int(b)
+        return -math.inf if neg else math.inf
 
 
 def apply_bin(op: str, l: float, r: float) -> float:
@@ -278,8 +296,12 @@ def sy_parse(tokens, B):
                 raise ValueError("unexpected variable")
             out.append(B.var(int(tok.value))); expect_operand = False
         elif k == LPAREN:
+            if not expect_operand:
+                raise ValueError("unexpected '('")
             ops.append((LPAREN, 0, False, False, True)); expect_operand = True
         elif k == RPAREN:
+            if expect_operand:
+                raise ValueError("empty parentheses")
             while ops and not ops[-1][4]:
                 emit(ops.pop())
             if not ops:
@@ -302,7 +324,7 @@ def sy_parse(tokens, B):
                 raise ValueError("unexpected end of input")
     while ops:
         emit(ops.pop())
-    if not out:
+    if len(out) != 1:
         raise ValueError("invalid expression")
     return out[-1]
 
@@ -321,8 +343,9 @@ def _build_candidates(tokens):
         if k == LPAREN:
             stack.append(i); depth += 1; expect_operand = True
         elif k == RPAREN:
-            if stack:
-                o = stack.pop(); paren_match[o] = i; paren_match[i] = o
+            if not stack:
+                raise ValueError("mismatched parenthesis")
+            o = stack.pop(); paren_match[o] = i; paren_match[i] = o
             depth -= 1; expect_operand = False
         elif k in (NUM, IDENT):
             expect_operand = False
@@ -685,8 +708,12 @@ def compile_bytecode(tokens):
                 raise ValueError("unexpected variable")
             code.append(("load", int(tok.value))); expect_operand = False
         elif k == LPAREN:
+            if not expect_operand:
+                raise ValueError("unexpected '('")
             ops.append((LPAREN, 0, False, False, True)); expect_operand = True
         elif k == RPAREN:
+            if expect_operand:
+                raise ValueError("empty parentheses")
             while ops and not ops[-1][4]:
                 emit(ops.pop())
             if not ops:

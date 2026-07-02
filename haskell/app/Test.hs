@@ -18,13 +18,25 @@ cases =
   , ("d * c / a", 10), ("a ^ a ^ a", 16), ("-a ^ a", -4)
   , ("a ^ -b", 0.125), ("3.5 * a + 1.5", 8.5), ("2e2 + a", 202)
   , ("--a", 2), ("-a * b", -6), ("+d - +a", 3)
+  -- IEEE special values — pow/div corners shared across the languages
+  , ("0 ^ -1", 1 / 0), ("1 / (0 * -1)", -1 / 0)
+  , ("(0 - 1e155) ^ 3", -1 / 0), ("(0 / 0) / 0", 0 / 0)
+  , ("(0 - a) ^ 0.5", 0 / 0)
   ]
 
 errs :: [String]
-errs = ["a +", "(a + b", "a b", "* a", "a + * b", ""]
+errs =
+  [ "a +", "(a + b", "a b", "* a", "a + * b", ""
+  -- stray ')' and adjacent operand groups, and a digitless number
+  -- (regression: the lexer accepted "." as 0.0)
+  , "a)", "(a)(b)", "a(3)", "."
+  ]
 
 nearly :: Double -> Double -> Bool
-nearly a b = abs (a - b) <= 1e-9 * maximum [1, abs a, abs b]
+nearly a b
+  | isNaN b   = isNaN a
+  | a == b    = True            -- covers ±inf
+  | otherwise = abs (a - b) <= 1e-9 * maximum [1, abs a, abs b]
 
 main :: IO ()
 main = do

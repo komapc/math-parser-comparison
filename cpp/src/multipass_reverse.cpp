@@ -19,7 +19,8 @@ namespace {
 // agglomerating outward until one node remains. It is "multipass" in the
 // original sense: one reduction pass per precedence level.
 //
-// Both produce a bit-identical arena AST; only the construction order differs.
+// Both produce a structurally identical arena AST; the construction order —
+// and therefore the node indices inside the arena — differ.
 //
 // Implementation notes:
 //  * All items live in ONE shared vector with stack discipline: each

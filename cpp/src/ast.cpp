@@ -10,6 +10,8 @@ double Number::eval(const double*) const {
 }
 
 double Variable::eval(const double* vars) const {
+    // null vars are substituted with a zero table at the evaluator entry
+    // points (see evaluators.cpp), keeping this hot path branch-free
     return vars[index];
 }
 

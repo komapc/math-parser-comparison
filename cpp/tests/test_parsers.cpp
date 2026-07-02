@@ -3,8 +3,11 @@
 #include "parser/evaluator.hpp"
 #include "parser/reeval.hpp"
 
+#include "test_util.hpp"
+
 #include <array>
 #include <cmath>
+#include <limits>
 #include <print>
 #include <exception>
 #include <string_view>
@@ -20,9 +23,7 @@ int g_failures = 0;
 struct Case    { std::string_view expr; double expected; };
 struct ErrCase { std::string_view expr; };
 
-bool nearly(double a, double b) {
-    return std::fabs(a - b) <= 1e-9 * std::max(1.0, std::max(std::fabs(a), std::fabs(b)));
-}
+using mp::test::nearly;
 
 void checkValue(IEvaluator& ev, const Case& c, const double* vars = nullptr) {
     ++g_checks;
@@ -56,8 +57,7 @@ void checkError(IEvaluator& ev, const ErrCase& c) {
 
 int main() {
     // Variable environment: a=2, b=3, c=4, d=5.
-    std::array<double, kNumVars> env{};
-    env['a'-'a'] = 2; env['b'-'a'] = 3; env['c'-'a'] = 4; env['d'-'a'] = 5;
+    const auto env = mp::test::testEnv();
     const double* vars = env.data();
 
     // All cases exercise the variable code path; a few numeric literals remain
@@ -94,10 +94,19 @@ int main() {
         {"-a * b",               -6},
         // unary plus: +d-+a = 5-2 = 3
         {"+d - +a",               3},
+        // IEEE special values — pow/div corners shared across the languages
+        {"0 ^ -1",     std::numeric_limits<double>::infinity()},
+        {"1 / (0 * -1)", -std::numeric_limits<double>::infinity()},
+        {"(0 - 1e155) ^ 3", -std::numeric_limits<double>::infinity()},
+        {"(0 / 0) / 0", std::numeric_limits<double>::quiet_NaN()},
+        {"(0 - a) ^ 0.5", std::numeric_limits<double>::quiet_NaN()},
     };
 
     const std::vector<ErrCase> errs = {
         {"a +"}, {"(a + b"}, {"a b"}, {"* a"}, {"a + * b"}, {""},
+        // stray ')' and adjacent operand groups (regression: bytecode-vm and
+        // the re-eval compilers accepted these), and a digitless number
+        {"a)"}, {"(a)(b)"}, {"a(3)"}, {"."},
     };
 
     auto evs = all_evaluators();
@@ -117,6 +126,17 @@ int main() {
     };
     auto compilers = all_compilers();
     for (auto& comp : compilers) {
+        for (const auto& e : errs) {
+            ++g_checks;
+            try {
+                (void)comp->compile(e.expr)->eval(vars);
+                std::println("FAIL [{:<26}] \"{}\" should have thrown",
+                            comp->name(), e.expr);
+                ++g_failures;
+            } catch (const std::exception&) {
+                // expected
+            }
+        }
         for (const auto& vc : varCases) {
             ++g_checks;
             try {

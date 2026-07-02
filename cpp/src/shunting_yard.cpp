@@ -78,11 +78,13 @@ public:
                     break;
 
                 case TokenType::LParen:
+                    if (!expectOperand) throw std::runtime_error("unexpected '('");
                     ops_.push_back(Op{tok.type, 0, false, false, true});
                     expectOperand = true;
                     break;
 
                 case TokenType::RParen:
+                    if (expectOperand) throw std::runtime_error("empty parentheses");
                     while (!ops_.empty() && !ops_.back().lparen) {
                         Op o = ops_.back();
                         ops_.pop_back();

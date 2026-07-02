@@ -183,12 +183,13 @@ protected:
                     expectOperand = true;
                     break;
                 case TokenType::RParen: {
-                    if (!stk.empty()) {
-                        uint32_t open = stk.back(); stk.pop_back();
-                        parenMatch_[open] = i; parenMatch_[i] = open;
-                        if (depth < (int)cands_.size())
-                            pcEnd_[open] = pcEnd_[i] = (uint32_t)cands_[depth].size();
-                    }
+                    // a stray ')' would drive depth negative and index the
+                    // per-depth candidate buckets out of bounds
+                    if (stk.empty()) throw std::runtime_error("mismatched parenthesis");
+                    uint32_t open = stk.back(); stk.pop_back();
+                    parenMatch_[open] = i; parenMatch_[i] = open;
+                    if (depth < (int)cands_.size())
+                        pcEnd_[open] = pcEnd_[i] = (uint32_t)cands_[depth].size();
                     --depth; expectOperand = false;
                     break;
                 }

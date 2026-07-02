@@ -117,12 +117,14 @@ class MultipassParallel final : public IEvaluator {
                 case TokenType::LParen:
                     stack.push_back(i);
                     ++depth; expectOperand = true; break;
-                case TokenType::RParen:
-                    if (!stack.empty()) {
-                        const std::size_t open = stack.back(); stack.pop_back();
-                        parenMatch_[open] = i; parenMatch_[i] = open;
-                    }
+                case TokenType::RParen: {
+                    // a stray ')' would drive depth negative and index the
+                    // per-depth candidate buckets out of bounds
+                    if (stack.empty()) throw std::runtime_error("mismatched parenthesis");
+                    const std::size_t open = stack.back(); stack.pop_back();
+                    parenMatch_[open] = i; parenMatch_[i] = open;
                     --depth; expectOperand = false; break;
+                }
                 case TokenType::Number:
                 case TokenType::Ident: expectOperand = false; break;
                 case TokenType::Plus:

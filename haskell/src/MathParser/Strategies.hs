@@ -2,7 +2,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 
--- | The eleven strategies, idiomatic Haskell.
+-- | The twelve strategies, idiomatic Haskell.
 --
 -- Representation is abstracted tagless-final via the 'Sym' class, so each parse
 -- algorithm is written once and instantiated at three carriers:
@@ -53,13 +53,13 @@ applyOp Mul a b = a * b
 applyOp Div a b = a / b          -- IEEE: x/0 = inf, 0/0 = nan (matches C++)
 applyOp Pow a b = applyPow a b
 
--- Match C++ std::pow on the cases we hit: integral exponents keep the sign of a
--- negative base (Haskell's @**@ would give NaN there); otherwise use @**@.
+-- GHC's @**@ on Double is libm pow, so it already matches C++ std::pow
+-- bit-for-bit — including negative bases with integral exponents
+-- ((-2)**3 = -8) and the IEEE corners (0**(-1) = inf). An earlier version
+-- special-cased integral exponents through @^^@, whose exponentiation by
+-- squaring rounds differently from libm (1 ULP off on e.g. 3^34).
 applyPow :: Double -> Double -> Double
-applyPow b e
-  | not (isNaN e) && not (isInfinite e) && e == fromIntegral n = b ^^ n
-  | otherwise = b ** e
-  where n = truncate e :: Integer
+applyPow = (**)
 
 type Env = Int -> Double
 

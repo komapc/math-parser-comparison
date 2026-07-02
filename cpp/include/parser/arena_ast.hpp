@@ -27,6 +27,11 @@ public:
     // Build via recursive descent. Throws std::runtime_error on a syntax error.
     static ArenaAst parse(std::string_view src);
 
+    // Re-build in place, reusing this arena's node buffer capacity — the
+    // steady-state entry point, so repeated evals are allocation-comparable
+    // with the multipass family's reused member buffers.
+    void reparse(std::string_view src);
+
     // Adopt a pre-built node vector + root index (used by alternative parsers).
     static ArenaAst adopt(std::vector<Node> nodes, int root);
 

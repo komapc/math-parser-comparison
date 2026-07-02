@@ -30,12 +30,27 @@ CASES = [
     ("--a", 2),
     ("-a * b", -6),
     ("+d - +a", 3),
+    # IEEE special values — must match C++ std::pow / IEEE division exactly
+    ("0 ^ -1", math.inf),
+    ("1 / (0 * -1)", -math.inf),
+    ("(0 - 1e155) ^ 3", -math.inf),
+    ("(0 / 0) / 0", math.nan),
+    ("(0 - a) ^ 0.5", math.nan),
 ]
 
-ERRORS = ["a +", "(a + b", "a b", "* a", "a + * b", ""]
+ERRORS = [
+    "a +", "(a + b", "a b", "* a", "a + * b", "",
+    # stray ')' and adjacent operand groups (regressions: the shunting-yard
+    # family accepted these), and a digitless number
+    "a)", "(a)(b)", "a(3)", ".",
+]
 
 
 def nearly(a, b):
+    if math.isnan(b):
+        return math.isnan(a)
+    if a == b:  # covers ±inf
+        return True
     return abs(a - b) <= 1e-9 * max(1.0, abs(a), abs(b))
 
 

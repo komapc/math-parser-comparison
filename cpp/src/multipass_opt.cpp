@@ -127,17 +127,19 @@ protected:
                     parenCandStart_[i] = candsByDepth_[depth].size();
                     expectOperand = true;
                     break;
-                case TokenType::RParen:
-                    if (!parenStk.empty()) {
-                        const std::size_t open = parenStk.back(); parenStk.pop_back();
-                        parenMatch_[open] = i; parenMatch_[i] = open;
-                        if (depth < (int)candsByDepth_.size())
-                            parenCandEnd_[open] = parenCandEnd_[i] =
-                                candsByDepth_[depth].size();
-                    }
+                case TokenType::RParen: {
+                    // a stray ')' would drive depth negative and index the
+                    // per-depth candidate buckets out of bounds
+                    if (parenStk.empty()) throw std::runtime_error("mismatched parenthesis");
+                    const std::size_t open = parenStk.back(); parenStk.pop_back();
+                    parenMatch_[open] = i; parenMatch_[i] = open;
+                    if (depth < (int)candsByDepth_.size())
+                        parenCandEnd_[open] = parenCandEnd_[i] =
+                            candsByDepth_[depth].size();
                     --depth;
                     expectOperand = false;
                     break;
+                }
                 case TokenType::Number:
                 case TokenType::Ident: expectOperand = false; break;
                 case TokenType::Plus:

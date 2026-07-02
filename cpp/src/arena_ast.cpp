@@ -17,7 +17,11 @@ namespace {
 // index of each subtree's root. Same grammar as src/recursive_descent.cpp.
 class Builder {
 public:
-    explicit Builder(std::string_view src) : tokens_(tokenize(src)) {
+    // Emits into the caller's node vector so its capacity survives across
+    // parses (see ArenaAst::reparse).
+    Builder(std::string_view src, std::vector<ArenaAst::Node>& nodes)
+        : tokens_(tokenize(src)), nodes_(nodes) {
+        nodes_.clear();
         nodes_.reserve(tokens_.size());
     }
 
@@ -30,11 +34,9 @@ public:
         return root;
     }
 
-    std::vector<ArenaAst::Node> take() { return std::move(nodes_); }
-
 private:
     std::vector<Token> tokens_;
-    std::vector<ArenaAst::Node> nodes_;
+    std::vector<ArenaAst::Node>& nodes_;
     std::size_t pos_ = 0;
 
     const Token& peek() const { return tokens_[pos_]; }
@@ -67,8 +69,10 @@ private:
         if (check(TokenType::Plus) || check(TokenType::Minus)) {
             const TokenType op = tokens_[pos_++].type;
             const int operand = unaryRule();
-            if (op == TokenType::Plus) return operand;  // identity: no node needed
-            return emit({ArenaAst::K::Neg, operand, -1, 0, 0.0});
+            // materialise Pos like every other strategy, so all builders
+            // produce structurally identical trees
+            return emit({op == TokenType::Plus ? ArenaAst::K::Pos : ArenaAst::K::Neg,
+                         operand, -1, 0, 0.0});
         }
         return power();
     }
@@ -106,12 +110,15 @@ private:
 }  // namespace
 
 ArenaAst ArenaAst::parse(std::string_view src) {
-    Builder b(src);
-    const int root = b.build();
     ArenaAst a;
-    a.nodes_ = b.take();
-    a.root_ = root;
+    a.reparse(src);
     return a;
+}
+
+void ArenaAst::reparse(std::string_view src) {
+    root_ = -1;  // a throwing build must not leave root_ into the cleared buffer
+    Builder b(src, nodes_);
+    root_ = b.build();
 }
 
 ArenaAst ArenaAst::adopt(std::vector<Node> nodes, int root) {
@@ -125,6 +132,8 @@ double ArenaAst::evalNode(int i, const double* vars) const {
     const Node& nd = nodes_[static_cast<std::size_t>(i)];
     switch (nd.kind) {
         case K::Num: return nd.value;
+        // null vars are substituted with a zero table at the evaluator entry
+        // points (see evaluators.cpp), keeping this hot path branch-free
         case K::Var: return vars[nd.var];
         case K::Pos: return +evalNode(nd.a, vars);
         case K::Neg: return -evalNode(nd.a, vars);
