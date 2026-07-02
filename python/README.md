@@ -3,10 +3,11 @@
 Idiomatic Python port of all twelve strategies. Run from the repo root.
 
 ```sh
-python3 python/test_parsers.py     # correctness (252 checks)
+python3 python/test_parsers.py     # correctness (360 checks)
+python3 python/test_fuzz.py        # differential fuzz: 12 strategies must agree on 6000 inputs
 python3 bench/gen_corpus.py        # generate shared corpora (once)
 python3 python/bench.py            # cross-check + timing on shared corpora
-python3 python/adversarial.py      # structured chains: top-down multipass worst cases (now O(n log n)) vs reverse Θ(n)
+python3 python/adversarial.py      # 4 structured shapes: top-down worst cases (now O(n log n)), nestchain, vs reverse Θ(n)
 ```
 
 Requires Python 3.10+ (uses `bisect(..., key=...)`).
@@ -39,22 +40,22 @@ Reproduce locally with `python3 python/bench.py`.
 
 | strategy | n=10 | n=100 | n=1000 | n=10000 |
 |---|--:|--:|--:|--:|
-| ast-recursive-descent | 2511 | 2394 | 2356 | 2966 |
-| ast-shunting-yard | 2226 | 2233 | 2413 | 2857 |
-| ast-pratt | 2528 | 2455 | 2453 | 3042 |
-| ast-arena | 2839 | 2673 | 2730 | 3182 |
-| multipass | 4054 | 4448 | 5413 | 7001 |
-| multipass-arena | 4192 | 4585 | 5796 | 7249 |
-| direct-mp | 3862 | 4258 | 5252 | 6523 |
-| multipass-bfs | 4660 | 5143 | 6819 | 9138 |
-| multipass-reverse | 3193 | 3146 | 3318 | **3711** |
-| **direct-recursive-descent** | 2298 | 2150 | 2122 | **2179** |
-| direct-shunting-yard | **1997** | **2038** | **2184** | 2294 |
-| bytecode-vm | 2103 | 2136 | 2256 | 2527 |
+| ast-recursive-descent | 3381 | 3267 | 3216 | 3907 |
+| ast-shunting-yard | 3059 | 3082 | 3204 | 3760 |
+| ast-pratt | 3393 | 3350 | 3343 | 3933 |
+| ast-arena | 3728 | 3568 | 3680 | 4059 |
+| multipass | 5626 | 6040 | 7314 | 9175 |
+| multipass-arena | 5908 | 6299 | 7804 | 9416 |
+| direct-mp | 5342 | 5752 | 7007 | 8608 |
+| multipass-bfs | 6661 | 6937 | 8825 | 11585 |
+| multipass-reverse | 4493 | 4183 | 4374 | 4776 |
+| direct-recursive-descent | 3092 | 3002 | **2965** | **3011** |
+| direct-shunting-yard | **2807** | **2853** | 3004 | 3076 |
+| bytecode-vm | 2872 | 2914 | 3076 | 3364 |
 
 `multipass-reverse` is the only multipass variant that stays flat as n grows
 (others recurse + rescan per split) — it's the fastest of the mp family at every
-size, ~2.0× ahead of the next at n=10000, and within ~1.5× of the no-tree
+size, ~1.8× ahead of the next at n=10000, and within ~1.6× of the no-tree
 winners (which it still doesn't beat). Correctness: 1110/1110 corpus expressions
 agree across all 12 strategies.
 
@@ -62,13 +63,13 @@ agree across all 12 strategies.
 
 - **The arena trick disappears.** In C++ a flat node vector beats per-node
   allocation ~2×. In Python every node is a boxed object regardless, so
-  `ast-arena` is no faster — in fact slightly *slower* than `ast-recursive-descent`
-  (2730 vs 2356 @ n=1000) — the win was about memory *layout*, which Python
+  `ast-arena` is no faster — in fact slightly *slower* than the pointer-AST builders
+  (3680 vs 3204–3343 @ n=1000) — the win was about memory *layout*, which Python
   doesn't expose.
 - **"No allocation" still leads, but only just.** `direct-*` and `bytecode-vm`
   (which never build a tree) are the fastest tier, but only ~10% ahead of the
   pointer-AST builders — when every operation is already boxed, skipping the tree
-  saves little. What clearly loses is the **top-down multipass family** (~2.4–3.1×):
+  saves little. What clearly loses is the **top-down multipass family** (~2.2–2.7×):
   the repeated split-scans are real extra work no runtime hides. Bottom-up
   `multipass-reverse` (~1.5×) escapes most of that by never scanning for a split.
 

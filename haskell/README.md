@@ -5,9 +5,9 @@ Idiomatic Haskell port of all twelve strategies (GHC, `base`/`array`/`containers
 ```sh
 python3 bench/gen_corpus.py        # from repo root: generate shared corpora (once)
 cd haskell
-cabal test                         # correctness (252 checks)
+cabal test                         # correctness (360 checks)
 cabal run bench                    # cross-check + timing on shared corpora
-cabal run adversarial              # structured chains: top-down multipass worst cases (now O(n log n)) vs reverse Θ(n)
+cabal run adversarial              # 4 structured shapes: top-down worst cases (now O(n log n)), nestchain, vs reverse Θ(n)
 ```
 
 ### Toolchain
@@ -35,7 +35,9 @@ RMQ for `multipass-bfs`), and `reverseMpParse` (bottom-up reduction,
 innermost/highest precedence first → `multipass-reverse`; algorithm explained in
 [docs/multipass-reverse.md](../docs/multipass-reverse.md)). `bytecode-vm`
 compiles to an instruction list and runs it on a value stack. Arithmetic matches
-C++ `double` semantics (`x/0 = inf`, integral `^` keeps a negative base's sign via `^^`).
+C++ `double` semantics exactly: `x/0 = inf`, and `^` is GHC's `**`, which is
+libm `pow` — bit-identical to `std::pow`, including negative bases with
+integral exponents.
 
 ## Benchmark (measured)
 
@@ -45,30 +47,30 @@ tiers, not the digits.** Reproduce locally with `cabal run bench`.
 
 | strategy | n=10 | n=100 | n=1000 | n=10000 |
 |---|--:|--:|--:|--:|
-| **ast-recursive-descent** | **959** | **959** | **1007** | **886** |
-| ast-shunting-yard | 1062 | 1020 | 1120 | 1236 |
-| ast-pratt | 992 | 969 | 1038 | 937 |
-| ast-arena | 1113 | 1065 | 1265 | 1453 |
-| multipass | 1268 | 1212 | 1368 | 1916 |
-| multipass-arena | 1390 | 1374 | 1526 | 2586 |
-| direct-mp | 1313 | 1262 | 1442 | 1905 |
-| multipass-bfs | 1565 | 1534 | 1631 | 3501 |
-| multipass-reverse | 1302 | 1229 | 1422 | 2001 |
-| direct-recursive-descent | 980 | 959 | 1105 | 1028 |
-| direct-shunting-yard | 1339 | 1297 | 1484 | 1629 |
-| bytecode-vm | 1336 | 1292 | 1494 | 1975 |
+| ast-recursive-descent | 1311 | 1259 | **1270** | 1403 |
+| ast-shunting-yard | 1487 | 1391 | 1413 | 1714 |
+| ast-pratt | 1297 | **1244** | 1304 | **1358** |
+| ast-arena | 1517 | 1469 | 1603 | 1896 |
+| multipass | 1653 | 1590 | 1624 | 2354 |
+| multipass-arena | 1893 | 1784 | 1949 | 3105 |
+| direct-mp | 1769 | 1692 | 1804 | 2466 |
+| multipass-bfs | 2277 | 2077 | 2239 | 4191 |
+| multipass-reverse | 1683 | 1574 | 1730 | 2466 |
+| direct-recursive-descent | **1280** | 1329 | 1465 | 1528 |
+| direct-shunting-yard | 1412 | 1383 | 1460 | 1857 |
+| bytecode-vm | 1409 | 1372 | 1414 | 1826 |
 
 Correctness: all corpus expressions agree across all 12 strategies. The spread is
-much tighter than C++ (~1.6× fastest-to-slowest on the median vs ~3.5×) — GC and
+much tighter than C++ (~1.7× fastest-to-slowest on the median vs ~3.5×) — GC and
 laziness overhead dominate. `multipass-reverse` is among the better mp variants
 here (beats `multipass-arena`/`-bfs` at scale, ties `multipass`/`direct-mp`); the
 `multipass-bfs` blow-up at n=10000 is the sparse-table build cost showing through.
 
 ## What changes versus C++
 
-- **The arena trick disappears** — `ast-arena` (1265 @ n=1000) is *slower* than
-  the pointer-AST `Expr` builders (`ast-recursive-descent` 1007, `ast-pratt`
-  1038). A flat `Array` of boxed, GC'd nodes is no cheaper than the tree; the C++
+- **The arena trick disappears** — `ast-arena` (1603 @ n=1000) is *slower* than
+  the pointer-AST `Expr` builders (`ast-recursive-descent` 1270, `ast-pratt`
+  1304). A flat `Array` of boxed, GC'd nodes is no cheaper than the tree; the C++
   win was about contiguous memory *layout*, which a managed runtime hides.
 - **"No tree" stops winning, too.** In C++ the `direct-*` forms are fastest; in
   Haskell a pointer-AST builder is nominally fastest and `direct-rd`/`bytecode-vm`
@@ -77,7 +79,7 @@ here (beats `multipass-arena`/`-bfs` at scale, ties `multipass`/`direct-mp`); th
 - **The sparse-table `multipass-bfs` is the slowest at scale** — building the
   `Array`-based RMQ costs more than the linear split scan it replaces, exactly as
   in C++. The precompute loses to a plain linear scan in every runtime.
-- **The spread compresses** to ~1.6× on the median (vs C++'s ~3.5×): GC and
+- **The spread compresses** to ~1.7× on the median (vs C++'s ~3.5×): GC and
   laziness overhead dominate, shrinking the gaps between algorithms.
 
 See the top-level [README](../README.md) for the cross-language table.

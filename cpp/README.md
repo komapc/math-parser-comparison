@@ -6,7 +6,7 @@
 
 ![C++26](https://img.shields.io/badge/C%2B%2B-26-00599C?logo=cplusplus&logoColor=white)
 ![CMake](https://img.shields.io/badge/CMake-3.20%2B-064F8C?logo=cmake&logoColor=white)
-![tests](https://img.shields.io/badge/tests-288%20passing-brightgreen)
+![tests](https://img.shields.io/badge/tests-456%20checks%20%2B%20fuzz-brightgreen)
 ![warnings](https://img.shields.io/badge/-Wall%20-Wextra%20-Wpedantic-clean-brightgreen)
 ![deps](https://img.shields.io/badge/dependencies-none-blue)
 
@@ -145,13 +145,13 @@ From the repo root (`-S cpp`); drop the `cpp/` prefix if you're already in this 
 cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-14
 cmake --build build -j
 
-ctest --test-dir build --output-on-failure   # 288 checks
+ctest --test-dir build --output-on-failure   # 456 checks + 6000-input differential fuzz
 ./build/bench                                 # one-shot (12 strategies)
 ./build/corpus_bench                          # shared corpus (cross-language comparable)
 ./build/reeval                                # compile-once / eval-many
 ./build/parallel_bench                        # batch scaling 1–8 threads
 ./build/single_par_bench                      # single-expression fork-join scaling
-./build/adversarial_bench                     # structured chains: top-down multipass worst cases (now O(n log n)) vs reverse Θ(n)
+./build/adversarial_bench                     # 4 structured shapes: top-down worst cases (now O(n log n)), nestchain (bottom-up's), vs reverse Θ(n)
 ```
 
 Requires GCC 14 + CMake ≥ 3.20. No external dependencies. `corpus_bench` reads
@@ -163,7 +163,7 @@ Requires GCC 14 + CMake ≥ 3.20. No external dependencies. `corpus_bench` reads
 include/parser/   interfaces (evaluator, arena_ast, reeval, …)
 src/              one file per strategy + shared lexer/ast
 bench/            benchmark.cpp  corpus_bench.cpp  reeval.cpp  parallel_bench.cpp  single_par_bench.cpp  adversarial_bench.cpp
-tests/            test_parsers.cpp (288 checks, run via CTest)
+tests/            test_parsers.cpp (456 checks) + fuzz_differential.cpp (6000-input cross-strategy fuzz), run via CTest
 ```
 
 > Numbers from a throttling i7-10610U — **absolute ns vary ±40%; ratios are the result**.
