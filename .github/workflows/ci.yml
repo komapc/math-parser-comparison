@@ -47,6 +47,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Correctness
         run: python3 python/test_parsers.py
+      - name: Differential fuzz
+        run: python3 python/test_fuzz.py
 
   haskell:
     runs-on: ubuntu-latest

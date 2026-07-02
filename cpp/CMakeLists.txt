@@ -79,3 +79,9 @@ enable_testing()
 add_executable(tests tests/test_parsers.cpp)
 target_link_libraries(tests PRIVATE parsers)
 add_test(NAME parsers_correctness COMMAND tests)
+
+# Differential fuzz: all strategies must agree on random well-formed and
+# mutated inputs (deterministic seed).
+add_executable(fuzz_differential tests/fuzz_differential.cpp)
+target_link_libraries(fuzz_differential PRIVATE parsers)
+add_test(NAME parsers_fuzz_differential COMMAND fuzz_differential)
