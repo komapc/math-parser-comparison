@@ -75,6 +75,15 @@ Correctness is enforced by differential fuzzing in CI: all twelve strategies
 must agree — value or rejection — on 6 000 random and mutated inputs per
 language per run.
 
+## Scope
+
+This is a *specialized* parser for one fixed grammar — numbers, five binary
+operators, unary ±. The one-sweep-per-precedence-level structure is tuned to
+exactly that and is **not** a general-purpose technique: richer grammars
+(function calls, statements, many precedence levels) stay recursive descent's
+and Pratt's home turf. The results above are claims about that narrow job —
+whether the approach generalizes is an open question, not a claim.
+
 ## Also in [FINDINGS.md](FINDINGS.md)
 
 - **Compile once, evaluate many:** any reusable form beats re-parsing ~7–26×

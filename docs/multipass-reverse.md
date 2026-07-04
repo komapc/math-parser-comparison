@@ -179,6 +179,19 @@ effectively a tie in Haskell. Second-fastest tree builder of eight in C++ —
 it shares `ast-arena`'s two structural advantages: contiguous arena output and
 allocation-free parsing.
 
+## Scope and limits
+
+The whole design targets one fixed, simple grammar: numbers, `+ - * / ^`,
+unary ±, parens — four precedence levels. "One sweep per precedence level" is
+tuned to exactly that and does not carry over for free to what real-world
+parsers deal with: function calls of arbitrary arity, mixed associativity,
+statements, or a language with a dozen-plus precedence levels (where the number
+of sweeps grows with the level count). For those, recursive descent and Pratt
+parsing stay the general-purpose default — they extend to a new construct by
+adding a rule, where a per-level reduction does not. Everything measured here is
+about the narrow expression-evaluation job; whether the bottom-up idea
+generalizes beyond it is an open question, not a claim this repo makes.
+
 ## Implementation notes
 
 Three things make the hot path fast (a rewrite measuring ~1.9× in C++, ~1.6×
