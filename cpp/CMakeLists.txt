@@ -39,6 +39,7 @@ add_library(parsers
   src/multipass_reverse.cpp
   src/multipass_lean.cpp
   src/multipass_parallel.cpp
+  src/multipass_pool.cpp
   src/arena_ast.cpp
   src/direct_recursive_descent.cpp
   src/direct_shunting_yard.cpp
@@ -61,6 +62,12 @@ target_link_libraries(parallel_bench PRIVATE parsers)
 
 add_executable(single_par_bench bench/single_par_bench.cpp)  # single-expr fork-join
 target_link_libraries(single_par_bench PRIVATE parsers)
+
+add_executable(pool_bench bench/pool_bench.cpp)  # A/B: async-fork par* vs pool* variants
+target_link_libraries(pool_bench PRIVATE parsers)
+
+add_executable(floor_bench bench/floor_bench.cpp)  # serial-floor analysis: prologue vs arena
+target_link_libraries(floor_bench PRIVATE parsers)
 
 add_executable(corpus_bench bench/corpus_bench.cpp)  # shared-corpus cross-language bench
 target_link_libraries(corpus_bench PRIVATE parsers)
