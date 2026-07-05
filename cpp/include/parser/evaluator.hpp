@@ -58,6 +58,22 @@ std::unique_ptr<IEvaluator> make_multipass_par2();
 std::unique_ptr<IEvaluator> make_multipass_par4();
 std::unique_ptr<IEvaluator> make_multipass_par8();
 
+// Parallel multipass, take two: persistent pool + atomic-free arena + raised
+// fork threshold. Same tree as par*, but the fork-join is meant to actually pay.
+std::unique_ptr<IEvaluator> make_multipass_pool2();
+std::unique_ptr<IEvaluator> make_multipass_pool4();
+std::unique_ptr<IEvaluator> make_multipass_pool8();
+
+// Direct-eval fork-join: fuses evaluation into the parallel parse (no tree, no
+// node array), pulling the eval walk out of the serial fraction.
+std::unique_ptr<IEvaluator> make_multipass_dfork2();
+std::unique_ptr<IEvaluator> make_multipass_dfork4();
+std::unique_ptr<IEvaluator> make_multipass_dfork8();
+
+// Serial-floor probe: runs only tokenize + buildCandidates (the prologue every
+// parallel variant must do before forking), to measure the un-parallelisable floor.
+std::unique_ptr<IEvaluator> make_mp_setup_only();
+
 // All evaluators in display order (AST -> direct -> compiled).
 std::vector<std::unique_ptr<IEvaluator>> all_evaluators();
 
