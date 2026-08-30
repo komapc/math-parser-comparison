@@ -178,9 +178,12 @@ Neutral runner, ns/leaf at n=1000 ([full tables](../FINDINGS.md#cross-language-r
 
 The buffered form is the best of the top-down family in Python and a tie with
 it in C++/Haskell; the fused form is the fastest tree builder in C++ and Python
-and its no-tree twin the fastest strategy overall there (Haskell: ties). Both
-share `ast-arena`'s two structural advantages — contiguous arena output and
-allocation-free parsing — and the fused one adds a third: no recursion.
+(confirmed across three independent CI runs at n≥100 — n=10 is noise). Its
+no-tree twin is a real win in Python, but in C++ it's honestly a **tie** with
+`direct-recursive-descent`, not a lead — repeated runs flip the sign at every
+size (Haskell: also ties). Both share `ast-arena`'s two structural
+advantages — contiguous arena output and allocation-free parsing — and the
+fused one adds a third: no recursion.
 
 ## The fused variant
 
@@ -225,16 +228,19 @@ Neutral 4-vCPU CI runner (structured shapes at m=8192; full tables in
 | sumchain (single precedence) | 40 | 51 | 37 | 34 | 45 |
 | nestchain (deep parens) | 38 | 62 | 33 | 57 | 32 |
 
-Tree tier C++: the fastest tree builder on the random corpus at every size
-(~3 % ahead of `ast-arena` — consistent but small) and on every structured
-shape (nestchain ~0.6× the time). No-tree tier C++: fastest on the corpus at
-every size by 1–2 % (a tie with `direct-rd`) wins powchain and towerchain
-**loses sumchain to `direct-rd` (~9 %) and nestchain to `direct-sy` (~5 %)** —
-the two-accumulator bookkeeping costs a little on flat single-level chains
-and shunting-yard's paren handling is one push lighter. Python: fastest tree
-builder (2978 vs `ast-sy` 3095 ns/leaf at n=1000) and fastest overall
-(`direct-reverse` 2526 vs `direct-rd` 2737) at every size and on every
-shape — recursive descent pays a Python call per grammar level per leaf and
+Tree tier C++: the fastest tree builder on the random corpus at n=100 and up
+(~2–4 % ahead of `ast-arena`, confirmed across three independent CI runs —
+n=10 is noise, sign flips run to run) and on every structured shape
+(nestchain ~0.6× the time, robust across runs). No-tree tier C++: honestly a
+**tie** with `direct-rd` on the random corpus — three repeated runs show the
+sign flipping at every size, not a 1–2 % edge. On structured shapes it wins
+powchain and towerchain (robust, double digits over `direct-sy`), loses
+sumchain to `direct-rd` (~5–9 %, consistent across runs), and nestchain vs.
+`direct-sy` is itself another coin flip (−5 % to +11 % across runs), not a
+dependable loss. Python: fastest tree builder (2978 vs `ast-sy` 3095 ns/leaf
+at n=1000, confirmed across runs) and fastest overall (`direct-reverse` 2526
+vs `direct-rd` 2737), a real ~9–12 % win repeated across runs at every
+size — recursive descent pays a Python call per grammar level per leaf and
 the fold has none. Haskell: `direct-reverse` ties `direct-rd` within ±4 %
 and the fold ties `ast-arena` but like every arena form there trails the
 pointer classics by ~1.3×.

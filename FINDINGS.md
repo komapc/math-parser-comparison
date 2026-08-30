@@ -117,10 +117,13 @@ ns/leaf at n=10000, neutral runner:
 | Python | **3 396** | 4 704 | ast-sy 3 673 | direct-reverse 2 611 |
 | Haskell | 1 753 | 2 417 | ast-rd 1 157 | ast-rd 1 157 |
 
-The fused form is the fastest tree builder in C++ and Python at every corpus
-size (~3–4 % ahead of the best classic — consistent, but small enough to call
-the head of a tie), and its no-tree twin `direct-reverse` is the fastest
-strategy overall in both (C++ by 1–2 %, Python by ~8 %). Haskell is the
+The fused form is the fastest tree builder in C++ and Python from n=100 up
+(~2–4 % ahead of the best classic, confirmed across three independent CI
+runs — small but consistently positive; n=10 is noise, sign flips run to
+run). Its no-tree twin `direct-reverse` is genuinely faster in Python
+(~9–12 %, repeated across runs), but in C++ it's honestly a **tie** with
+`direct-recursive-descent` — the same repeated-run check shows the sign
+flipping at every size, not a measurable edge. Haskell is the
 exception: the pointer classics lead every arena form by ~1.3×, and
 `direct-reverse` ties `direct-rd` within ±4 %. The buffered
 `multipass-reverse` — the pedagogical version — trails its fused form by

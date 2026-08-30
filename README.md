@@ -45,20 +45,29 @@ tree-builder per language (**bold** = fastest):
 | `multipass-reverse-fold` | arena AST | **1.00** | **1.00** | 1.29 |
 
 **The fused form, `multipass-reverse-fold`, is the fastest tree builder of
-nine in C++ and in Python** — ahead of `ast-arena` by ~3 % and of
-`ast-shunting-yard` by ~4 % at every one of the four corpus sizes; a small,
-consistent lead, so read it as the head of the tie rather than a rout. The
-buffered `multipass-reverse` sits ~1.2× behind in C++. Layout is still the
-central cross-language finding: contiguous memory is the whole game in C++
-(~2× tier gap), and boxed/GC'd runtimes hide it — in Haskell the pointer
-classics lead every arena form, fold included, by ~1.3×. Adding cores reorders
-nothing — the ranking is identical at W=1 and W=4 in all three languages.
+nine in C++ and in Python** — ahead of `ast-arena` by ~2–4 % and of
+`ast-shunting-yard` by ~3–8 %, a small but real lead confirmed across three
+independent CI runs at n=100/1,000/10,000 (always positive, never a coin
+flip). At n=10 the margin is noise — sign flips run to run — so read the win
+as holding from n=100 up, not "at every size." The buffered `multipass-reverse`
+sits ~1.2× behind in C++. Layout is still the central cross-language finding:
+contiguous memory is the whole game in C++ (~2× tier gap), and boxed/GC'd
+runtimes hide it — in Haskell the pointer classics lead every arena form,
+fold included, by ~1.3×. Adding cores reorders nothing — the ranking is
+identical at W=1 and W=4 in all three languages.
 
-Its no-tree twin `direct-reverse` is the fastest strategy overall on the C++
-corpus at every size (by 1–2 % over `direct-recursive-descent` — a tie) and on
-the Python corpus (by ~8–10 %); on the structured shapes below it wins two
-and loses two in C++ (sumchain to `direct-rd` by 9 %, nestchain to
-`direct-sy` by 5 %).
+Its no-tree twin `direct-reverse` is, honestly, a **tie** with
+`direct-recursive-descent` on the C++ corpus — the same three-run check that
+confirmed the tree-tier win shows this one flipping sign at every size (e.g.
+n=1,000: +2.2 %, +0.3 %, +0.0 %), so there is no real edge to claim, in either
+direction. On the Python corpus the win is real and repeats across all three
+runs, ~9–12 % over `direct-shunting-yard` at every size. On the structured
+shapes below, the picture is mixed and shape-dependent rather than a clean
+"wins two, loses two": powchain and towerchain are robust wins (double digits
+over `direct-shunting-yard`, low-to-mid single digits or better over
+`direct-recursive-descent`), sumchain is a robust loss to `direct-rd`
+(~5–9 %, consistent across runs), and nestchain vs. `direct-sy` is itself a
+coin flip (−5 % to +11 % across the three runs) — not a dependable loss.
 
 ## Result 2 — vs its family: strictly better
 
