@@ -36,6 +36,9 @@ CASES = [
     ("(0 - 1e155) ^ 3", -math.inf),
     ("(0 / 0) / 0", math.nan),
     ("(0 - a) ^ 0.5", math.nan),
+    # literal overflow/underflow is a value (inf / 0), not a syntax error
+    ("1e400", math.inf),
+    ("1e-400 + a", 2),
 ]
 
 ERRORS = [

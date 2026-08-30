@@ -10,6 +10,7 @@
 
 #include <print>
 #include <random>
+#include <utility>
 #include <string>
 
 using namespace mp;
@@ -50,11 +51,24 @@ std::string mutate(std::string s) {
     return s;
 }
 
+// Long, shallow expression (hundreds of leaves) so the parallel variants
+// actually fork: gen() alone tops out well below the ~128-token threshold.
+std::string genLong() {
+    const int leaves = 200 + static_cast<int>(rng() % 1500);
+    std::string s;
+    for (int i = 0; i < leaves; ++i) {
+        if (i) s += " +-*/"[1 + rng() % 4];
+        s += (rng() % 5 == 0) ? "(" + gen(3) + ")" : gen(4);
+    }
+    return s;
+}
+
 }  // namespace
 
 int main() {
     const auto env = mp::test::testEnv();
-    const auto evs = all_evaluators();
+    auto evs = all_evaluators();
+    for (auto& p : parallel_evaluators()) evs.push_back(std::move(p));
     int mismatches = 0;
 
     const auto tryEval = [&](IEvaluator& ev, const std::string& e,
@@ -77,10 +91,13 @@ int main() {
 
     constexpr int kWellFormed = 3000;
     constexpr int kMutated = 3000;
+    constexpr int kLong = 150;  // x2: well-formed + mutated
     for (int t = 0; t < kWellFormed; ++t) checkAll(gen());
     for (int t = 0; t < kMutated; ++t) checkAll(mutate(gen()));
+    for (int t = 0; t < kLong; ++t) checkAll(genLong());
+    for (int t = 0; t < kLong; ++t) checkAll(mutate(genLong()));
 
-    std::println("{} well-formed + {} mutated exprs x {} strategies, {} mismatch(es)",
-                 kWellFormed, kMutated, evs.size(), mismatches);
+    std::println("{} well-formed + {} mutated + {} long exprs x {} strategies, {} mismatch(es)",
+                 kWellFormed, kMutated, 2 * kLong, evs.size(), mismatches);
     return mismatches == 0 ? 0 : 1;
 }

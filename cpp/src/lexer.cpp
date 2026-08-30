@@ -1,6 +1,7 @@
 #include "parser/lexer.hpp"
 
 #include <charconv>
+#include <cstdlib>
 #include <stdexcept>
 #include <string>
 
@@ -29,6 +30,14 @@ std::vector<Token> tokenize(std::string_view src) {
             const char* last = src.data() + n;
             double value = 0.0;
             auto [ptr, ec] = std::from_chars(first, last, value);
+            if (ec == std::errc::result_out_of_range) {
+                // Overflow/underflow is a value, not a syntax error — Python
+                // and Haskell give inf / 0 here, and so do we. from_chars
+                // leaves `value` unset on ERANGE; strtod supplies the IEEE
+                // result (HUGE_VAL or 0) for the lexeme it already delimited.
+                value = std::strtod(std::string(first, ptr).c_str(), nullptr);
+                ec = std::errc();
+            }
             if (ec != std::errc() || ptr == first) {
                 throw std::runtime_error("invalid number at position " +
                                          std::to_string(i));

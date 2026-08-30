@@ -71,9 +71,10 @@ flat there too. († `multipass-bfs`'s O(1) splits dodge the powchain but a
 pre-fix CI run — the shipped code reproduces the "after" column.
 [Details.](FINDINGS.md#result-2--vs-its-family-strictly-better))
 
-Correctness is enforced by differential fuzzing in CI: all twelve strategies
-must agree — value or rejection — on 6 000 random and mutated inputs per
-language per run.
+Correctness is enforced by curated spec suites in all three languages plus
+differential fuzzing in C++ and Python: every strategy must agree — value or
+rejection — on 6 000 random and mutated inputs per run (C++ also fuzzes its
+ten intra-expression parallel variants on inputs long enough to fork).
 
 ## Scope
 

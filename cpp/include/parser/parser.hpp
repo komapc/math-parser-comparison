@@ -21,7 +21,7 @@ public:
     virtual ExprPtr parse(std::string_view src) = 0;
 };
 
-// Factories for the three strategies under comparison.
+// Factories for the pointer-AST parsers (wrapped as evaluators in evaluators.cpp).
 std::unique_ptr<IParser> make_recursive_descent();
 std::unique_ptr<IParser> make_shunting_yard();
 std::unique_ptr<IParser> make_pratt();

@@ -80,4 +80,19 @@ std::vector<std::unique_ptr<IEvaluator>> all_evaluators() {
     return v;
 }
 
+std::vector<std::unique_ptr<IEvaluator>> parallel_evaluators() {
+    std::vector<std::unique_ptr<IEvaluator>> v;
+    v.push_back(make_multipass_par1());
+    v.push_back(make_multipass_par2());
+    v.push_back(make_multipass_par4());
+    v.push_back(make_multipass_par8());
+    v.push_back(make_multipass_pool2());
+    v.push_back(make_multipass_pool4());
+    v.push_back(make_multipass_pool8());
+    v.push_back(make_multipass_dfork2());
+    v.push_back(make_multipass_dfork4());
+    v.push_back(make_multipass_dfork8());
+    return v;
+}
+
 }  // namespace mp

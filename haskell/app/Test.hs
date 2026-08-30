@@ -22,6 +22,8 @@ cases =
   , ("0 ^ -1", 1 / 0), ("1 / (0 * -1)", -1 / 0)
   , ("(0 - 1e155) ^ 3", -1 / 0), ("(0 / 0) / 0", 0 / 0)
   , ("(0 - a) ^ 0.5", 0 / 0)
+  -- literal overflow/underflow is a value (inf / 0), not a syntax error
+  , ("1e400", 1 / 0), ("1e-400 + a", 2)
   ]
 
 errs :: [String]
