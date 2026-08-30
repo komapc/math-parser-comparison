@@ -1,4 +1,4 @@
-"""The twelve strategies, idiomatic Python.
+"""The fourteen strategies, idiomatic Python.
 
 The axis that actually distinguishes them is *representation* × *parse order*:
 

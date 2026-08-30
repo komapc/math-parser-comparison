@@ -2,7 +2,7 @@
 """Differential fuzz — every strategy must agree with every other.
 
 Mirrors cpp/tests/fuzz_differential.cpp: random well-formed expressions must
-produce the same value from all twelve strategies; randomly mutated (usually
+produce the same value from all fourteen strategies; randomly mutated (usually
 malformed) ones must draw the same accept/reject verdict. Deterministic seed,
 so failures reproduce. Exit 0 on success, 1 on any mismatch.
 
