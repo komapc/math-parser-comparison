@@ -1,11 +1,11 @@
 # Haskell implementation
 
-Idiomatic Haskell port of all twelve strategies (GHC, `base`/`array`/`containers`/`time`).
+Idiomatic Haskell port of all fourteen strategies (GHC, `base`/`array`/`containers`/`time`).
 
 ```sh
 python3 bench/gen_corpus.py        # from repo root: generate shared corpora (once)
 cd haskell
-cabal test                         # correctness (360 checks)
+cabal test                         # correctness (448 checks)
 cabal run bench                    # cross-check + timing on shared corpora
 cabal run adversarial              # 4 structured shapes: top-down worst cases (now O(n log n)), nestchain, vs reverse Θ(n)
 ```
@@ -26,7 +26,7 @@ algorithm is written once and instantiated at three carriers:
 | carrier | what it is | strategies |
 |---|---|---|
 | `Expr` | the algebraic data type (pointer-AST analog) | `ast-*`, `multipass` |
-| `Arena` | a state-threaded flat node array, children by `Int` index | `ast-arena`, `multipass-arena`, `multipass-bfs`, `multipass-reverse` |
+| `Arena` | a state-threaded flat node array, children by `Int` index | `ast-arena`, `multipass-arena`, `multipass-bfs`, `multipass-reverse`, `multipass-reverse-fold` |
 | `Direct` | an `Env -> Double` closure — no tree | `direct-*` |
 
 Drivers: `rdParse` (recursive descent), `prattParse`, `syParse` (shunting-yard),
@@ -47,20 +47,22 @@ tiers, not the digits.** Reproduce locally with `cabal run bench`.
 
 | strategy | n=10 | n=100 | n=1000 | n=10000 |
 |---|--:|--:|--:|--:|
-| ast-recursive-descent | 1311 | 1259 | **1270** | 1403 |
-| ast-shunting-yard | 1487 | 1391 | 1413 | 1714 |
-| ast-pratt | 1297 | **1244** | 1304 | **1358** |
-| ast-arena | 1517 | 1469 | 1603 | 1896 |
-| multipass | 1653 | 1590 | 1624 | 2354 |
-| multipass-arena | 1893 | 1784 | 1949 | 3105 |
-| direct-mp | 1769 | 1692 | 1804 | 2466 |
-| multipass-bfs | 2277 | 2077 | 2239 | 4191 |
-| multipass-reverse | 1683 | 1574 | 1730 | 2466 |
-| direct-recursive-descent | **1280** | 1329 | 1465 | 1528 |
-| direct-shunting-yard | 1412 | 1383 | 1460 | 1857 |
-| bytecode-vm | 1409 | 1372 | 1414 | 1826 |
+| ast-recursive-descent | **1188** | **1129** | 1302 | **1157** |
+| ast-shunting-yard | 1306 | 1216 | 1447 | 1600 |
+| ast-pratt | 1261 | 1221 | **1228** | 1201 |
+| ast-arena | 1388 | 1363 | 1430 | 1767 |
+| multipass | 1567 | 1517 | 1765 | 2332 |
+| multipass-arena | 1754 | 1704 | 1986 | 3252 |
+| direct-mp | 1616 | 1594 | 1771 | 2357 |
+| multipass-bfs | 1931 | 1927 | 2090 | 4184 |
+| multipass-reverse | 1564 | 1526 | 1713 | 2417 |
+| multipass-reverse-fold | 1433 | 1402 | 1585 | 1753 |
+| direct-recursive-descent | 1227 | 1180 | 1372 | 1308 |
+| direct-shunting-yard | 1305 | 1273 | 1498 | 1608 |
+| direct-reverse | 1252 | 1235 | 1319 | 1319 |
+| bytecode-vm | 1319 | 1284 | 1429 | 1566 |
 
-Correctness: all corpus expressions agree across all 12 strategies. The spread is
+Correctness: all corpus expressions agree across all 14 strategies. The spread is
 much tighter than C++ (~1.7× fastest-to-slowest on the median vs ~3.5×) — GC and
 laziness overhead dominate. `multipass-reverse` is among the better mp variants
 here (beats `multipass-arena`/`-bfs` at scale, ties `multipass`/`direct-mp`); the

@@ -6,8 +6,9 @@ until a single node remains: "multipass" in the original sense, **one
 reduction pass per precedence level**, like a human simplifying on paper.
 
 The two results, in one line each ([data](../FINDINGS.md)):
-**vs the classics it is competitive** — second-fastest tree builder of eight
-in C++, ahead of every pointer-AST parser; **vs its top-down family it is
+**vs the classics it is competitive** — and its fused form
+(`multipass-reverse-fold`, [below](#the-fused-variant)) is the fastest tree
+builder of nine in C++ and Python, narrowly; **vs its top-down family it is
 strictly better** — the only member whose worst case is its average case.
 
 Implementations: [C++](../cpp/src/multipass_reverse.cpp) ·
@@ -159,7 +160,7 @@ xychart-beta
 
 That was ~75–115× over top-down in C++ at m=8192 (~17× Python at m=1024, ~8×
 Haskell at m=4096 — sizes differ, so ratios aren't cross-language comparable).
-Post-fix the shipped binaries reproduce a ~1.7–3.6× gap, still in bottom-up's
+Post-fix the shipped binaries reproduce a ~1.7–4× gap, still in bottom-up's
 favour, with no machinery on its side.
 
 ## Where it lands on the random corpora
@@ -168,16 +169,79 @@ Neutral runner, ns/leaf at n=1000 ([full tables](../FINDINGS.md#cross-language-r
 
 | | C++ | Python | Haskell |
 |---|--:|--:|--:|
-| fastest tree builder | `ast-arena` 83 | `ast-sy` 3 204 | `ast-rd` 1 271 |
-| **`multipass-reverse`** | **98** | **4 374** | **1 730** |
-| best *top-down* multipass | `direct-mp` 102 | `direct-mp` 7 007 | `multipass` 1 624 |
-| fastest *no-tree* strategy (`direct-rd`) | 62 | 2 965 | 1 465 |
+| fastest classic tree builder | `ast-arena` 91 | `ast-rd` 3 078 | `ast-pratt` 1 228 |
+| **`multipass-reverse-fold`** | **88** | **2 978** | **1 585** |
+| `multipass-reverse` | 108 | 4 194 | 1 713 |
+| best *top-down* multipass | `direct-mp` 112 | `direct-mp` 7 130 | `multipass` 1 765 |
+| fastest *no-tree* classic (`direct-rd`) | 68 | 2 737 | 1 372 |
+| **`direct-reverse`** | **67** | **2 526** | **1 319** |
 
-Best of the family in Python by ~1.6× (→ ~1.8× at n=10000); a dead tie with
-`direct-mp` in C++ at n=10000 (114 vs 114 — and `direct-mp` builds no tree);
-effectively a tie in Haskell. Second-fastest tree builder of eight in C++ —
-it shares `ast-arena`'s two structural advantages: contiguous arena output and
-allocation-free parsing.
+The buffered form is the best of the top-down family in Python and a tie with
+it in C++/Haskell; the fused form is the fastest tree builder in C++ and Python
+and its no-tree twin the fastest strategy overall there (Haskell: ties). Both
+share `ast-arena`'s two structural advantages — contiguous arena output and
+allocation-free parsing — and the fused one adds a third: no recursion.
+
+## The fused variant
+
+`multipass-reverse-fold` (tree) and `direct-reverse` (no tree) keep the
+bottom-up order — deepest parens, then `^`/unary, then `* /`, then `+ -` — but
+perform the level passes *on the fly* instead of over a buffered item list.
+The observation: once a `^`/unary segment has folded on a barrier, what is
+left of the grammar is two left-associative levels,
+`sum := term ((+|-) term)*` and `term := seg ((*|/) seg)*`, and a bottom-up
+reducer for that needs two accumulators with a pending operator each, not a
+list. A `*` or `/` barrier closes the segment into `term`; a `+` or `-`
+barrier closes `term` into `sum` as well; a `(` pushes the accumulators on a
+frame stack and a `)` pops them. Consequences:
+
+- **no recursion, no paren-match prepass, no per-level re-scan** — every
+  token is read exactly once, in order;
+- the current operand lives in a register; the segment buffer is written only
+  when a `^` or a prefix sign is actually pending (a signed leaf such as `-16`
+  folds straight into the register via a two-token peek), so on ordinary input
+  the parse runs entirely in `cur` / `term` / `sum`;
+- the scan alternates an *operand mode* and an *operator mode*, each with its
+  own small dispatch — the same context recursive descent gets from its call
+  structure, without the calls;
+- worst case is still the average case: nothing ever looks for a split, and a
+  nesting level costs one 24-byte frame push, where recursive descent spends
+  ~5 call frames (`expr → term → unary → power → primary`).
+
+Implementations: [C++](../cpp/src/multipass_reverse_fold.cpp) (one template,
+two policies) · [Python](../python/mathparser/evaluators.py) (`reverse_fold_parse`) ·
+[Haskell](../haskell/src/MathParser/Strategies.hs) (`reverseFoldParse`).
+
+### Where it lands
+
+Neutral 4-vCPU CI runner (structured shapes at m=8192; full tables in
+[FINDINGS.md](../FINDINGS.md)):
+
+| C++, ns/leaf | `mp-reverse-fold` | `ast-arena` | `direct-reverse` | `direct-rd` | `direct-sy` |
+|---|--:|--:|--:|--:|--:|
+| random corpus, n=1000 | 88 | 91 | 67 | 68 | 75 |
+| powchain (mixed precedence) | 36 | 39 | 24 | 26 | 30 |
+| towerchain (`^` run then `*` run) | 36 | 39 | 23 | 25 | 27 |
+| sumchain (single precedence) | 40 | 51 | 37 | 34 | 45 |
+| nestchain (deep parens) | 38 | 62 | 33 | 57 | 32 |
+
+Tree tier C++: the fastest tree builder on the random corpus at every size
+(~3 % ahead of `ast-arena` — consistent but small) and on every structured
+shape (nestchain ~0.6× the time). No-tree tier C++: fastest on the corpus at
+every size by 1–2 % (a tie with `direct-rd`) wins powchain and towerchain
+**loses sumchain to `direct-rd` (~9 %) and nestchain to `direct-sy` (~5 %)** —
+the two-accumulator bookkeeping costs a little on flat single-level chains
+and shunting-yard's paren handling is one push lighter. Python: fastest tree
+builder (2978 vs `ast-sy` 3095 ns/leaf at n=1000) and fastest overall
+(`direct-reverse` 2526 vs `direct-rd` 2737) at every size and on every
+shape — recursive descent pays a Python call per grammar level per leaf and
+the fold has none. Haskell: `direct-reverse` ties `direct-rd` within ±4 %
+and the fold ties `ast-arena` but like every arena form there trails the
+pointer classics by ~1.3×.
+
+The *pedagogical* `multipass-reverse` (buffered item list, three explicit
+passes) stays in the suite because it is the version the walk-through above
+describes; the fused form is the same algorithm with the passes interleaved.
 
 ## Scope and limits
 
@@ -215,7 +279,7 @@ python3 python/adversarial.py        # Python
 cd haskell && cabal run adversarial  # Haskell
 ```
 
-Each prints all four shapes for all twelve strategies. The shipped top-down
+Each prints all four shapes for all fourteen strategies. The shipped top-down
 variants include the bounded-scan fix, so these reproduce the **post-fix**
 gaps; the pre-fix numbers above are preserved from the last CI run before the
 fix. Current numbers: [CI bench workflow](../.github/workflows/bench.yml).

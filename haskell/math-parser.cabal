@@ -1,7 +1,7 @@
 cabal-version:      2.4
 name:               math-parser
 version:            0.1.0
-synopsis:           Twelve math-expression evaluation strategies, idiomatic Haskell
+synopsis:           Fourteen math-expression evaluation strategies, idiomatic Haskell
 build-type:         Simple
 
 common warnings

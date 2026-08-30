@@ -679,6 +679,99 @@ def reverse_mp_parse(tokens, B):
     return reduce_range(0, len(tokens) - 1)
 
 
+# ---- multipass-reverse, fused ("fold") ----------------------------------------
+# Same bottom-up order as reverse_mp_parse — deepest parens, then ^/unary,
+# then * /, then + - — but the two binary levels are contracted in the SAME
+# left-to-right sweep that materialises the items: after a ^/unary segment
+# folds on a barrier, only two left-associative levels remain, and those need
+# two accumulators (term, sum) with a pending operator each, not a list. A
+# '(' pushes the accumulators on a frame stack, so there is no recursion, no
+# paren-matching prepass and no per-level re-scan. Mirrors
+# cpp/src/multipass_reverse_fold.cpp, including the two-mode (operand /
+# operator) scan and the register fast path for a signed leaf.
+def reverse_fold_parse(tokens, B):
+    seg = []            # pending parts of the current ^/unary segment:
+                        #   (0, kind)  prefix sign   |   (1, operand)  base of a ^
+    frames = []         # (term, sum, seg_base, pend_mul, pend_add) per open '('
+    seg_base = 0
+    term = sum_ = cur = None
+    pend_mul = pend_add = None   # None = nothing pending, else a BIN_CHAR op
+    i = 0
+
+    def fold(c):
+        # right-to-left over the segment: right-assoc ^; ^ binds tighter than a sign
+        if len(seg) == seg_base:
+            return c
+        acc = c
+        j = len(seg)
+        while j > seg_base:
+            j -= 1
+            tag, v = seg[j]
+            if tag == 0:
+                acc = B.neg(acc) if v == MINUS else B.pos(acc)
+            else:
+                acc = B.binop("^", v, acc)
+        del seg[seg_base:]
+        return acc
+
+    def close(c):
+        v = fold(c)
+        t = v if pend_mul is None else B.binop(pend_mul, term, v)
+        return t if pend_add is None else B.binop(pend_add, sum_, t)
+
+    while True:
+        # -- operand mode: number, variable, '(' or a prefix sign
+        while True:
+            tok = tokens[i]; i += 1; k = tok.kind
+            if k == NUM:
+                cur = B.num(tok.value); break
+            if k == LPAREN:
+                frames.append((term, sum_, seg_base, pend_mul, pend_add))
+                seg_base = len(seg); pend_mul = pend_add = None
+                continue
+            if k == MINUS or k == PLUS:
+                nxt = tokens[i]
+                if nxt.kind == NUM and tokens[i + 1].kind != CARET:
+                    cur = B.num(nxt.value)
+                    cur = B.neg(cur) if k == MINUS else B.pos(cur)
+                    i += 1; break
+                if nxt.kind == IDENT and tokens[i + 1].kind != CARET:
+                    cur = B.var(int(nxt.value))
+                    cur = B.neg(cur) if k == MINUS else B.pos(cur)
+                    i += 1; break
+                seg.append((0, k)); continue
+            if k == IDENT:
+                cur = B.var(int(tok.value)); break
+            raise ValueError(f"expected operand at position {tok.pos}")
+        # -- operator mode: binary op, ')' or end; ')' stays in this mode
+        while True:
+            tok = tokens[i]; i += 1; k = tok.kind
+            if k == PLUS or k == MINUS:
+                v = fold(cur)
+                term = v if pend_mul is None else B.binop(pend_mul, term, v)
+                sum_ = term if pend_add is None else B.binop(pend_add, sum_, term)
+                pend_add = BIN_CHAR[k]; pend_mul = None
+                break
+            if k == RPAREN:
+                if not frames:
+                    raise ValueError(f"mismatched parenthesis at position {tok.pos}")
+                cur = close(cur)
+                term, sum_, seg_base, pend_mul, pend_add = frames.pop()
+                continue
+            if k == STAR or k == SLASH:
+                v = fold(cur)
+                term = v if pend_mul is None else B.binop(pend_mul, term, v)
+                pend_mul = BIN_CHAR[k]
+                break
+            if k == CARET:
+                seg.append((1, cur)); break
+            if k == END:
+                if frames:
+                    raise ValueError("missing ')'")
+                return close(cur)
+            raise ValueError(f"expected operator at position {tok.pos}")
+
+
 # ---- bytecode VM (compile shunting-yard -> opcode list, then run) -----------
 def compile_bytecode(tokens):
     """Shunting-yard -> reusable opcode list: ('push',v) | ('load',i) | ('neg',) | ('bin',op)."""
@@ -780,6 +873,8 @@ def _multipass(t, v):       B = TupleBuilder(v); return B.result(_MP(t, False).p
 def _multipass_arena(t, v): B = ArenaBuilder(v); return B.result(_MP(t, False).parse(B))
 def _multipass_bfs(t, v):   B = ArenaBuilder(v); return B.result(_MP(t, True).parse(B))
 def _multipass_reverse(t, v): B = ArenaBuilder(v); return B.result(reverse_mp_parse(t, B))
+def _reverse_fold(t, v):       B = ArenaBuilder(v); return B.result(reverse_fold_parse(t, B))
+def _direct_reverse(t, v):     B = DirectBuilder(v); return B.result(reverse_fold_parse(t, B))
 def _direct_mp(t, v):       B = DirectBuilder(v); return B.result(_MP(t, False).parse(B))
 def _direct_rd(t, v):       B = DirectBuilder(v); return B.result(rd_parse(t, B))
 def _direct_sy(t, v):       B = DirectBuilder(v); return B.result(sy_parse(t, B))
@@ -798,7 +893,9 @@ def all_evaluators():
         Evaluator("direct-mp", _direct_mp),
         Evaluator("multipass-bfs", _multipass_bfs),
         Evaluator("multipass-reverse", _multipass_reverse),
+        Evaluator("multipass-reverse-fold", _reverse_fold),
         Evaluator("direct-recursive-descent", _direct_rd),
         Evaluator("direct-shunting-yard", _direct_sy),
+        Evaluator("direct-reverse", _direct_reverse),
         Evaluator("bytecode-vm", _bytecode),
     ]

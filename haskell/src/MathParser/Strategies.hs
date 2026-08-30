@@ -2,7 +2,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 
--- | The twelve strategies, idiomatic Haskell.
+-- | The fourteen strategies, idiomatic Haskell.
 --
 -- Representation is abstracted tagless-final via the 'Sym' class, so each parse
 -- algorithm is written once and instantiated at three carriers:
@@ -547,6 +547,59 @@ reverseMpParse toks = reduceRange 0 (n - 1)
           ROp k | isBarrier k -> ROpd (reduceSegRev segRev) : it : go rest []
           _                   -> go rest (it : segRev)
 
+-- ---- multipass-reverse, fused ("fold") -------------------------------------
+-- Same bottom-up order as reverseMpParse, but the two binary levels are
+-- contracted in the same sweep that materialises the items: after a ^/unary
+-- segment folds on a barrier only two left-associative levels remain, which
+-- need one pending (op, accumulator) each — @tm@ for * / and @sm@ for + — not
+-- a list. A '(' pushes (segment, tm, sm) on a frame stack; there is no
+-- recursion, no paren-matching prepass and no per-level re-scan. The scan
+-- alternates an operand mode and an operator mode, like the C++ version.
+-- The segment is kept most-recent-first, so a left fold over it IS the
+-- right-to-left fold (right-assoc ^; ^ binds tighter than a prefix sign).
+data FItem r = FUn !Kind | FPow r
+
+reverseFoldParse :: Sym r => [Tok] -> r
+reverseFoldParse = operand [] [] Nothing Nothing
+  where
+    -- operand mode: number, variable, '(' or a prefix sign
+    operand _ _ _ _ [] = error "unexpected end of input"
+    operand seg frames tm sm (t : ts) = case tKind t of
+      KNum    -> operator (sNum (tVal t)) seg frames tm sm ts
+      KVar    -> operator (sVar (round (tVal t))) seg frames tm sm ts
+      KLParen -> operand [] ((seg, tm, sm) : frames) Nothing Nothing ts
+      k | k == KPlus || k == KMinus -> operand (FUn k : seg) frames tm sm ts
+      _ -> error ("expected operand at position " ++ show (tPos t))
+
+    -- operator mode: binary op, ')' or end; ')' stays in this mode
+    operator _ _ _ _ _ [] = error "unexpected end of input"
+    operator cur seg frames tm sm (t : ts) = case tKind t of
+      k | k == KPlus || k == KMinus ->
+            let !v  = foldSeg seg cur
+                !tv = closeMul tm v
+                !sv = closeAdd sm tv
+            in operand [] frames Nothing (Just (opOf k, sv)) ts
+        | k == KStar || k == KSlash ->
+            let !v  = foldSeg seg cur
+                !tv = closeMul tm v
+            in operand [] frames (Just (opOf k, tv)) sm ts
+      KCaret  -> operand (FPow cur : seg) frames tm sm ts
+      KRParen -> case frames of
+        []                       -> error ("mismatched parenthesis at position " ++ show (tPos t))
+        ((seg0, tm0, sm0) : fs)  -> operator (closeRange cur seg tm sm) seg0 fs tm0 sm0 ts
+      KEnd | null frames -> closeRange cur seg tm sm
+           | otherwise   -> error "missing ')'"
+      _ -> error ("expected operator at position " ++ show (tPos t))
+
+    foldSeg seg cur = foldl' step cur seg
+      where step acc (FUn k)  = if k == KMinus then sNeg acc else sPos acc
+            step acc (FPow b) = sBin Pow b acc
+    closeMul Nothing        v = v
+    closeMul (Just (op, l)) v = sBin op l v
+    closeAdd Nothing        v = v
+    closeAdd (Just (op, l)) v = sBin op l v
+    closeRange cur seg tm sm = closeAdd sm (closeMul tm (foldSeg seg cur))
+
 -- Reduce one REVERSED ^/unary segment — (un* opd (^ un* opd)*) read backwards —
 -- by folding right-to-left: right-assoc ^ and the ^-binds-tighter-than-unary
 -- corner (-2^2 = -4, 2^-3 = 0.125) fall out naturally walking from the right.
@@ -682,7 +735,9 @@ allEvaluators =
   , mkDirect "direct-mp"                (mpRun False)
   , mkArena  "multipass-bfs"            (mpRun True)
   , mkArena  "multipass-reverse"        reverseMpParse
+  , mkArena  "multipass-reverse-fold"   reverseFoldParse
   , mkDirect "direct-recursive-descent" rdParse
   , mkDirect "direct-shunting-yard"     syParse
+  , mkDirect "direct-reverse"           reverseFoldParse
   , Evaluator "bytecode-vm"             (\env src -> bcEval env (tokenize src))
   ]
