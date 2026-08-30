@@ -48,7 +48,7 @@ static int binPrec(TokenType t) {
 }
 constexpr int kUnaryPrec = 3;
 
-[[gnu::always_inline]] static double applyBinary(TokenType t, double l, double r) {
+[[gnu::always_inline]] static inline double applyBinary(TokenType t, double l, double r) {
     switch (t) {
         case TokenType::Plus:  return l + r;
         case TokenType::Minus: return l - r;
@@ -58,7 +58,7 @@ constexpr int kUnaryPrec = 3;
         default: throw std::runtime_error("bad binary op");
     }
 }
-[[gnu::always_inline]] static double applyUnary(TokenType t, double v) {
+[[gnu::always_inline]] static inline double applyUnary(TokenType t, double v) {
     return (t == TokenType::Minus) ? -v : v;
 }
 

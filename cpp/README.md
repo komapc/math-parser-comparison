@@ -6,7 +6,7 @@
 
 ![C++26](https://img.shields.io/badge/C%2B%2B-26-00599C?logo=cplusplus&logoColor=white)
 ![CMake](https://img.shields.io/badge/CMake-3.20%2B-064F8C?logo=cmake&logoColor=white)
-![tests](https://img.shields.io/badge/tests-456%20checks%20%2B%20fuzz-brightgreen)
+![tests](https://img.shields.io/badge/tests-830%20checks%20%2B%20fuzz-brightgreen)
 ![warnings](https://img.shields.io/badge/-Wall%20-Wextra%20-Wpedantic-clean-brightgreen)
 ![deps](https://img.shields.io/badge/dependencies-none-blue)
 
@@ -50,7 +50,7 @@ multipass                 █████████████               
 
 ## 📐 Grammar
 
-Numbers, single-letter variables `a`–`z`, `+ - * / ^`, unary `+/-`, parentheses.
+Numbers (incl. `1e5`, `.5`; overflow → `inf`, underflow → `0`, same as Python/Haskell), single-letter variables `a`–`z`, `+ - * / ^`, unary `+/-`, parentheses.
 Precedence: `+ -` < `* /` < unary < `^` (right-associative). So `-2^2 = -4`, `2^3^2 = 512`.
 
 ## 🧩 Strategies
@@ -128,14 +128,24 @@ Multipass finds the split point *first*, making both halves independent [fork-jo
 
 Per-core efficiency fluctuates run-to-run on this throttling laptop. `ast-arena` leads in absolute throughput at every thread count.
 
-**Single-expression fork-join** (`multipass-parallel`, middle-split + `std::async`):
+**Single-expression fork-join** — three generations, all in the build
+(`single_par_bench`, `pool_bench`, `floor_bench`):
 
-| n (leaves) | par1 ns/leaf | par4 ns/leaf | par8 ns/leaf | best speedup | vs `ast-arena` |
-|---|--:|--:|--:|--:|--:|
-| 10 000 | 315 | **258** | 355 | par4 ×1.2 | still slower |
-| 100 000 | 372 | 378 | **315** | par8 ×1.2 | still slower |
+| variant | file | mechanism | vs `par1` (100k leaves, 4-core laptop) |
+|---|---|---|--:|
+| `par2/4/8` | [`multipass_parallel.cpp`](src/multipass_parallel.cpp) | middle-split + `std::async` per fork | ≤ ×1.2, often *slower* than `par1` (a fresh OS thread per ~1 µs subtree) |
+| `pool2/4/8` | [`multipass_pool.cpp`](src/multipass_pool.cpp) | persistent help-while-waiting pool; node stored at its owner-token index (no shared atomic) | ~×1.4–1.5 |
+| `dfork2/4/8` | [`multipass_pool.cpp`](src/multipass_pool.cpp) | same, but evaluation fused into the parallel recursion (no tree) | ~×1.5–1.7 |
 
-Fork-join delivers ~×1.2 over sequential multipass. Beating `ast-arena` requires T > log₂ n physical cores (≈13 for n=10k) — the O(n log n) gap is fundamental.
+Fork threshold ~128 tokens (`MP_FORK_THRESHOLD` overrides). Ordering
+dfork > pool > par is robust run-to-run; none of them beats single-threaded
+`ast-arena` on this 4-physical-core machine (controlled, interleaved runs put
+`dfork8` at ~1.3× arena's time at 100k leaves). The un-parallelisable prologue
+(tokenize + candidate index, `mp-setup-only`) is ~0.65–0.8× arena's whole
+time, so there is structural headroom on wider hardware — untested, not
+claimed. All ten variants run the full spec suite and the differential fuzz
+(`parallel_evaluators()`), including malformed inputs long enough to fork;
+exceptions raised inside a pool task are joined and rethrown on the caller.
 
 ## 🛠️ Build & run
 
@@ -145,12 +155,14 @@ From the repo root (`-S cpp`); drop the `cpp/` prefix if you're already in this 
 cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-14
 cmake --build build -j
 
-ctest --test-dir build --output-on-failure   # 456 checks + 6000-input differential fuzz
+ctest --test-dir build --output-on-failure   # 830 checks + 6300-input differential fuzz (22 strategies)
 ./build/bench                                 # one-shot (12 strategies)
 ./build/corpus_bench                          # shared corpus (cross-language comparable)
 ./build/reeval                                # compile-once / eval-many
 ./build/parallel_bench                        # batch scaling 1–8 threads
-./build/single_par_bench                      # single-expression fork-join scaling
+./build/single_par_bench                      # single-expression fork-join scaling (par*)
+./build/pool_bench                            # A/B: par* vs pool* vs dfork*
+./build/floor_bench                           # serial-floor probe (tokenize + candidate index only)
 ./build/adversarial_bench                     # 4 structured shapes: top-down worst cases (now O(n log n)), nestchain (bottom-up's), vs reverse Θ(n)
 ```
 
@@ -162,8 +174,8 @@ Requires GCC 14 + CMake ≥ 3.20. No external dependencies. `corpus_bench` reads
 ```
 include/parser/   interfaces (evaluator, arena_ast, reeval, …)
 src/              one file per strategy + shared lexer/ast
-bench/            benchmark.cpp  corpus_bench.cpp  reeval.cpp  parallel_bench.cpp  single_par_bench.cpp  adversarial_bench.cpp
-tests/            test_parsers.cpp (456 checks) + fuzz_differential.cpp (6000-input cross-strategy fuzz), run via CTest
+bench/            benchmark.cpp  corpus_bench.cpp  reeval.cpp  parallel_bench.cpp  single_par_bench.cpp  pool_bench.cpp  floor_bench.cpp  scaling_bench.cpp  corpus_reeval.cpp  adversarial_bench.cpp
+tests/            test_parsers.cpp (830 checks incl. the 10 parallel variants) + fuzz_differential.cpp (6300-input cross-strategy fuzz), run via CTest
 ```
 
 > Numbers from a throttling i7-10610U — **absolute ns vary ±40%; ratios are the result**.

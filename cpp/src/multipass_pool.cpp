@@ -40,6 +40,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <deque>
+#include <exception>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -307,6 +308,31 @@ protected:
         return best;
     }
 
+    // Fork rhsFn onto the pool, run lhsFn inline, join. Exception-safe in both
+    // directions: a throw inside the task is captured and rethrown here (never
+    // on a pool thread, which would std::terminate); a throw from lhsFn still
+    // waits for the task, because the task writes into this frame's locals.
+    template <class T, class RhsFn, class LhsFn>
+    std::pair<T, T> forkJoinImpl(RhsFn&& rhsFn, LhsFn&& lhsFn) {
+        T rhs{};
+        std::atomic<bool> done{false};
+        std::exception_ptr err;
+        pool_.submit([&] {
+            try { rhs = rhsFn(); } catch (...) { err = std::current_exception(); }
+            done.store(true, std::memory_order_release);
+        });
+        T lhs{};
+        try {
+            lhs = lhsFn();
+        } catch (...) {
+            pool_.helpUntil(done);
+            throw;
+        }
+        pool_.helpUntil(done);
+        if (err) std::rethrow_exception(err);
+        return {lhs, rhs};
+    }
+
     // tokenize + candidate index + top-level candidate range. Shared prologue.
     struct Setup { std::size_t n; CIt cbeg; CIt cend; };
     Setup setup(std::string_view src) {
@@ -331,14 +357,9 @@ class MultipassPool final : public IEvaluator, MpForkCore {
     int forkJoin(std::size_t rlo, std::size_t rhi, int depth, CIt rbeg, CIt rend,
                  int fd, std::size_t llo, std::size_t lhi, CIt lbeg, CIt lend,
                  std::size_t ownerPos, TokenType opType) {
-        int rhs = 0;
-        std::atomic<bool> rhsDone{false};
-        pool_.submit([&, rlo, rhi, depth, rbeg, rend, fd] {
-            rhs = parseRange(rlo, rhi, depth, rbeg, rend, fd);
-            rhsDone.store(true, std::memory_order_release);
-        });
-        const int lhs = parseRange(llo, lhi, depth, lbeg, lend, fd);
-        pool_.helpUntil(rhsDone);
+        const auto [lhs, rhs] = forkJoinImpl<int>(
+            [&] { return parseRange(rlo, rhi, depth, rbeg, rend, fd); },
+            [&] { return parseRange(llo, lhi, depth, lbeg, lend, fd); });
         return emitAt(ownerPos, {binaryKind(opType), lhs, rhs, 0, 0.0});
     }
 
@@ -476,14 +497,9 @@ class MultipassDirectFork final : public IEvaluator, MpForkCore {
     double forkJoinD(std::size_t rlo, std::size_t rhi, int depth, CIt rbeg, CIt rend,
                      int fd, std::size_t llo, std::size_t lhi, CIt lbeg, CIt lend,
                      TokenType opType) {
-        double rhs = 0.0;
-        std::atomic<bool> rhsDone{false};
-        pool_.submit([&, rlo, rhi, depth, rbeg, rend, fd] {
-            rhs = parseRangeD(rlo, rhi, depth, rbeg, rend, fd);
-            rhsDone.store(true, std::memory_order_release);
-        });
-        const double lhs = parseRangeD(llo, lhi, depth, lbeg, lend, fd);
-        pool_.helpUntil(rhsDone);
+        const auto [lhs, rhs] = forkJoinImpl<double>(
+            [&] { return parseRangeD(rlo, rhi, depth, rbeg, rend, fd); },
+            [&] { return parseRangeD(llo, lhi, depth, lbeg, lend, fd); });
         return applyBin(opType, lhs, rhs);
     }
 

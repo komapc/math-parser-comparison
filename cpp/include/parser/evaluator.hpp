@@ -77,4 +77,10 @@ std::unique_ptr<IEvaluator> make_mp_setup_only();
 // All evaluators in display order (AST -> direct -> compiled).
 std::vector<std::unique_ptr<IEvaluator>> all_evaluators();
 
+// The intra-expression parallel variants (par*/pool*/dfork*). Kept out of
+// all_evaluators() so the one-shot benchmarks stay single-threaded, but held
+// to the same specification by the correctness suite and the differential
+// fuzz (with inputs long enough to actually fork).
+std::vector<std::unique_ptr<IEvaluator>> parallel_evaluators();
+
 }  // namespace mp

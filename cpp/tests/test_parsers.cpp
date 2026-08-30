@@ -10,6 +10,7 @@
 #include <limits>
 #include <print>
 #include <exception>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -100,6 +101,9 @@ int main() {
         {"(0 - 1e155) ^ 3", -std::numeric_limits<double>::infinity()},
         {"(0 / 0) / 0", std::numeric_limits<double>::quiet_NaN()},
         {"(0 - a) ^ 0.5", std::numeric_limits<double>::quiet_NaN()},
+        // literal overflow/underflow is a value (inf / 0), not a syntax error
+        {"1e400", std::numeric_limits<double>::infinity()},
+        {"1e-400 + a", 2},
     };
 
     const std::vector<ErrCase> errs = {
@@ -113,6 +117,25 @@ int main() {
     for (auto& ev : evs) {
         for (const auto& c : cases) checkValue(*ev, c, vars);
         for (const auto& e : errs)  checkError(*ev, e);
+    }
+
+    // Parallel variants: same spec, plus malformed inputs long enough to fork
+    // (regression: pool*/dfork* used to std::terminate / hang when a subtree
+    // parsed on a worker thread threw).
+    std::string longOk, longTrail, longParen;
+    for (int i = 0; i < 400; ++i) {
+        longOk += i ? " + a" : "a";
+    }
+    longTrail = longOk + " +";
+    longParen = longOk; longParen[longParen.size() / 2] = ')';
+    const Case longCase{longOk, 800};
+    const std::vector<ErrCase> longErrs = {{longTrail}, {longParen}};
+    auto pevs = parallel_evaluators();
+    for (auto& ev : pevs) {
+        for (const auto& c : cases) checkValue(*ev, c, vars);
+        for (const auto& e : errs)  checkError(*ev, e);
+        checkValue(*ev, longCase, vars);
+        for (const auto& e : longErrs) checkError(*ev, e);
     }
 
     // Re-eval compilers — reuse the same env defined above.
@@ -154,7 +177,7 @@ int main() {
         }
     }
 
-    std::println("\n{} checks across {} evaluators + {} compilers, {} failure(s)",
-                g_checks, evs.size(), compilers.size(), g_failures);
+    std::println("\n{} checks across {} evaluators + {} parallel variants + {} compilers, {} failure(s)",
+                g_checks, evs.size(), pevs.size(), compilers.size(), g_failures);
     return g_failures == 0 ? 0 : 1;
 }
