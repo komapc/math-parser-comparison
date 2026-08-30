@@ -42,23 +42,27 @@ Reproduce locally with `python3 python/bench.py`.
 
 | strategy | n=10 | n=100 | n=1000 | n=10000 |
 |---|--:|--:|--:|--:|
-| ast-recursive-descent | 3381 | 3267 | 3216 | 3907 |
-| ast-shunting-yard | 3059 | 3082 | 3204 | 3760 |
-| ast-pratt | 3393 | 3350 | 3343 | 3933 |
-| ast-arena | 3728 | 3568 | 3680 | 4059 |
-| multipass | 5626 | 6040 | 7314 | 9175 |
-| multipass-arena | 5908 | 6299 | 7804 | 9416 |
-| direct-mp | 5342 | 5752 | 7007 | 8608 |
-| multipass-bfs | 6661 | 6937 | 8825 | 11585 |
-| multipass-reverse | 4493 | 4183 | 4374 | 4776 |
-| direct-recursive-descent | 3092 | 3002 | **2965** | **3011** |
-| direct-shunting-yard | **2807** | **2853** | 3004 | 3076 |
-| bytecode-vm | 2872 | 2914 | 3076 | 3364 |
+| ast-recursive-descent | 3303 | 3108 | 3078 | 3836 |
+| ast-shunting-yard | 2936 | 2946 | 3095 | 3673 |
+| ast-pratt | 3294 | 3180 | 3163 | 3871 |
+| ast-arena | 3622 | 3430 | 3549 | 3967 |
+| multipass | 5541 | 6022 | 7344 | 9448 |
+| multipass-arena | 5712 | 6191 | 7830 | 9699 |
+| direct-mp | 5351 | 5822 | 7130 | 8821 |
+| multipass-bfs | 6322 | 6933 | 9188 | 12188 |
+| multipass-reverse | 4116 | 4020 | 4194 | 4704 |
+| multipass-reverse-fold | 2737 | 2702 | 2978 | 3396 |
+| direct-recursive-descent | 2991 | 2796 | 2737 | 2809 |
+| direct-shunting-yard | 2636 | 2662 | 2814 | 2901 |
+| direct-reverse | **2371** | **2350** | **2526** | **2611** |
+| bytecode-vm | 2753 | 2790 | 2945 | 3192 |
 
-`multipass-reverse` is the only multipass variant that stays flat as n grows
-(others recurse + rescan per split) — it's the fastest of the mp family at every
-size, ~1.8× ahead of the next at n=10000, and within ~1.6× of the no-tree
-winners (which it still doesn't beat). Correctness: 1110/1110 corpus expressions
+`multipass-reverse` is the only buffered multipass variant that stays flat as n
+grows (others recurse + rescan per split) — the fastest of the top-down family
+at every size. Its fused form `multipass-reverse-fold` is the fastest tree
+builder at every size and `direct-reverse` the fastest strategy overall:
+recursive descent pays a Python call per grammar level per leaf, the fold pays
+none. Correctness: 1110/1110 corpus expressions
 agree across all 14 strategies.
 
 ## What changes versus C++
