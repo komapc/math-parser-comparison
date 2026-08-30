@@ -2,7 +2,7 @@
 
 # 🧮 Math-Expression Parser & Evaluator
 
-**Twelve ways to turn `-2 ^ 2 + 3 * (4 - 1)` into `5`, in C++, Haskell, and Python.**
+**Fourteen ways to turn `-2 ^ 2 + 3 * (4 - 1)` into `5`, in C++, Haskell, and Python.**
 
 </div>
 
@@ -16,7 +16,11 @@ family. Grammar, builds, full tables and analysis: **[FINDINGS.md](FINDINGS.md)*
 parentheses, then `^`, then `*` `/`, then `+` `-` — one in-place sweep per
 precedence level, until a single node remains. Same tree as every other parser,
 built in the opposite order. It never searches for a split point, so it is
-**Θ(n) on every input, with no fallback machinery**.
+**Θ(n) on every input, with no fallback machinery**. A fused form,
+`multipass-reverse-fold` (and its no-tree twin `direct-reverse`), performs the
+same level reductions on the fly with two accumulators per parenthesis frame —
+no recursion, no prepass, every token touched once
+([design and numbers](docs/multipass-reverse.md#the-fused-variant)).
 ([C++](cpp/src/multipass_reverse.cpp) ·
 [Python](python/mathparser/evaluators.py) ·
 [Haskell](haskell/src/MathParser/Strategies.hs) ·

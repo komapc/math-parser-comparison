@@ -1,10 +1,10 @@
 # Python implementation
 
-Idiomatic Python port of all twelve strategies. Run from the repo root.
+Idiomatic Python port of all fourteen strategies. Run from the repo root.
 
 ```sh
 python3 python/test_parsers.py     # correctness (360 checks)
-python3 python/test_fuzz.py        # differential fuzz: 12 strategies must agree on 6000 inputs
+python3 python/test_fuzz.py        # differential fuzz: 14 strategies must agree on 6000 inputs
 python3 bench/gen_corpus.py        # generate shared corpora (once)
 python3 python/bench.py            # cross-check + timing on shared corpora
 python3 python/adversarial.py      # 4 structured shapes: top-down worst cases (now O(n log n)), nestchain, vs reverse Θ(n)
@@ -14,7 +14,7 @@ Requires Python 3.10+ (uses `bisect(..., key=...)`).
 
 ## Design
 
-The twelve strategies are combinations of a **representation** and a **parse order**,
+The fourteen strategies are combinations of a **representation** and a **parse order**,
 so the shared logic lives in two places instead of being copy-pasted:
 
 - **Builders** (`evaluators.py`) — `TupleBuilder` (pointer-AST analog: nested
@@ -24,7 +24,9 @@ so the shared logic lives in two places instead of being copy-pasted:
   `pratt_parse`, `_MP` (top-down divide & conquer, with an optional sparse-table
   RMQ for the `multipass-bfs` variant), and `reverse_mp_parse` (bottom-up
   reduction, innermost/highest precedence first → `multipass-reverse`; algorithm
-  explained in [docs/multipass-reverse.md](../docs/multipass-reverse.md)).
+  explained in [docs/multipass-reverse.md](../docs/multipass-reverse.md)) and
+  `reverse_fold_parse` (the fused form: same order, two accumulators per paren
+  frame, no recursion → `multipass-reverse-fold` / `direct-reverse`).
   `bytecode-vm` is a separate compile-then-run pass.
 
 A strategy is a driver feeding a builder, e.g. `multipass-arena` = `_MP` + `ArenaBuilder`.
@@ -57,7 +59,7 @@ Reproduce locally with `python3 python/bench.py`.
 (others recurse + rescan per split) — it's the fastest of the mp family at every
 size, ~1.8× ahead of the next at n=10000, and within ~1.6× of the no-tree
 winners (which it still doesn't beat). Correctness: 1110/1110 corpus expressions
-agree across all 12 strategies.
+agree across all 14 strategies.
 
 ## What changes versus C++
 

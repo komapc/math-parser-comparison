@@ -1,11 +1,11 @@
 # Haskell implementation
 
-Idiomatic Haskell port of all twelve strategies (GHC, `base`/`array`/`containers`/`time`).
+Idiomatic Haskell port of all fourteen strategies (GHC, `base`/`array`/`containers`/`time`).
 
 ```sh
 python3 bench/gen_corpus.py        # from repo root: generate shared corpora (once)
 cd haskell
-cabal test                         # correctness (360 checks)
+cabal test                         # correctness (448 checks)
 cabal run bench                    # cross-check + timing on shared corpora
 cabal run adversarial              # 4 structured shapes: top-down worst cases (now O(n log n)), nestchain, vs reverse Θ(n)
 ```
@@ -26,7 +26,7 @@ algorithm is written once and instantiated at three carriers:
 | carrier | what it is | strategies |
 |---|---|---|
 | `Expr` | the algebraic data type (pointer-AST analog) | `ast-*`, `multipass` |
-| `Arena` | a state-threaded flat node array, children by `Int` index | `ast-arena`, `multipass-arena`, `multipass-bfs`, `multipass-reverse` |
+| `Arena` | a state-threaded flat node array, children by `Int` index | `ast-arena`, `multipass-arena`, `multipass-bfs`, `multipass-reverse`, `multipass-reverse-fold` |
 | `Direct` | an `Env -> Double` closure — no tree | `direct-*` |
 
 Drivers: `rdParse` (recursive descent), `prattParse`, `syParse` (shunting-yard),
@@ -60,7 +60,7 @@ tiers, not the digits.** Reproduce locally with `cabal run bench`.
 | direct-shunting-yard | 1412 | 1383 | 1460 | 1857 |
 | bytecode-vm | 1409 | 1372 | 1414 | 1826 |
 
-Correctness: all corpus expressions agree across all 12 strategies. The spread is
+Correctness: all corpus expressions agree across all 14 strategies. The spread is
 much tighter than C++ (~1.7× fastest-to-slowest on the median vs ~3.5×) — GC and
 laziness overhead dominate. `multipass-reverse` is among the better mp variants
 here (beats `multipass-arena`/`-bfs` at scale, ties `multipass`/`direct-mp`); the

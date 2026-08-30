@@ -2,11 +2,11 @@
 
 # 🧮 Math-Expression Parser & Evaluator — A Comparison
 
-**Twelve ways to turn `"-2 ^ 2 + 3 * (4 - 1)"` into `5` — benchmarked head-to-head.**
+**Fourteen ways to turn `"-2 ^ 2 + 3 * (4 - 1)"` into `5` — benchmarked head-to-head.**
 
 ![C++26](https://img.shields.io/badge/C%2B%2B-26-00599C?logo=cplusplus&logoColor=white)
 ![CMake](https://img.shields.io/badge/CMake-3.20%2B-064F8C?logo=cmake&logoColor=white)
-![tests](https://img.shields.io/badge/tests-830%20checks%20%2B%20fuzz-brightgreen)
+![tests](https://img.shields.io/badge/tests-894%20checks%20%2B%20fuzz-brightgreen)
 ![warnings](https://img.shields.io/badge/-Wall%20-Wextra%20-Wpedantic-clean-brightgreen)
 ![deps](https://img.shields.io/badge/dependencies-none-blue)
 
@@ -65,8 +65,10 @@ Precedence: `+ -` < `* /` < unary < `^` (right-associative). So `-2^2 = -4`, `2^
 | [`multipass-arena`](src/multipass_arena.cpp) | D&C + iterator passing | arena AST |
 | [`multipass-bfs`](src/multipass_opt.cpp) | D&C + [sparse-table RMQ](https://en.wikipedia.org/wiki/Range_minimum_query) | arena AST |
 | [`multipass-reverse`](src/multipass_reverse.cpp) | Bottom-up reduction (innermost/highest first) | arena AST |
+| [`multipass-reverse-fold`](src/multipass_reverse_fold.cpp) | Bottom-up, fused: two accumulators per paren frame, no recursion | arena AST |
 | [`direct-recursive-descent`](src/direct_recursive_descent.cpp) | Recursive descent | none — returns `double` |
 | [`direct-shunting-yard`](src/direct_shunting_yard.cpp) | Shunting-yard | none — returns `double` |
+| [`direct-reverse`](src/multipass_reverse_fold.cpp) | Bottom-up, fused | none — returns `double` |
 | [`direct-mp`](src/multipass_lean.cpp) | D&C | none — returns `double` |
 | [`bytecode-vm`](src/bytecode.cpp) | Shunting-yard → [bytecode](https://en.wikipedia.org/wiki/Bytecode) + VM | flat opcode stream |
 
@@ -155,8 +157,8 @@ From the repo root (`-S cpp`); drop the `cpp/` prefix if you're already in this 
 cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-14
 cmake --build build -j
 
-ctest --test-dir build --output-on-failure   # 830 checks + 6300-input differential fuzz (22 strategies)
-./build/bench                                 # one-shot (12 strategies)
+ctest --test-dir build --output-on-failure   # 894 checks + 6300-input differential fuzz (24 strategies)
+./build/bench                                 # one-shot (14 strategies)
 ./build/corpus_bench                          # shared corpus (cross-language comparable)
 ./build/reeval                                # compile-once / eval-many
 ./build/parallel_bench                        # batch scaling 1–8 threads
@@ -175,7 +177,7 @@ Requires GCC 14 + CMake ≥ 3.20. No external dependencies. `corpus_bench` reads
 include/parser/   interfaces (evaluator, arena_ast, reeval, …)
 src/              one file per strategy + shared lexer/ast
 bench/            benchmark.cpp  corpus_bench.cpp  reeval.cpp  parallel_bench.cpp  single_par_bench.cpp  pool_bench.cpp  floor_bench.cpp  scaling_bench.cpp  corpus_reeval.cpp  adversarial_bench.cpp
-tests/            test_parsers.cpp (830 checks incl. the 10 parallel variants) + fuzz_differential.cpp (6300-input cross-strategy fuzz), run via CTest
+tests/            test_parsers.cpp (894 checks incl. the 10 parallel variants) + fuzz_differential.cpp (6300-input cross-strategy fuzz), run via CTest
 ```
 
 > Numbers from a throttling i7-10610U — **absolute ns vary ±40%; ratios are the result**.

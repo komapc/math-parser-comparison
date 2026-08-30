@@ -179,6 +179,60 @@ effectively a tie in Haskell. Second-fastest tree builder of eight in C++ —
 it shares `ast-arena`'s two structural advantages: contiguous arena output and
 allocation-free parsing.
 
+## The fused variant
+
+`multipass-reverse-fold` (tree) and `direct-reverse` (no tree) keep the
+bottom-up order — deepest parens, then `^`/unary, then `* /`, then `+ -` — but
+perform the level passes *on the fly* instead of over a buffered item list.
+The observation: once a `^`/unary segment has folded on a barrier, what is
+left of the grammar is two left-associative levels,
+`sum := term ((+|-) term)*` and `term := seg ((*|/) seg)*`, and a bottom-up
+reducer for that needs two accumulators with a pending operator each, not a
+list. A `*` or `/` barrier closes the segment into `term`; a `+` or `-`
+barrier closes `term` into `sum` as well; a `(` pushes the accumulators on a
+frame stack and a `)` pops them. Consequences:
+
+- **no recursion, no paren-match prepass, no per-level re-scan** — every
+  token is read exactly once, in order;
+- the current operand lives in a register; the segment buffer is written only
+  when a `^` or a prefix sign is actually pending (a signed leaf such as `-16`
+  folds straight into the register via a two-token peek), so on ordinary input
+  the parse runs entirely in `cur` / `term` / `sum`;
+- the scan alternates an *operand mode* and an *operator mode*, each with its
+  own small dispatch — the same context recursive descent gets from its call
+  structure, without the calls;
+- worst case is still the average case: nothing ever looks for a split, and a
+  nesting level costs one 24-byte frame push, where recursive descent spends
+  ~5 call frames (`expr → term → unary → power → primary`).
+
+Implementations: [C++](../cpp/src/multipass_reverse_fold.cpp) (one template,
+two policies) · [Python](../python/mathparser/evaluators.py) (`reverse_fold_parse`) ·
+[Haskell](../haskell/src/MathParser/Strategies.hs) (`reverseFoldParse`).
+
+### Where it lands
+
+Development-machine ratios (pinned core, interleaved best-of-N; the machine
+throttles, so only ratios are quoted — neutral-runner absolute numbers are in
+[FINDINGS.md](../FINDINGS.md) once the CI bench has run on this version):
+
+| shape (C++) | vs `ast-arena` (tree tier) | vs `direct-rd` (no-tree tier) |
+|---|--:|--:|
+| random corpus, n=1000 | ≈ 1.00 (tie, ±3 %) | ≈ 1.00 (tie, ±5 %) |
+| nestchain (deep parens) | **~0.6×** the time | **~0.6×** |
+| towerchain (`^` run then `*` run) | ~0.9× | ~0.8× |
+| powchain (mixed precedence) | ~0.95× | ~0.93× |
+| sumchain (single precedence) | ~0.85–1.0× | ~0.95–1.0× |
+
+In C++ it ties the best classic of each tier on the random corpus and wins on
+every structured shape — it is never behind. In Python the fold form is
+faster than recursive descent outright (~1.2× on the random corpus,
+interleaved local run): recursive descent pays a Python function call per
+grammar level per leaf, and the fold has none. Haskell numbers: CI only.
+
+The *pedagogical* `multipass-reverse` (buffered item list, three explicit
+passes) stays in the suite because it is the version the walk-through above
+describes; the fused form is the same algorithm with the passes interleaved.
+
 ## Scope and limits
 
 The whole design targets one fixed, simple grammar: numbers, `+ - * / ^`,
@@ -215,7 +269,7 @@ python3 python/adversarial.py        # Python
 cd haskell && cabal run adversarial  # Haskell
 ```
 
-Each prints all four shapes for all twelve strategies. The shipped top-down
+Each prints all four shapes for all fourteen strategies. The shipped top-down
 variants include the bounded-scan fix, so these reproduce the **post-fix**
 gaps; the pre-fix numbers above are preserved from the last CI run before the
 fix. Current numbers: [CI bench workflow](../.github/workflows/bench.yml).

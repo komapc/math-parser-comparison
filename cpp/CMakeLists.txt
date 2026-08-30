@@ -37,6 +37,7 @@ add_library(parsers
   src/multipass_arena.cpp
   src/multipass_opt.cpp
   src/multipass_reverse.cpp
+  src/multipass_reverse_fold.cpp
   src/multipass_lean.cpp
   src/multipass_parallel.cpp
   src/multipass_pool.cpp
