@@ -17,9 +17,9 @@ namespace {
 // Same grammar and the same lexical rules as the shared tokenizer (whitespace
 // set, number syntax incl. the 1e400 -> inf convention, single-letter a-z/A-Z
 // variables, error positions), but every other strategy pays for
-// tokenize()'s token vector -- about half of a direct evaluator's time in C++
-// (see floor_bench: tokenize alone vs direct-recursive-descent). This one is
-// the control for that cost: it is what direct-recursive-descent would be if
+// the shared lexer -- about a quarter of a direct evaluator's time in C++
+// (direct-rd vs this file, neutral runner). This one is the control for that
+// cost: it is what direct-recursive-descent would be if
 // lexing were free.
 //
 // Whitespace is consumed exactly once, right after each token, by take():

@@ -58,18 +58,6 @@ jobs:
           { echo '## C++ (corpus_bench)'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           ./build/corpus_bench | tee bench-cpp.txt >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-      - name: C++ scaling (1/2/4 workers)
-        run: |
-          set -o pipefail
-          { echo '## C++ scaling'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          ./build/scaling_bench | tee scaling-cpp.txt >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-      - name: C++ reeval (compile once, eval many)
-        run: |
-          set -o pipefail
-          { echo '## C++ reeval'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          ./build/corpus_reeval | tee reeval-cpp.txt >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
       - name: C++ adversarial chains
         run: |
           set -o pipefail
@@ -84,18 +72,6 @@ jobs:
           python3 python/test_parsers.py
           { echo '## Python'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           python3 python/bench.py | tee bench-python.txt >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-      - name: Python scaling (process vs thread / GIL)
-        run: |
-          set -o pipefail
-          { echo '## Python scaling (process vs thread)'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          python3 python/scaling.py | tee scaling-python.txt >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-      - name: Python reeval (compile once, eval many)
-        run: |
-          set -o pipefail
-          { echo '## Python reeval'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          python3 python/reeval.py | tee reeval-python.txt >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
       - name: Python adversarial chains
         run: |
@@ -118,12 +94,6 @@ jobs:
           { echo '## Haskell'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           cabal run -v0 bench | tee ../bench-haskell.txt >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          { echo '## Haskell scaling (-threaded)'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          cabal run -v0 scaling | tee ../scaling-haskell.txt >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          { echo '## Haskell reeval'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          cabal run -v0 reeval | tee ../reeval-haskell.txt >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
           { echo '## Haskell adversarial chains'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           cabal run -v0 adversarial | tee ../adversarial-haskell.txt >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
@@ -135,6 +105,4 @@ jobs:
           name: benchmark-results
           path: |
             bench-*.txt
-            scaling-*.txt
-            reeval-*.txt
             adversarial-*.txt

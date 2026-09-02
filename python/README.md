@@ -3,7 +3,7 @@
 Idiomatic Python port of all fifteen strategies. Run from the repo root.
 
 ```sh
-python3 python/test_parsers.py     # correctness (448 checks)
+python3 python/test_parsers.py     # correctness (480 checks)
 python3 python/test_fuzz.py        # differential fuzz: 15 strategies must agree on 6000 inputs
 python3 bench/gen_corpus.py        # generate shared corpora (once)
 python3 python/bench.py            # cross-check + timing on shared corpora
@@ -59,16 +59,15 @@ Reproduce locally with `python3 python/bench.py`.
 | *direct-scannerless* (control) | *2264* | *2140* | *2171* | *2171* |
 
 `multipass-reverse` is the only buffered multipass variant that stays flat as n
-grows (others recurse + rescan per split) — the fastest of the top-down family
-at every size. Its fused form `multipass-reverse-fold` is the fastest tree
-builder at every size and `direct-reverse` the fastest strategy overall:
-recursive descent pays a Python call per grammar level per leaf, the fold pays
-none. Median of three CI runs. `direct-scannerless` (recursive descent with
-the lexer fused into the grammar — no `Token` objects at all) is a control,
-not a contender: it is ~25–35 % faster than `direct-rd`, and that gap is what
-the shared token list costs here; a generator-based token stream was measured
-too and is a wash (0.93–1.05×), so the list stays. Correctness: 1110/1110
-corpus expressions agree across all 15 strategies.
+grows (the others recurse and rescan per split). Its fused form
+`multipass-reverse-fold` is the fastest tree builder at every size and
+`direct-reverse` the fastest strategy overall: recursive descent pays a Python
+call per grammar level per leaf, the fold pays none. Median of three CI runs.
+`direct-scannerless` (recursive descent with the lexer fused in — no `Token`
+objects at all) is a control, not a contender: ~25–35 % faster than
+`direct-rd`, and that gap is what the shared token list costs here (a
+generator-based token stream was measured too and is a wash, 0.93–1.05×).
+Correctness: 1110/1110 corpus expressions agree across all 15 strategies.
 
 ## What changes versus C++
 

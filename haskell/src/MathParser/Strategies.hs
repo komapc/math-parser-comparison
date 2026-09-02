@@ -16,7 +16,6 @@ module MathParser.Strategies
   ( Evaluator(..)
   , Env
   , allEvaluators
-  , reevalForms
   ) where
 
 import           Data.Array          hiding ((!), bounds, listArray)
@@ -102,7 +101,7 @@ instance Sym Direct where
 -- arena carrier: thread (next-index, nodes-in-reverse); a node refs children by index
 data Node = NNum !Double | NVar !Int | NNeg !Int | NBin !Op !Int !Int
 type ArenaSt = (Int, [Node])
-newtype Arena = Arena { runArena :: ArenaSt -> (Int, ArenaSt) }
+newtype Arena = Arena (ArenaSt -> (Int, ArenaSt))
 
 emitNode :: Node -> ArenaSt -> (Int, ArenaSt)
 emitNode nd (n, xs) = (n, (n + 1, nd : xs))
@@ -747,29 +746,6 @@ bcRun env = go `flip` []
 
 bcEval :: Env -> [Tok] -> Double
 bcEval env toks = bcRun env (bcCompile toks)
-
--- ---- reeval API: compile once -> reusable (Env -> Double) ------------------
--- Build the compiled form once (captured in the returned closure); evaluating
--- with a fresh Env only re-walks it. `reparse-rd` re-parses on every call.
-arenaClosure :: Arena -> (Env -> Double)
-arenaClosure (Arena f) =
-  let (root, (cnt, xs)) = f (0, [])
-      arr = listArray (0, cnt - 1) (reverse xs) :: Array Int Node
-      go env i = case arr ! i of
-        NNum x      -> x
-        NVar v      -> env v
-        NNeg c      -> negate (go env c)
-        NBin op l r -> applyOp op (go env l) (go env r)
-  in if cnt == 0 then error "empty expression" else \env -> go env root
-
-reevalForms :: [(String, String -> (Env -> Double))]
-reevalForms =
-  [ ("ast-ptr",         \src -> let e = rdParse (tokenize src) :: Expr in \env -> evalExpr env e)
-  , ("ast-arena",       \src -> arenaClosure (rdParse (tokenize src) :: Arena))
-  , ("multipass-arena", \src -> arenaClosure (mpRun False (tokenize src) :: Arena))
-  , ("bytecode",        \src -> let c = bcCompile (tokenize src) in \env -> bcRun env c)
-  , ("reparse-rd",      \src env -> evalExpr env (rdParse (tokenize src)))
-  ]
 
 -- ---- registry --------------------------------------------------------------
 data Evaluator = Evaluator { evName :: String, evRun :: Env -> String -> Double }

@@ -1,7 +1,6 @@
 // Dependency-free correctness suite. Every case is run against every evaluation
 // strategy so they are held to an identical specification.
 #include "parser/evaluator.hpp"
-#include "parser/reeval.hpp"
 
 #include "test_util.hpp"
 
@@ -108,8 +107,8 @@ int main() {
 
     const std::vector<ErrCase> errs = {
         {"a +"}, {"(a + b"}, {"a b"}, {"* a"}, {"a + * b"}, {""},
-        // stray ')' and adjacent operand groups (regression: bytecode-vm and
-        // the re-eval compilers accepted these), and a digitless number
+        // stray ')' and adjacent operand groups (regression: bytecode-vm
+        // accepted these), and a digitless number
         {"a)"}, {"(a)(b)"}, {"a(3)"}, {"."},
     };
 
@@ -119,65 +118,6 @@ int main() {
         for (const auto& e : errs)  checkError(*ev, e);
     }
 
-    // Parallel variants: same spec, plus malformed inputs long enough to fork
-    // (regression: pool*/dfork* used to std::terminate / hang when a subtree
-    // parsed on a worker thread threw).
-    std::string longOk, longTrail, longParen;
-    for (int i = 0; i < 400; ++i) {
-        longOk += i ? " + a" : "a";
-    }
-    longTrail = longOk + " +";
-    longParen = longOk; longParen[longParen.size() / 2] = ')';
-    const Case longCase{longOk, 800};
-    const std::vector<ErrCase> longErrs = {{longTrail}, {longParen}};
-    auto pevs = parallel_evaluators();
-    for (auto& ev : pevs) {
-        for (const auto& c : cases) checkValue(*ev, c, vars);
-        for (const auto& e : errs)  checkError(*ev, e);
-        checkValue(*ev, longCase, vars);
-        for (const auto& e : longErrs) checkError(*ev, e);
-    }
-
-    // Re-eval compilers — reuse the same env defined above.
-    const std::vector<Case> varCases = {
-        {"a + b * c", 14},
-        {"(a + b) * c", 20},
-        {"a ^ 2 + b", 7},
-        {"-a + b", 1},
-        {"d / b - a", 5.0 / 3 - 2},
-        {"2 + 3 * 4", 14},  // constant still works through compilers
-    };
-    auto compilers = all_compilers();
-    for (auto& comp : compilers) {
-        for (const auto& e : errs) {
-            ++g_checks;
-            try {
-                (void)comp->compile(e.expr)->eval(vars);
-                std::println("FAIL [{:<26}] \"{}\" should have thrown",
-                            comp->name(), e.expr);
-                ++g_failures;
-            } catch (const std::exception&) {
-                // expected
-            }
-        }
-        for (const auto& vc : varCases) {
-            ++g_checks;
-            try {
-                const double got = comp->compile(vc.expr)->eval(vars);
-                if (!nearly(got, vc.expected)) {
-                    std::println("FAIL [{:<26}] \"{}\" = {:g}, expected {:g}",
-                                comp->name(), vc.expr, got, vc.expected);
-                    ++g_failures;
-                }
-            } catch (const std::exception& e) {
-                std::println("FAIL [{:<26}] \"{}\" threw: {}",
-                            comp->name(), vc.expr, e.what());
-                ++g_failures;
-            }
-        }
-    }
-
-    std::println("\n{} checks across {} evaluators + {} parallel variants + {} compilers, {} failure(s)",
-                g_checks, evs.size(), pevs.size(), compilers.size(), g_failures);
+    std::println("\n{} checks across {} evaluators, {} failure(s)", g_checks, evs.size(), g_failures);
     return g_failures == 0 ? 0 : 1;
 }

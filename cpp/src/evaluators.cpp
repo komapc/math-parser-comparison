@@ -1,7 +1,6 @@
 #include "parser/evaluator.hpp"
 #include "parser/arena_ast.hpp"
 #include "parser/parser.hpp"
-#include "parser/reeval.hpp"
 
 #include <utility>
 
@@ -80,21 +79,6 @@ std::vector<std::unique_ptr<IEvaluator>> all_evaluators() {
     v.push_back(make_direct_reverse());
     v.push_back(make_direct_scannerless());
     v.push_back(make_bytecode());
-    return v;
-}
-
-std::vector<std::unique_ptr<IEvaluator>> parallel_evaluators() {
-    std::vector<std::unique_ptr<IEvaluator>> v;
-    v.push_back(make_multipass_par1());
-    v.push_back(make_multipass_par2());
-    v.push_back(make_multipass_par4());
-    v.push_back(make_multipass_par8());
-    v.push_back(make_multipass_pool2());
-    v.push_back(make_multipass_pool4());
-    v.push_back(make_multipass_pool8());
-    v.push_back(make_multipass_dfork2());
-    v.push_back(make_multipass_dfork4());
-    v.push_back(make_multipass_dfork8());
     return v;
 }
 

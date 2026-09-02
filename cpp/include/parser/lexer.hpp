@@ -20,7 +20,7 @@ namespace mp {
 //   * tokenize()     — the whole token array, built by calling next() until
 //                      End. For strategies whose algorithm needs random access
 //                      to the tokens (the divide-and-conquer multipass family,
-//                      the buffered bottom-up reducer, the parallel variants).
+//                      the buffered bottom-up reducer).
 // Both throw std::runtime_error on an unrecognised character or a malformed
 // number; next() returns End for every call once the input is exhausted.
 class Lexer {

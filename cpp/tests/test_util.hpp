@@ -1,7 +1,7 @@
 // Shared helpers for the test binaries (value comparison + variable env).
 #pragma once
 
-#include "parser/reeval.hpp"  // kNumVars
+#include "parser/evaluator.hpp"  // kNumVars
 
 #include <array>
 #include <cmath>
