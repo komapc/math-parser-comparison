@@ -1,4 +1,4 @@
--- | Benchmark the fourteen strategies on the shared corpora (bench/corpus/).
+-- | Benchmark the fifteen strategies on the shared corpora (bench/corpus/).
 -- Cross-checks all strategies agree, then prints ns/leaf per strategy.
 -- Uses only boot libraries (Data.Time) — no external dependencies.
 module Main (main) where

@@ -36,14 +36,18 @@ namespace {
 // Operand type V is an arena node index (tree variant) or a double (direct).
 // Policy supplies leaf/unary/binary construction.
 //
-// Register discipline: the operand most recently completed lives in `cur`,
+// Register discipline: the operand most recently completed lives in `val`,
 // not in memory. The segment buffer only receives the parts of a ^/unary
 // segment that are still pending — a prefix sign, or an operand that turned
 // out to be the base of a ^ — so on a plain "a * b + c" corpus the buffer is
-// never written at all: the whole reduction runs in cur/term/sum. Both stacks
+// never written at all: the whole reduction runs in val/term/sum. Both stacks
 // are pre-sized raw buffers indexed by locals (not std::vector push/pop):
 // a barrier then costs a compare, not a size() load — measured ~10 % on the
 // random corpus, the difference between trailing and tying recursive descent.
+//
+// Tokens come from the shared lexer in streaming mode: the sweep reads left
+// to right with one token of lookahead, so no token array is ever built —
+// the same treatment every other left-to-right strategy gets (see lexer.hpp).
 template <class Policy>
 class ReverseFold final : public IEvaluator {
     using V = typename Policy::V;
@@ -59,13 +63,14 @@ public:
     const char* name() const override { return Policy::kName; }
 
     double eval(std::string_view src, const double* vars = nullptr) override {
-        tokens_ = tokenize(src);
-        pol_.begin(tokens_.size(), vars);
-        // Each token pushes at most one item / one frame, so the token count
-        // bounds both stacks; the buffers persist across evals (warm).
-        if (seg_.size() < tokens_.size()) {
-            seg_.resize(tokens_.size());
-            frames_.resize(tokens_.size());
+        // Each token pushes at most one item / one frame, and there is at most
+        // one token per source byte, so the source length bounds both stacks;
+        // the buffers persist across evals (warm).
+        const std::size_t bound = src.size() + 1;
+        pol_.begin(bound, vars);
+        if (seg_.size() < bound) {
+            seg_.resize(bound);
+            frames_.resize(bound);
         }
         Item*  const  seg    = seg_.data();
         Frame* const  frames = frames_.data();
@@ -74,9 +79,18 @@ public:
         // The live frame is kept as scalars (never address-taken) so the
         // compiler can hold it in registers; a Frame is only materialised
         // when a '(' pushes it.
-        V             term{}, sum{}, cur{};
+        V             term{}, sum{}, val{};
         TokenType     pendMul = TokenType::End, pendAdd = TokenType::End;
-        const Token*  tp = tokens_.data();
+
+        // One token of lookahead over the stream: `cur` is the next token.
+        // End repeats once the input is exhausted.
+        Lexer lx(src);
+        Token cur = lx.next();
+        const auto advance = [&]() -> Token {
+            const Token t = cur;
+            cur = lx.next();
+            return t;
+        };
 
         // Fold the segment ending in `c` right-to-left (right-assoc ^; ^ binds
         // tighter than a prefix sign). The state machine guarantees the buffer
@@ -108,8 +122,8 @@ public:
         for (;;) {
             // -- operand mode: number, variable, '(' or a prefix sign
             for (;;) {
-                const Token& t = *tp++;
-                if (t.type == TokenType::Number) { cur = pol_.num(t.value); break; }
+                const Token t = advance();
+                if (t.type == TokenType::Number) { val = pol_.num(t.value); break; }
                 if (t.type == TokenType::LParen) {
                     frames[nFrames++] = {term, sum, segBase, pendMul, pendAdd};
                     segBase = segTop;
@@ -118,27 +132,31 @@ public:
                 }
                 if (t.type == TokenType::Minus || t.type == TokenType::Plus) {
                     // Fast path: a sign on a plain leaf that is not the base of
-                    // a ^ ("-16", "-a") folds straight into the register. The
-                    // two-token peek is safe: a Number/Ident is never the last
-                    // token, End follows every stream.
-                    if (tp[0].type == TokenType::Number && tp[1].type != TokenType::Caret) {
-                        cur = pol_.unary(t.type, pol_.num(tp[0].value)); ++tp; break;
-                    }
-                    if (tp[0].type == TokenType::Ident && tp[1].type != TokenType::Caret) {
-                        cur = pol_.unary(t.type, pol_.var(static_cast<int>(tp[0].value))); ++tp; break;
+                    // a ^ ("-16", "-a") folds straight into the register. Take
+                    // the leaf, then look at the one token after it: if it is
+                    // not ^ the sign applies now; if it is, the sign stays
+                    // pending in the segment and the leaf is the base.
+                    if (cur.type == TokenType::Number || cur.type == TokenType::Ident) {
+                        const Token leaf = advance();
+                        const V lv = (leaf.type == TokenType::Number)
+                                         ? pol_.num(leaf.value)
+                                         : pol_.var(static_cast<int>(leaf.value));
+                        if (cur.type != TokenType::Caret) { val = pol_.unary(t.type, lv); break; }
+                        seg[segTop++] = {V{}, Tag::Un, t.type};
+                        val = lv; break;
                     }
                     seg[segTop++] = {V{}, Tag::Un, t.type};
                     continue;
                 }
-                if (t.type == TokenType::Ident) { cur = pol_.var(static_cast<int>(t.value)); break; }
+                if (t.type == TokenType::Ident) { val = pol_.var(static_cast<int>(t.value)); break; }
                 throw std::runtime_error("expected operand at position " + std::to_string(t.pos));
             }
             // -- operator mode: binary op, ')' or end; ')' stays in this mode
             for (;;) {
-                const Token& t = *tp++;
+                const Token t = advance();
                 if (t.type == TokenType::Plus || t.type == TokenType::Minus) {
                     // + - barrier: closes the segment, the term and the sum
-                    const V v = foldSegment(cur);
+                    const V v = foldSegment(val);
                     term = (pendMul == TokenType::End) ? v : pol_.mulDiv(pendMul, term, v);
                     sum  = (pendAdd == TokenType::End) ? term : pol_.addSub(pendAdd, sum, term);
                     pendAdd = t.type;
@@ -149,7 +167,7 @@ public:
                     if (nFrames == 0)
                         throw std::runtime_error("mismatched parenthesis at position " +
                                                  std::to_string(t.pos));
-                    cur = closeRange(cur);
+                    val = closeRange(val);
                     const Frame& f = frames[--nFrames];
                     term = f.term; sum = f.sum; segBase = f.segBase;
                     pendMul = f.pendMul; pendAdd = f.pendAdd;
@@ -157,18 +175,18 @@ public:
                 }
                 if (t.type == TokenType::Star || t.type == TokenType::Slash) {
                     // * / barrier: closes the segment into the term
-                    const V v = foldSegment(cur);
+                    const V v = foldSegment(val);
                     term = (pendMul == TokenType::End) ? v : pol_.mulDiv(pendMul, term, v);
                     pendMul = t.type;
                     break;
                 }
                 if (t.type == TokenType::Caret) {
-                    seg[segTop++] = {cur, Tag::PowBase, t.type};
+                    seg[segTop++] = {val, Tag::PowBase, t.type};
                     break;
                 }
                 if (t.type == TokenType::End) {
                     if (nFrames != 0) throw std::runtime_error("missing ')'");
-                    return pol_.finish(closeRange(cur));
+                    return pol_.finish(closeRange(val));
                 }
                 throw std::runtime_error("expected operator at position " + std::to_string(t.pos));
             }
@@ -176,7 +194,6 @@ public:
     }
 
 private:
-    std::vector<Token> tokens_;
     std::vector<Item>  seg_;      // pending ^/unary parts (shared across frames)
     std::vector<Frame> frames_;   // one per open parenthesis
     Policy             pol_;
@@ -189,8 +206,8 @@ struct TreePolicy {
     std::vector<ArenaAst::Node> nodes;
     const double* vars = nullptr;
 
-    void begin(std::size_t ntok, const double* v) {
-        nodes.clear(); nodes.reserve(ntok); vars = v;
+    void begin(std::size_t bound, const double* v) {
+        nodes.clear(); nodes.reserve(bound); vars = v;
     }
     int emit(ArenaAst::Node nd) { nodes.push_back(nd); return static_cast<int>(nodes.size()) - 1; }
     int num(double x)  { return emit({ArenaAst::K::Num, -1, -1, 0, x}); }

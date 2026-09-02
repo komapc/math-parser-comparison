@@ -49,7 +49,8 @@ public:
     const char* name() const override { return "direct-shunting-yard"; }
 
     double eval(std::string_view src, const double* vars = nullptr) override {
-        tokens_ = tokenize(src);
+        // Streaming lexer: shunting-yard reads its input once, left to right.
+        Lexer lx(src);
         vals_.clear();
         ops_.clear();
 
@@ -68,7 +69,8 @@ public:
         };
 
         bool expectOperand = true;
-        for (const Token& tok : tokens_) {
+        for (;;) {
+            const Token tok = lx.next();
             switch (tok.type) {
                 case TokenType::Number:
                     if (!expectOperand) throw std::runtime_error("unexpected number");
@@ -116,6 +118,7 @@ public:
                     if (expectOperand) throw std::runtime_error("unexpected end of input");
                     break;
             }
+            if (tok.type == TokenType::End) break;
         }
         while (!ops_.empty()) { Op o = ops_.back(); ops_.pop_back(); fold(o); }
         if (vals_.size() != 1) throw std::runtime_error("invalid expression");
@@ -123,7 +126,6 @@ public:
     }
 
 private:
-    std::vector<Token>  tokens_;
     std::vector<double> vals_;
     std::vector<Op>     ops_;
 };

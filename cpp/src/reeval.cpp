@@ -40,7 +40,7 @@ int binPrec(TokenType t) {
 // precedence, unary handling, and input validation — lives here once.
 template <class Sink>
 void syCompile(std::string_view src, Sink&& sink) {
-    const std::vector<Token> tokens = tokenize(src);
+    Lexer lx(src);  // streaming: one left-to-right read, no token array
     std::vector<Op> ops;
 
     auto emit = [&](const Op& op) {
@@ -49,7 +49,8 @@ void syCompile(std::string_view src, Sink&& sink) {
     };
 
     bool expectOperand = true;
-    for (const Token& tok : tokens) {
+    for (;;) {
+        const Token tok = lx.next();
         switch (tok.type) {
             case TokenType::Number:
                 if (!expectOperand) throw std::runtime_error("unexpected number");
@@ -97,6 +98,7 @@ void syCompile(std::string_view src, Sink&& sink) {
                 if (expectOperand) throw std::runtime_error("unexpected end of input");
                 break;
         }
+        if (tok.type == TokenType::End) break;
     }
     while (!ops.empty()) { Op o = ops.back(); ops.pop_back(); emit(o); }
 }

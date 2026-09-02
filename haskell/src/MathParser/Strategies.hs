@@ -2,7 +2,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 
--- | The fourteen strategies, idiomatic Haskell.
+-- | The fifteen strategies, idiomatic Haskell.
 --
 -- Representation is abstracted tagless-final via the 'Sym' class, so each parse
 -- algorithm is written once and instantiated at three carriers:
@@ -22,6 +22,7 @@ module MathParser.Strategies
 import           Data.Array          hiding ((!), bounds, listArray)
 import           Data.Array.Unboxed  (UArray, (!), bounds, listArray)
 import           Data.Bits (countLeadingZeros, finiteBitSize)
+import           Data.Char (isDigit, isSpace, isAlpha, isAlphaNum, toLower, ord)
 import           Data.List (foldl')
 import qualified Data.IntMap.Strict as IM
 
@@ -173,6 +174,64 @@ pPrimary (t : rest) = case tKind t of
                   _ -> error "expected ')'"
   _ -> error "expected number or '('"
 pPrimary [] = error "unexpected end of input"
+
+-- ---- driver: direct-scannerless (the lexer fused into the grammar) ---------
+-- Recursive descent over *characters*: the token list is never built. Same
+-- lexical rules as tokenize (whitespace set, number and identifier syntax,
+-- via the lexer's own spanNumber/readNum); whitespace is dropped exactly once,
+-- right after each token. Every other strategy pays for the token list first
+-- -- this one is the control for what that costs. Lexical errors carry no
+-- position here (the scanner tracks none).
+scanParse :: Sym r => String -> r
+scanParse src = case sExpr (skipWs src) of
+  (e, "") -> e
+  _       -> error "unexpected token"
+
+skipWs :: String -> String
+skipWs = dropWhile isSpace
+
+sExpr :: Sym r => String -> (r, String)
+sExpr s0 = loop l0 r0
+  where
+    (l0, r0) = sTerm s0
+    loop l ('+' : rest) = let (rt, r2) = sTerm (skipWs rest) in loop (sBin Add l rt) r2
+    loop l ('-' : rest) = let (rt, r2) = sTerm (skipWs rest) in loop (sBin Sub l rt) r2
+    loop l s = (l, s)
+
+sTerm :: Sym r => String -> (r, String)
+sTerm s0 = loop l0 r0
+  where
+    (l0, r0) = sUnary s0
+    loop l ('*' : rest) = let (rt, r2) = sUnary (skipWs rest) in loop (sBin Mul l rt) r2
+    loop l ('/' : rest) = let (rt, r2) = sUnary (skipWs rest) in loop (sBin Div l rt) r2
+    loop l s = (l, s)
+
+sUnary :: Sym r => String -> (r, String)
+sUnary ('+' : rest) = let (c, r) = sUnary (skipWs rest) in (sPos c, r)
+sUnary ('-' : rest) = let (c, r) = sUnary (skipWs rest) in (sNeg c, r)
+sUnary s = sPower s
+
+sPower :: Sym r => String -> (r, String)
+sPower s =
+  let (base, r) = sPrimary s
+  in case r of
+       ('^' : rest) -> let (e, r2) = sUnary (skipWs rest) in (sBin Pow base e, r2)
+       _            -> (base, r)
+
+sPrimary :: Sym r => String -> (r, String)
+sPrimary s@(c : rest)
+  | c == '(' = let (e, r) = sExpr (skipWs rest)
+               in case r of
+                    (')' : r2) -> (e, skipWs r2)
+                    _          -> error "expected ')'"
+  | isDigit c || c == '.' =
+      let (lexeme, r) = spanNumber s in (sNum (readNum lexeme (-1)), skipWs r)
+  | isAlpha c || c == '_' =
+      let (word, r) = span (\x -> isAlphaNum x || x == '_') s
+      in if length word /= 1 || c == '_'
+           then error "unknown identifier"
+           else (sVar (ord (toLower c) - ord 'a'), skipWs r)
+sPrimary _ = error "expected number or '('"
 
 -- ---- driver: Pratt / precedence climbing -----------------------------------
 prattParse :: Sym r => [Tok] -> r
@@ -724,6 +783,10 @@ mkArena name parse = Evaluator name (\env src -> evalArena env (parse (tokenize 
 mkDirect :: String -> (forall r. Sym r => [Tok] -> r) -> Evaluator
 mkDirect name parse = Evaluator name (\env src -> runDirect (parse (tokenize src)) env)
 
+-- a strategy that reads the source itself (no shared tokenize call)
+mkDirectRaw :: String -> (forall r. Sym r => String -> r) -> Evaluator
+mkDirectRaw name parse = Evaluator name (\env src -> runDirect (parse src) env)
+
 allEvaluators :: [Evaluator]
 allEvaluators =
   [ mkAst    "ast-recursive-descent"    rdParse
@@ -739,5 +802,6 @@ allEvaluators =
   , mkDirect "direct-recursive-descent" rdParse
   , mkDirect "direct-shunting-yard"     syParse
   , mkDirect "direct-reverse"           reverseFoldParse
+  , mkDirectRaw "direct-scannerless"    scanParse
   , Evaluator "bytecode-vm"             (\env src -> bcEval env (tokenize src))
   ]

@@ -23,19 +23,22 @@ public:
     const char* name() const override { return "recursive-descent"; }
 
     ExprPtr parse(std::string_view src) override {
-        tokens_ = tokenize(src);
-        pos_ = 0;
+        lx_ = Lexer(src);
+        cur_ = lx_.next();
         ExprPtr e = parseExpr();
         expect(TokenType::End);
         return e;
     }
 
 private:
-    std::vector<Token> tokens_;
-    std::size_t pos_ = 0;
+    // Streaming: the lexer hands over one token at a time; cur_ is the single
+    // token of lookahead this grammar needs. No token array is built.
+    Lexer lx_;
+    Token cur_;
 
-    const Token& peek() const { return tokens_[pos_]; }
-    TokenType advance() { return tokens_[pos_++].type; }
+    const Token& peek() const { return cur_; }
+    Token take() { const Token t = cur_; cur_ = lx_.next(); return t; }
+    TokenType advance() { return take().type; }
     bool check(TokenType t) const { return peek().type == t; }
 
     void expect(TokenType t) {
@@ -43,7 +46,7 @@ private:
             throw std::runtime_error("unexpected token at position " +
                                      std::to_string(peek().pos));
         }
-        ++pos_;
+        take();
     }
 
     ExprPtr parseExpr() {
@@ -84,10 +87,10 @@ private:
 
     ExprPtr parsePrimary() {
         if (check(TokenType::Number)) {
-            return number(tokens_[pos_++].value);
+            return number(take().value);
         }
         if (check(TokenType::Ident)) {
-            return variable(static_cast<int>(tokens_[pos_++].value));
+            return variable(static_cast<int>(take().value));
         }
         if (check(TokenType::LParen)) {
             advance();

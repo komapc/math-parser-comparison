@@ -1,7 +1,7 @@
 // Differential fuzz: every strategy must agree with every other on randomly
 // generated expressions — on the value for well-formed inputs, and on
 // throw-vs-accept for mutated (usually malformed) ones. Deterministic seed,
-// so failures reproduce. This is what backs the "all fourteen strategies
+// so failures reproduce. This is what backs the "all fifteen strategies
 // implement one specification" claim; the hand-written cases in
 // test_parsers.cpp document the specification, this enforces it in bulk.
 #include "parser/evaluator.hpp"

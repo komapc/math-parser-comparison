@@ -57,11 +57,10 @@ public:
     const char* name() const override { return "bytecode-vm"; }
 
     double eval(std::string_view src, const double* vars = nullptr) override {
-        tokens_ = tokenize(src);
         code_.clear();
         consts_.clear();
         ops_.clear();
-        compile();
+        compile(src);
 
         st_.clear();
         std::size_t ci = 0;
@@ -88,13 +87,13 @@ public:
     }
 
 private:
-    std::vector<Token>        tokens_;
     std::vector<std::uint8_t> code_;
     std::vector<double>       consts_;
     std::vector<Op>           ops_;
     std::vector<double>       st_;
 
-    void compile() {
+    // Streaming lexer: the shunting-yard compile reads its input once.
+    void compile(std::string_view src) {
         auto emit = [&](const Op& op) {
             if (op.lparen) throw std::runtime_error("mismatched parenthesis");
             if (op.unary) {
@@ -106,7 +105,9 @@ private:
         };
 
         bool expectOperand = true;
-        for (const Token& tok : tokens_) {
+        Lexer lx(src);
+        for (;;) {
+            const Token tok = lx.next();
             switch (tok.type) {
                 case TokenType::Number:
                     if (!expectOperand) throw std::runtime_error("unexpected number");
@@ -156,6 +157,7 @@ private:
                     if (expectOperand) throw std::runtime_error("unexpected end of input");
                     break;
             }
+            if (tok.type == TokenType::End) break;
         }
         while (!ops_.empty()) { Op o = ops_.back(); ops_.pop_back(); emit(o); }
         if (code_.empty()) throw std::runtime_error("invalid expression");
