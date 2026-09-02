@@ -44,6 +44,7 @@ add_library(parsers
   src/arena_ast.cpp
   src/direct_recursive_descent.cpp
   src/direct_shunting_yard.cpp
+  src/direct_scannerless.cpp
   src/bytecode.cpp
   src/evaluators.cpp
   src/reeval.cpp

@@ -20,9 +20,13 @@ public:
     // Emits into the caller's node vector so its capacity survives across
     // parses (see ArenaAst::reparse).
     Builder(std::string_view src, std::vector<ArenaAst::Node>& nodes)
-        : tokens_(tokenize(src)), nodes_(nodes) {
+        : lx_(src), nodes_(nodes) {
+        cur_ = lx_.next();
         nodes_.clear();
-        nodes_.reserve(tokens_.size());
+        // A node per token at most; ~one token per two source bytes on the
+        // spaced corpora (a dense input may grow the buffer once, after
+        // which its capacity persists across reparses).
+        nodes_.reserve(src.size() / 2 + 1);
     }
 
     int build() {
@@ -35,11 +39,13 @@ public:
     }
 
 private:
-    std::vector<Token> tokens_;
+    // Streaming lexer + one token of lookahead; no token array.
+    Lexer lx_;
+    Token cur_;
     std::vector<ArenaAst::Node>& nodes_;
-    std::size_t pos_ = 0;
 
-    const Token& peek() const { return tokens_[pos_]; }
+    const Token& peek() const { return cur_; }
+    Token take() { const Token t = cur_; cur_ = lx_.next(); return t; }
     bool check(TokenType t) const { return peek().type == t; }
 
     int emit(ArenaAst::Node n) {
@@ -50,7 +56,7 @@ private:
     int expr() {
         int l = term();
         while (check(TokenType::Plus) || check(TokenType::Minus)) {
-            const TokenType op = tokens_[pos_++].type;
+            const TokenType op = take().type;
             const int r = term();
             l = emit({op == TokenType::Plus ? ArenaAst::K::Add : ArenaAst::K::Sub, l, r, 0, 0.0});
         }
@@ -59,7 +65,7 @@ private:
     int term() {
         int l = unaryRule();
         while (check(TokenType::Star) || check(TokenType::Slash)) {
-            const TokenType op = tokens_[pos_++].type;
+            const TokenType op = take().type;
             const int r = unaryRule();
             l = emit({op == TokenType::Star ? ArenaAst::K::Mul : ArenaAst::K::Div, l, r, 0, 0.0});
         }
@@ -67,7 +73,7 @@ private:
     }
     int unaryRule() {
         if (check(TokenType::Plus) || check(TokenType::Minus)) {
-            const TokenType op = tokens_[pos_++].type;
+            const TokenType op = take().type;
             const int operand = unaryRule();
             // materialise Pos like every other strategy, so all builders
             // produce structurally identical trees
@@ -79,7 +85,7 @@ private:
     int power() {
         const int base = primary();
         if (check(TokenType::Caret)) {
-            ++pos_;
+            take();
             const int exp = unaryRule();
             return emit({ArenaAst::K::Pow, base, exp, 0, 0.0});
         }
@@ -87,19 +93,19 @@ private:
     }
     int primary() {
         if (check(TokenType::Number)) {
-            return emit({ArenaAst::K::Num, -1, -1, 0, tokens_[pos_++].value});
+            return emit({ArenaAst::K::Num, -1, -1, 0, take().value});
         }
         if (check(TokenType::Ident)) {
-            return emit({ArenaAst::K::Var, -1, -1, static_cast<int>(tokens_[pos_++].value), 0.0});
+            return emit({ArenaAst::K::Var, -1, -1, static_cast<int>(take().value), 0.0});
         }
         if (check(TokenType::LParen)) {
-            ++pos_;
+            take();
             const int e = expr();
             if (!check(TokenType::RParen)) {
                 throw std::runtime_error("expected ')' at position " +
                                          std::to_string(peek().pos));
             }
-            ++pos_;
+            take();
             return e;
         }
         throw std::runtime_error("expected number, variable or '(' at position " +

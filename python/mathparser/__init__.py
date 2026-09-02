@@ -1,4 +1,4 @@
-"""Math-expression parser/evaluator — Python port of the fourteen strategies."""
+"""Math-expression parser/evaluator — Python port of the fifteen strategies."""
 from .evaluators import all_evaluators, Evaluator
 from .lexer import tokenize
 

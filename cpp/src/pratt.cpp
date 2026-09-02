@@ -36,8 +36,8 @@ public:
     const char* name() const override { return "pratt"; }
 
     ExprPtr parse(std::string_view src) override {
-        tokens_ = tokenize(src);
-        pos_ = 0;
+        lx_ = Lexer(src);
+        cur_ = lx_.next();
         ExprPtr e = parseExpr(0);
         if (peek().type != TokenType::End) {
             throw std::runtime_error("unexpected token at position " +
@@ -47,11 +47,12 @@ public:
     }
 
 private:
-    std::vector<Token> tokens_;
-    std::size_t pos_ = 0;
+    // Streaming lexer + one token of lookahead; no token array.
+    Lexer lx_;
+    Token cur_;
 
-    const Token& peek() const { return tokens_[pos_]; }
-    Token advance() { return tokens_[pos_++]; }
+    const Token& peek() const { return cur_; }
+    Token advance() { const Token t = cur_; cur_ = lx_.next(); return t; }
 
     ExprPtr nud() {
         Token t = advance();

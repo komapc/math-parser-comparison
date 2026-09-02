@@ -19,9 +19,9 @@ public:
     const char* name() const override { return "direct-recursive-descent"; }
 
     double eval(std::string_view src, const double* vars = nullptr) override {
-        tokens_ = tokenize(src);
+        lx_ = Lexer(src);
+        cur_ = lx_.next();
         vars_ = vars;
-        pos_ = 0;
         const double v = expr();
         if (!check(TokenType::End)) {
             throw std::runtime_error("unexpected token at position " +
@@ -31,17 +31,19 @@ public:
     }
 
 private:
-    std::vector<Token> tokens_;
-    const double*      vars_ = nullptr;
-    std::size_t        pos_  = 0;
+    // Streaming lexer + one token of lookahead; no token array.
+    Lexer         lx_;
+    Token         cur_;
+    const double* vars_ = nullptr;
 
-    const Token& peek() const { return tokens_[pos_]; }
+    const Token& peek() const { return cur_; }
+    Token take() { const Token t = cur_; cur_ = lx_.next(); return t; }
     bool check(TokenType t) const { return peek().type == t; }
 
     double expr() {
         double l = term();
         while (check(TokenType::Plus) || check(TokenType::Minus)) {
-            const TokenType op = tokens_[pos_++].type;
+            const TokenType op = take().type;
             const double r = term();
             l = (op == TokenType::Plus) ? l + r : l - r;
         }
@@ -50,7 +52,7 @@ private:
     double term() {
         double l = unaryRule();
         while (check(TokenType::Star) || check(TokenType::Slash)) {
-            const TokenType op = tokens_[pos_++].type;
+            const TokenType op = take().type;
             const double r = unaryRule();
             l = (op == TokenType::Star) ? l * r : l / r;
         }
@@ -58,7 +60,7 @@ private:
     }
     double unaryRule() {
         if (check(TokenType::Plus) || check(TokenType::Minus)) {
-            const TokenType op = tokens_[pos_++].type;
+            const TokenType op = take().type;
             const double v = unaryRule();
             return (op == TokenType::Minus) ? -v : v;
         }
@@ -67,25 +69,25 @@ private:
     double power() {
         const double base = primary();
         if (check(TokenType::Caret)) {
-            ++pos_;
+            take();
             return std::pow(base, unaryRule());
         }
         return base;
     }
     double primary() {
-        if (check(TokenType::Number)) return tokens_[pos_++].value;
+        if (check(TokenType::Number)) return take().value;
         if (check(TokenType::Ident)) {
-            const int idx = static_cast<int>(tokens_[pos_++].value);
+            const int idx = static_cast<int>(take().value);
             return vars_ ? vars_[idx] : 0.0;
         }
         if (check(TokenType::LParen)) {
-            ++pos_;
+            take();
             const double v = expr();
             if (!check(TokenType::RParen)) {
                 throw std::runtime_error("expected ')' at position " +
                                          std::to_string(peek().pos));
             }
-            ++pos_;
+            take();
             return v;
         }
         throw std::runtime_error("expected number or '(' at position " +

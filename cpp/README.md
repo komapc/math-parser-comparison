@@ -2,11 +2,11 @@
 
 # 🧮 Math-Expression Parser & Evaluator — A Comparison
 
-**Fourteen ways to turn `"-2 ^ 2 + 3 * (4 - 1)"` into `5` — benchmarked head-to-head.**
+**Fifteen ways to turn `"-2 ^ 2 + 3 * (4 - 1)"` into `5` — benchmarked head-to-head.**
 
 ![C++26](https://img.shields.io/badge/C%2B%2B-26-00599C?logo=cplusplus&logoColor=white)
 ![CMake](https://img.shields.io/badge/CMake-3.20%2B-064F8C?logo=cmake&logoColor=white)
-![tests](https://img.shields.io/badge/tests-894%20checks%20%2B%20fuzz-brightgreen)
+![tests](https://img.shields.io/badge/tests-926%20checks%20%2B%20fuzz-brightgreen)
 ![warnings](https://img.shields.io/badge/-Wall%20-Wextra%20-Wpedantic-clean-brightgreen)
 ![deps](https://img.shields.io/badge/dependencies-none-blue)
 
@@ -16,37 +16,41 @@
 
 > Part of a [three-language comparison](../README.md) (C++ · Haskell · Python). This is the C++ implementation — and the in-depth analysis the other two are measured against.
 
-A dependency-free C++26 project implementing classic (and not-so-classic) algorithms for parsing and evaluating arithmetic expressions. Every strategy shares one tokenizer and one grammar — the benchmarks measure the *algorithm*, not incidental differences.
+A dependency-free C++26 project implementing classic (and not-so-classic) algorithms for parsing and evaluating arithmetic expressions. Every strategy shares one lexer and one grammar — the benchmarks measure the *algorithm*, not incidental differences. The lexer has two modes over one set of rules (streaming `Lexer::next()` for strategies that read left to right, `tokenize()` for those whose algorithm indexes the token array); the one strategy that bypasses it, `direct-scannerless`, exists precisely to measure what it costs ([why](../FINDINGS.md#lexing-rules--applied-to-every-parser)).
 
 **The recurring punchline: performance tracks memory allocation, not algorithmic cleverness.**
 
 ## ⚡ Results at a glance
 
-> One-shot, ns per leaf — **shorter is faster**.
-> Throttling laptop: **absolute ns drift ±40% run-to-run — trust the ratios**.
+> One-shot, ns per leaf at n=1000 — **shorter is faster**.
+> Neutral 4-vCPU GitHub runner, median of three [CI bench](../.github/workflows/bench.yml) runs; `×` is relative to the fastest strategy that uses the shared lexer. **Trust the tiers, not the digits.**
 
 ```
-direct-shunting-yard      ███                                213 ns   ×1.0
-direct-recursive-descent  ███                                219 ns   ×1.0   ← typically fastest
-bytecode-vm               ████                               256 ns   ×1.2
-ast-arena                 ████                               270 ns   ×1.3   ← fastest AST builder
-──────────────────────────────── tier break: multipass family + direct-mp ─
-multipass-reverse         █████                              339 ns   ×1.6   ← bottom-up + arena AST
-direct-mp                 █████                              352 ns   ×1.6   ← D&C, no AST
-multipass-arena           ██████                             446 ns   ×2.0   ← D&C + arena AST
-multipass-bfs             ███████                            533 ns   ×2.4   ← D&C + sparse-table RMQ
-──────────────────────────────── tier break: N heap allocations ───────────
-ast-recursive-descent     █████████                          660 ns   ×3.0
-ast-shunting-yard         ██████████                         726 ns   ×3.3
-ast-pratt                 ██████████                         736 ns   ×3.4
+direct-scannerless        ██                           37 ns   ×0.75  ← lexer-free control (not a contender)
+direct-shunting-yard      ██                           50 ns   ×1.0
+direct-reverse            ██                           50 ns   ×1.0
+direct-recursive-descent  ██                           50 ns   ×1.0   ← three-way tie at the top
+bytecode-vm               ██                           59 ns   ×1.2
+──────────────────────────────── tier break: builds a tree ────────────────
+multipass-reverse-fold    ███                          68 ns   ×1.4   ← fastest tree builder (bottom-up, fused)
+ast-arena                 ███                          72 ns   ×1.4   ← fastest classic tree builder
+──────────────────────────────── tier break: token array / N allocations ──
+multipass-reverse         ████                         98 ns   ×2.0   ← bottom-up, buffered
+direct-mp                 ████                        101 ns   ×2.0   ← D&C, no AST
+ast-recursive-descent     █████                       130 ns   ×2.6
+multipass-arena           █████                       130 ns   ×2.6
+ast-shunting-yard         █████                       135 ns   ×2.7
+ast-pratt                 █████                       136 ns   ×2.7
+multipass-bfs             ██████                      142 ns   ×2.9
 ──────────────────────────────── tier break: super-linear ─────────────────
-multipass                 █████████████                      927 ns   ×4.2   ← O(n log n) + N allocs
+multipass                 █████████                   232 ns   ×4.7   ← O(n log n) + N allocs
 ```
 
-- **Tier 1 (×1.0–1.3):** O(n), ≤1 allocation. `direct-sy` and `direct-rd` trade the top spot run-to-run (within 3% here); `bytecode-vm` and `ast-arena` sit within ~30%. `ast-arena` is the **fastest AST builder** — recursive-descent + one arena vector beats every other AST approach.
-- **Tier 2 (×1.6–2.4):** the multipass family and `direct-mp`. `multipass-reverse` (bottom-up, allocation-free — see [docs/multipass-reverse.md](../docs/multipass-reverse.md)) and `direct-mp` (D&C, no AST) both land at ×1.6 and are the **second- and third-fastest tree/eval variants**; the top-down D&C forms are the only way to build a tree whose sub-ranges are split-independent. Their two former Θ(n²) worst cases (mixed-precedence and `^`-tower chains) are now capped at O(n log n): every linear scan is bounded and falls back to per-precedence position buckets, with iterator passing and an AVX2 SIMD window in `multipass` / `multipass-arena` (runtime-dispatched).
-- **Tier 3 (×3.0–3.4):** One `make_unique` per node. Algorithm barely matters — allocator dominates.
-- **Tier 4 (×4.2):** O(n log n) *plus* N allocations.
+- **Control (×0.75):** `direct-scannerless` is `direct-rd` with the lexer fused into the grammar — no token stream at all. It exists to measure the shared lexer's cost (a quarter of `direct-rd`'s time), not to compete ([why](../FINDINGS.md#lexing-rules--applied-to-every-parser)).
+- **Tier 1 (×1.0–1.2):** no tree, O(n), streaming tokens, ≤1 allocation. `direct-sy`, `direct-rd` and `direct-reverse` are a **three-way tie** at ~50 ns/leaf (two of three runs within ±1.5 %); `bytecode-vm` sits ~20 % behind.
+- **Tier 2 (×1.4):** the two contiguous tree builders. `multipass-reverse-fold` (bottom-up, fused — see [docs/multipass-reverse.md](../docs/multipass-reverse.md)) is the **fastest tree builder**, ~3–5 % ahead of `ast-arena` (positive in 11 of 12 size×run measurements); both stream their tokens into one node vector.
+- **Tier 3 (×2.0–2.9):** everything that either indexes a token array (`multipass-reverse`, `direct-mp`, `multipass-arena`, `multipass-bfs`) or pays one `make_unique` per node (`ast-rd`, `ast-sy`, `ast-pratt`). The array-bound family must build the array — their algorithms need random access — and the pointer classics' algorithm barely matters, the allocator dominates. The top-down D&C forms are the only way to build a tree whose sub-ranges are split-independent; their two former Θ(n²) worst cases (mixed-precedence and `^`-tower chains) are capped at O(n log n) by bounded scans, per-precedence position buckets, iterator passing and an AVX2 window in `multipass` / `multipass-arena` (runtime-dispatched).
+- **Tier 4 (×4.7):** O(n log n) *plus* N allocations *plus* the token array.
 
 ## 📐 Grammar
 
@@ -69,6 +73,7 @@ Precedence: `+ -` < `* /` < unary < `^` (right-associative). So `-2^2 = -4`, `2^
 | [`direct-recursive-descent`](src/direct_recursive_descent.cpp) | Recursive descent | none — returns `double` |
 | [`direct-shunting-yard`](src/direct_shunting_yard.cpp) | Shunting-yard | none — returns `double` |
 | [`direct-reverse`](src/multipass_reverse_fold.cpp) | Bottom-up, fused | none — returns `double` |
+| [`direct-scannerless`](src/direct_scannerless.cpp) | Recursive descent, lexer fused in (no token stream) — the control for the lexer's cost | none — returns `double` |
 | [`direct-mp`](src/multipass_lean.cpp) | D&C | none — returns `double` |
 | [`bytecode-vm`](src/bytecode.cpp) | Shunting-yard → [bytecode](https://en.wikipedia.org/wiki/Bytecode) + VM | flat opcode stream |
 
@@ -78,22 +83,25 @@ The pointer-AST strategies produce structurally identical trees; the three left-
 
 ### One-shot — string → value
 
-ns/leaf, 1 000-leaf expressions; `×` relative to fastest:
+ns/leaf, 1 000-leaf expressions, neutral runner (median of three CI runs); `×` relative to the fastest strategy that uses the shared lexer:
 
 | Strategy | ns/leaf | × | allocations / expr |
 |---|--:|--:|---|
-| [`direct-shunting-yard`](src/direct_shunting_yard.cpp) | 213 | **1.0** | member vectors, reused |
-| [`direct-recursive-descent`](src/direct_recursive_descent.cpp) | 219 | **1.0** | ~0 (call stack) |
-| [`bytecode-vm`](src/bytecode.cpp) | 256 | **1.2** | member vectors, reused |
-| [`ast-arena`](src/arena_ast.cpp) | 270 | 1.3 | **one** (node vector) |
-| [`multipass-reverse`](src/multipass_reverse.cpp) | 339 | **1.6** | one (node vector); item stack reused |
-| [`direct-mp`](src/multipass_lean.cpp) | 352 | **1.6** | pre-scan vectors (no AST) |
-| [`multipass-arena`](src/multipass_arena.cpp) | 446 | **2.0** | one (node vector) + pre-scan |
-| [`multipass-bfs`](src/multipass_opt.cpp) | 533 | **2.4** | one + sparse table + pre-index |
-| [`ast-recursive-descent`](src/recursive_descent.cpp) | 660 | 3.0 | **one per node** |
-| [`ast-shunting-yard`](src/shunting_yard.cpp) | 726 | 3.3 | **one per node** |
-| [`ast-pratt`](src/pratt.cpp) | 736 | 3.4 | **one per node** |
-| [`multipass`](src/multipass.cpp) | 927 | 4.2 | one per node + pre-scan |
+| [`direct-scannerless`](src/direct_scannerless.cpp) | 37 | 0.75 | ~0 (call stack) — *control* |
+| [`direct-shunting-yard`](src/direct_shunting_yard.cpp) | 50 | 1.00 | member vectors, reused |
+| [`direct-recursive-descent`](src/direct_recursive_descent.cpp) | 50 | 1.01 | ~0 (call stack) |
+| [`direct-reverse`](src/multipass_reverse_fold.cpp) | 50 | 1.01 | member buffers, reused |
+| [`bytecode-vm`](src/bytecode.cpp) | 59 | 1.20 | member vectors, reused |
+| [`multipass-reverse-fold`](src/multipass_reverse_fold.cpp) | 68 | 1.38 | **one** (node vector); buffers reused |
+| [`ast-arena`](src/arena_ast.cpp) | 72 | 1.45 | **one** (node vector) |
+| [`multipass-reverse`](src/multipass_reverse.cpp) | 98 | 1.97 | one (node vector) + token array; item stack reused |
+| [`direct-mp`](src/multipass_lean.cpp) | 101 | 2.04 | token array + pre-scan vectors (no AST) |
+| [`multipass-arena`](src/multipass_arena.cpp) | 130 | 2.62 | one (node vector) + token array + pre-scan |
+| [`ast-recursive-descent`](src/recursive_descent.cpp) | 130 | 2.62 | **one per node** |
+| [`ast-shunting-yard`](src/shunting_yard.cpp) | 135 | 2.71 | **one per node** |
+| [`ast-pratt`](src/pratt.cpp) | 136 | 2.74 | **one per node** |
+| [`multipass-bfs`](src/multipass_opt.cpp) | 142 | 2.85 | one + token array + sparse table + pre-index |
+| [`multipass`](src/multipass.cpp) | 232 | 4.69 | one per node + token array + pre-scan |
 
 ### Re-eval — compile once, evaluate many
 
@@ -101,18 +109,18 @@ Variables `a`–`d`, 1 000-leaf expressions:
 
 | Strategy | compile ns/expr | per-eval ns/expr | per-eval × |
 |---|--:|--:|--:|
-| `rpn` | ~90k | **25k** | 1.0 |
-| `ast-arena` | **~76k** | 28k | 1.1 |
-| `bytecode` | ~120k | 31k | 1.2 |
-| `multipass-arena` | ~215k | 40k | 1.6 |
-| `ast-ptr` | ~270k | 50k | 2.0 |
-| `reparse-rd` | ~0 | **380k** | 15.2 |
+| `rpn` | **~42k** | **18k** | 1.0 |
+| `bytecode` | **~42k** | **18k** | 1.0 |
+| `ast-arena` | ~44k | 26k | 1.4 |
+| `multipass-arena` | ~126k | 26k | 1.4 |
+| `ast-ptr` | ~106k | 27k | 1.5 |
+| `reparse-rd` | ~0 | **134k** | 7.4 |
 
-Flat forms (`rpn`, `bytecode`) win per-eval. `ast-arena` compiles fastest — one recursive-descent pass. `multipass-arena` compiles at ~×2.8 the cost but is the only compiled form that supports incremental re-parsing and parallel evaluation.
+Neutral runner, median of three CI runs. Flat forms (`rpn`, `bytecode`) win per-eval. The three streaming compilers (`rpn`, `bytecode`, `ast-arena`) compile in one pass at the same cost; `multipass-arena` compiles at ~×2.9 that but is the only compiled form that supports incremental re-parsing and parallel evaluation.
 
 ### 🏁 Verdict
 
-> - **Once, fastest?** `direct-rd` — with `bytecode-vm` and the other direct forms within ~30% (ordering inside this group flips run-to-run).
+> - **Once, fastest?** `direct-rd` / `direct-sy` / `direct-reverse` — a three-way tie (ordering inside this group flips run-to-run), `bytecode-vm` ~20 % behind. Fusing the lexer into the grammar (`direct-scannerless`) buys another 25 %, at the price of having no lexer to share.
 > - **Many times?** `rpn` / `bytecode` — allocation-free eval loop.
 > - **Need a tree?** `ast-arena` — one allocation, never per-node `unique_ptr`.
 > - **Parallel or incremental re-parse?** `multipass-arena` — the only strategy where sub-ranges are independent.
@@ -157,8 +165,8 @@ From the repo root (`-S cpp`); drop the `cpp/` prefix if you're already in this 
 cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-14
 cmake --build build -j
 
-ctest --test-dir build --output-on-failure   # 894 checks + 6300-input differential fuzz (24 strategies)
-./build/bench                                 # one-shot (14 strategies)
+ctest --test-dir build --output-on-failure   # 926 checks + 6300-input differential fuzz (25 strategies)
+./build/bench                                 # one-shot (15 strategies)
 ./build/corpus_bench                          # shared corpus (cross-language comparable)
 ./build/reeval                                # compile-once / eval-many
 ./build/parallel_bench                        # batch scaling 1–8 threads
@@ -177,7 +185,7 @@ Requires GCC 14 + CMake ≥ 3.20. No external dependencies. `corpus_bench` reads
 include/parser/   interfaces (evaluator, arena_ast, reeval, …)
 src/              one file per strategy + shared lexer/ast
 bench/            benchmark.cpp  corpus_bench.cpp  reeval.cpp  parallel_bench.cpp  single_par_bench.cpp  pool_bench.cpp  floor_bench.cpp  scaling_bench.cpp  corpus_reeval.cpp  adversarial_bench.cpp
-tests/            test_parsers.cpp (894 checks incl. the 10 parallel variants) + fuzz_differential.cpp (6300-input cross-strategy fuzz), run via CTest
+tests/            test_parsers.cpp (926 checks incl. the 10 parallel variants) + fuzz_differential.cpp (6300-input cross-strategy fuzz), run via CTest
 ```
 
 > Numbers from a throttling i7-10610U — **absolute ns vary ±40%; ratios are the result**.

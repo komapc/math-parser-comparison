@@ -53,6 +53,10 @@ std::unique_ptr<IEvaluator> make_direct_reverse();
 std::unique_ptr<IEvaluator> make_direct_recursive_descent();
 std::unique_ptr<IEvaluator> make_direct_shunting_yard();
 
+// Direct recursive descent with the lexer fused in: reads characters, never
+// builds the token array. The control for what the shared tokenizer costs.
+std::unique_ptr<IEvaluator> make_direct_scannerless();
+
 // Compile-to-flat-form strategy (one allocation, cache-friendly run).
 std::unique_ptr<IEvaluator> make_bytecode();
 

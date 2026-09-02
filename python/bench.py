@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Benchmark the fourteen strategies on the shared corpora (bench/corpus/).
+"""Benchmark the fifteen strategies on the shared corpora (bench/corpus/).
 
 First cross-checks that every strategy agrees with the first on the random
 corpus (the real correctness test), then prints ns/leaf per strategy.

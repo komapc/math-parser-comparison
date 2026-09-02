@@ -1,4 +1,4 @@
-"""The fourteen strategies, idiomatic Python.
+"""The fifteen strategies, idiomatic Python.
 
 The axis that actually distinguishes them is *representation* × *parse order*:
 
@@ -22,6 +22,7 @@ result() to collapse the root to a float given the variable environment.
 import math
 from bisect import bisect_left
 
+from .lexer import _NUMBER_RE, _IDENT_RE
 from .lexer import (
     NUM, IDENT, PLUS, MINUS, STAR, SLASH, CARET, LPAREN, RPAREN, END, tokenize,
 )
@@ -855,6 +856,92 @@ def _bytecode_eval(tokens, vars):
     return run_bytecode(compile_bytecode(tokens), vars)
 
 
+# ---- direct-scannerless: the lexer fused into the grammar ------------------
+def scannerless_eval(src, vars):
+    """Direct recursive descent over *characters*: no token list is built.
+
+    Same lexical rules as tokenize() (whitespace set, number and identifier
+    syntax, error positions); whitespace is consumed exactly once, right after
+    each token, by take(), so the grammar never has to think about it. Every
+    other strategy pays for the token list first -- this one is the control
+    for what that costs (in C++ about a third of a direct evaluator's time;
+    here the interpreter's per-call overhead is the thing being measured).
+    """
+    n = len(src)
+    i = 0
+
+    def skip():
+        nonlocal i
+        while i < n and src[i] in " \t\n\r":
+            i += 1
+
+    def take(c):
+        nonlocal i
+        if i < n and src[i] == c:
+            i += 1
+            skip()
+            return True
+        return False
+
+    def expr():
+        left = term()
+        while True:
+            if take("+"):   left = apply_bin("+", left, term())
+            elif take("-"): left = apply_bin("-", left, term())
+            else:           return left
+
+    def term():
+        left = unary()
+        while True:
+            if take("*"):   left = apply_bin("*", left, unary())
+            elif take("/"): left = apply_bin("/", left, unary())
+            else:           return left
+
+    def unary():
+        if take("-"): return -unary()
+        if take("+"): return unary()
+        return power()
+
+    def power():
+        base = primary()
+        if take("^"):
+            return apply_bin("^", base, unary())
+        return base
+
+    def primary():
+        nonlocal i
+        if take("("):
+            e = expr()
+            if not take(")"):
+                raise ValueError(f"expected ')' at position {i}")
+            return e
+        if i < n:
+            c = src[i]
+            if c.isdigit() or c == ".":
+                m = _NUMBER_RE.match(src, i)
+                if not m:
+                    raise ValueError(f"invalid number at position {i}")
+                v = float(m.group())
+                i = m.end()
+                skip()
+                return v
+            if c.isalpha() or c == "_":
+                m = _IDENT_RE.match(src, i)
+                if len(m.group()) != 1 or c == "_":
+                    raise ValueError(f"unknown identifier at position {i}")
+                idx = ord(c.lower()) - ord("a")
+                i = m.end()
+                skip()
+                return vars[idx] if vars is not None else 0.0
+        raise ValueError(f"expected number or '(' at position {i}")
+
+    skip()
+    v = expr()
+    if i != n:
+        raise ValueError(f"unexpected token at position {i}")
+    return v
+
+
 # ---- registry ---------------------------------------------------------------
 class Evaluator:
     def __init__(self, name, fn):
@@ -863,6 +950,13 @@ class Evaluator:
 
     def eval(self, src, vars=None):
         return self._fn(tokenize(src), vars)
+
+
+class RawEvaluator(Evaluator):
+    """A strategy that reads the source itself (no shared tokenize() call)."""
+
+    def eval(self, src, vars=None):
+        return self._fn(src, vars)
 
 
 def _ast_rd(t, v):          B = TupleBuilder(v); return B.result(rd_parse(t, B))
@@ -897,5 +991,6 @@ def all_evaluators():
         Evaluator("direct-recursive-descent", _direct_rd),
         Evaluator("direct-shunting-yard", _direct_sy),
         Evaluator("direct-reverse", _direct_reverse),
+        RawEvaluator("direct-scannerless", scannerless_eval),
         Evaluator("bytecode-vm", _bytecode),
     ]
