@@ -2,7 +2,7 @@
 
 # 🧮 Math-Expression Parser & Evaluator — Full Cross-Language Report
 
-**The same fifteen parsing/evaluation strategies in C++, Haskell, and Python — to ask whether the C++ finding ("performance tracks memory allocation, not algorithmic cleverness") survives a change of runtime.**
+**The same fifteen parsing/evaluation strategies in C++, Haskell, and Python.**
 
 </div>
 
@@ -56,14 +56,14 @@ same cases, including IEEE corners and literal overflow → `inf`/`0`), plus
 differential fuzzing in C++ and Python ([C++](cpp/tests/fuzz_differential.cpp)
 · [Python](python/test_fuzz.py)) — all fifteen strategies must agree, value or
 rejection, on 3 000 random + 3 000 mutated inputs per run. Haskell has the
-spec suite only. The C++ fuzz additionally covers the ten `par*/pool*/dfork*`
-parallel variants on 300 long inputs that actually fork.
+spec suite only.
 
 ## Cross-language results
 
 Median ns/leaf across the four sizes (n=10…10000), normalised to each
 language's fastest strategy — the column shows *ranking*, not cross-language
-speed. Neutral 4-vCPU GitHub runner. **Trust the tiers, not the digits**
+speed. Neutral 4-vCPU GitHub runner, median of three independent CI runs
+(33634873982, 33635442782, 33635439496). **Trust the tiers, not the digits**
 (each `1.0` marks a cluster of near-ties, not a clear winner).
 
 | strategy | C++ ×fastest | Python ×fastest | Haskell ×fastest |
@@ -88,8 +88,7 @@ Raw fastest, median ns/leaf: **C++ ≈ 49** (`direct-rd` / `direct-sy` /
 `direct-reverse`, a three-way tie), **Haskell ≈ 480** (`ast-pratt`),
 **Python ≈ 2 570** (`direct-reverse`) — C++ is ~10× faster than Haskell and
 ~50× faster than Python in absolute terms. The lexer-free control sits at
-37 / 446 / 2 171. Median of three independent CI runs of the current tree
-(33634873982, 33635442782, 33635439496).
+37 / 446 / 2 171.
 
 ### What survives the change of runtime
 
@@ -100,37 +99,34 @@ Raw fastest, median ns/leaf: **C++ ≈ 49** (`direct-rd` / `direct-sy` /
 2. **Managed runtimes hide layout.** Boxed/GC'd nodes make contiguity
    invisible: `ast-arena` is *slower* than pointer-AST in Python and Haskell,
    and "no tree" shrinks to a 20–30 % edge in Python and vanishes in Haskell,
-   where `ast-pratt` is the fastest strategy outright. **The C++ thesis was
-   really about layout, and layout is exactly what managed runtimes hide.**
+   where `ast-pratt` is the fastest strategy outright.
 3. **Top-down multipass loses in every language** — repeated split-scans are
    real extra work no runtime rescues. `multipass-bfs`'s RMQ precompute pays
-   off nowhere on random corpora (slowest mp variant in Python and Haskell).
-   The bottom-up member is the exception — see below.
+   off nowhere on random corpora. The bottom-up member is the exception — see
+   below.
 4. **Overhead compresses the spread:** fastest-to-slowest is ~4.8× in C++ but
    ~3× in Haskell and Python. (Haskell read ~1.7× until the number-parsing
-   fix below removed a constant term from every strategy: a compressed
-   spread can be a shared cost, not a property of the runtime.)
+   fix below removed a constant term from every strategy.)
 
 ## Lexing rules — applied to every parser
 
 Every strategy shares one lexer per language so that the tables measure the
 parsing approach, not incidental lexing differences. Writing the shortest
-correct evaluator (under thirty lines of C++) and then making it fast and strict
-surfaced three rules about that lexer — and a rule that helps one strategy is
-applied to all of them or to none.
+correct evaluator (under thirty lines of C++) and then making it fast and
+strict surfaced three rules about that lexer — and a rule that helps one
+strategy is applied to all of them or to none.
 
-**1. Parse numbers on the fast path.** The draft went from `strtod` to
-`std::from_chars` and got ~40 % faster: number conversion, not whitespace or
-dispatch, was the dominant per-leaf cost. The C++ lexer already did this.
+**1. Parse numbers on the fast path.** Number conversion, not whitespace or
+dispatch, is the dominant per-leaf cost: the draft went from `strtod` to
+`std::from_chars` and got ~40 % faster. The C++ lexer already did this;
 Python's `float()` is the same fast path. Haskell's lexer used
-`reads :: Double`, which goes through `Rational` — and it turned out to be
-roughly two-thirds of the fastest Haskell strategies' time (a third to a half
-of the slowest). It now takes Clinger's fast
-path first (a mantissa of ≤15 digits times an exact power of ten up to 10²²
-is one correctly rounded IEEE operation, so the result is bit-identical to
-`reads`; verified on 27 literals including `1e22`, `1e23`, `4.9e-324`,
-`1e400`), falling back to `reads` for anything longer. Effect on the neutral runner, ns/leaf, median
-over the four sizes, median of three CI runs before (main) and after:
+`reads :: Double`, which goes through `Rational` — roughly two-thirds of the
+fastest Haskell strategies' time. It now takes Clinger's fast path first (a
+mantissa of ≤15 digits times an exact power of ten up to 10²² is one
+correctly rounded IEEE operation, bit-identical to `reads`; verified on 27
+literals including `1e22`, `1e23`, `4.9e-324`, `1e400`), falling back to
+`reads` for anything longer. Neutral runner, ns/leaf, median over the four
+sizes, median of three CI runs before and after:
 
 | Haskell strategy | before | after | × |
 |---|--:|--:|--:|
@@ -144,27 +140,23 @@ over the four sizes, median of three CI runs before (main) and after:
 | direct-reverse | 1 438 | 536 | 2.7 |
 | bytecode-vm | 1 526 | 597 | 2.6 |
 
-Same tiers, 1.6–2.9× less time — the earlier Haskell columns in this report
-were largely measuring `reads`, not the strategies. Two things the constant
-term had hidden: the arena forms' penalty against the pointer classics is
-~1.5–1.7×, not ~1.3×, and the compressed Haskell spread noted above
-("fastest-to-slowest ~1.7×") is now ~3×, the same as Python's.
+Same tiers, 1.6–2.9× less time — the earlier Haskell columns were largely
+measuring `reads`. Two things the constant term had hidden: the arena forms'
+penalty against the pointer classics is ~1.5–1.7×, not ~1.3×, and the
+Haskell spread is ~3×, the same as Python's.
 
-**2. Don't materialise what the algorithm never indexes.** The draft's
-whitespace experiments showed that any extra pass over the input — even a
-one-line strip — costs more than it saves, and that a token array is the
-biggest such pass. The shared C++ lexer therefore has two modes over one set
-of rules: `Lexer::next()` streams one token at a time, `tokenize()` builds
-the array by calling it. Every strategy that reads its input left to right
-with bounded lookahead now streams — `ast-recursive-descent`, `ast-shunting-yard`,
-`ast-pratt`, `ast-arena`, `direct-recursive-descent`, `direct-shunting-yard`,
-`bytecode-vm`, `multipass-reverse-fold`/`direct-reverse` (one token of
-lookahead; the signed-leaf fast path takes the leaf, then looks), and the
-re-eval compilers. The divide-and-conquer family and the buffered
-`multipass-reverse` keep the array because their algorithms index it — that is
-a property of those algorithms, honestly paid — and for them the token
-shrank from 24 to 16 bytes. Effect on the neutral runner, ns/leaf, median
-over the four sizes, median of three CI runs before (main) and after:
+**2. Don't materialise what the algorithm never indexes.** Any extra pass
+over the input — even a one-line whitespace strip — costs more than it saves,
+and a token array is the biggest such pass. The shared C++ lexer therefore
+has two modes over one set of rules: `Lexer::next()` streams one token at a
+time, `tokenize()` builds the array by calling it. Every strategy that reads
+its input left to right with bounded lookahead streams — the classics,
+`ast-arena`, `direct-*`, `bytecode-vm`, and the fused reducer (one token of
+lookahead). The divide-and-conquer family and the buffered `multipass-reverse`
+keep the array because their algorithms index it — a property of those
+algorithms, honestly paid — and for them the token shrank from 24 to 16
+bytes. Neutral runner, ns/leaf, median over the four sizes, median of three
+CI runs before and after:
 
 | C++ strategy | tokens | before | after | Δ |
 |---|---|--:|--:|--:|
@@ -186,27 +178,23 @@ over the four sizes, median of three CI runs before (main) and after:
 The token array was 16–33 % of every streaming strategy's time; the 16-byte
 token is worth a few per cent at most for the array-bound ones. The ranking
 inside each tier is unchanged, but two earlier claims moved: the C++ no-tree
-tier is now a three-way tie at ~50 ns/leaf (`direct-rd`, `direct-sy`,
-`direct-reverse`), and the fused reducer's nestchain lead over `ast-arena`
-shrank from ~0.6× to ~0.8× because `ast-arena` no longer pays for a token
-per parenthesis.
+tier is now a three-way tie at ~50 ns/leaf, and the fused reducer's nestchain
+lead over `ast-arena` shrank from ~0.6× to ~0.8× because `ast-arena` no
+longer pays for a token per parenthesis.
 
 Python keeps its token list: a generator-based stream is a wash there
-(0.93–1.05× across six pinned runs, inside laptop noise) — the interpreter's
-per-token dispatch dominates whichever way the tokens arrive, and only the
-fused form below, which never builds a `Token` at all, gets the saving.
-Haskell's token list is lazy and already fuses with its consumer.
+(0.93–1.05× across six pinned runs) — the interpreter's per-token dispatch
+dominates whichever way the tokens arrive. Haskell's token list is lazy and
+already fuses with its consumer.
 
 **3. Measure the lexer, don't guess it.** `direct-scannerless` is
 `direct-recursive-descent` with the lexer fused into the grammar: each rule
 compares the next *character* against the one or two it can accept, and
-whitespace is consumed exactly once, right after each token, by `take(c)`.
-It obeys the same lexical rules as the shared lexer (whitespace set, number
-syntax incl. `1e400 → inf`, single-letter `a–z`/`A–Z` variables, error
-positions in C++) and the same spec and differential-fuzz suites. It is not
-a new parsing algorithm; it is the control row that turns "the lexer is
-expensive" into a number per language (ns/leaf, median over sizes and runs;
-the ratio's range is over the three runs):
+whitespace is consumed exactly once, right after each token. It obeys the same
+lexical rules as the shared lexer and passes the same spec and fuzz suites. It
+is not a new parsing algorithm; it is the control row that turns "the lexer
+is expensive" into a number per language (ns/leaf, median over sizes and
+runs; the ratio's range is over the three runs):
 
 | | `direct-rd` | `direct-scannerless` | control ÷ `direct-rd` |
 |---|--:|--:|--:|
@@ -215,13 +203,10 @@ the ratio's range is over the three runs):
 | Haskell | 522 | 446 | 0.93 (0.74–1.02) |
 
 C++ and Python pay a quarter of `direct-rd`'s time for having a lexer at
-all; Haskell's lazy token list already fuses with its consumer, so the
-control buys 5–15 % there and the difference is inside run-to-run noise.
-
-The remaining gap between streaming and scannerless is context: after an
-operand the fused parser tests only operator characters, where a general
-lexer classifies the character first and lets the parser reject the class
-afterwards. That is intrinsic to having a lexer at all, and it is the ceiling
+all; in Haskell the control buys 5–15 % and the difference is inside
+run-to-run noise. The remaining gap is context: after an operand the fused
+parser tests only operator characters, where a general lexer classifies the
+character first. That is intrinsic to having a lexer, and it is the ceiling
 on what rule 2 can recover.
 
 ## `multipass-reverse` — the two results
@@ -249,13 +234,13 @@ positive in 11 of 12 size×run measurements across three independent CI
 runs, the one flip being C++ at n=10,000 in one run — a consistent sliver,
 not a margin). Its no-tree twin `direct-reverse` is genuinely faster in
 Python (~9–12 % over `direct-sy`, ~7–20 % over `direct-rd`, repeated across
-runs), but in C++ it's honestly a **three-way tie** with
-`direct-recursive-descent` and `direct-shunting-yard` at ~50 ns/leaf — two
-runs within ±1.5 % at every size, one run 9–15 % apart, i.e. runner noise.
-Haskell is the exception: the pointer classics lead every arena form by
-~1.5–1.7×, and `direct-reverse` vs `direct-rd` swings ±15 % run to run
-(a tie, noisily). The buffered `multipass-reverse` — the pedagogical
-version — trails its fused form by ~1.4–1.6×. Design of the fused form:
+runs), but in C++ it is a **three-way tie** with `direct-recursive-descent`
+and `direct-shunting-yard` at ~50 ns/leaf — two runs within ±1.5 % at every
+size, one run 9–15 % apart, i.e. runner noise. Haskell is the exception: the
+pointer classics lead every arena form by ~1.5–1.7×, and `direct-reverse` vs
+`direct-rd` swings ±15 % run to run (a tie, noisily). The buffered
+`multipass-reverse` — the pedagogical version — trails its fused form by
+~1.4–1.6×. Design of the fused form:
 [docs/multipass-reverse.md](docs/multipass-reverse.md#the-fused-variant).
 
 ### Result 2 — vs its family: strictly better
@@ -276,9 +261,8 @@ single-precedence control chain (sumchain) keeps the whole family linear,
 isolating *mixed precedence* as the trigger; a fourth shape (**nestchain**,
 deep parentheses — the one construct where bottom-up recurses) attacks
 reverse's own worst case, and it stays flat there too (66 ns/leaf across
-sizes; `ast-arena`, which now streams its tokens, sits at 39); the fused form
-is the fastest tree builder on that shape outright (32 vs `ast-arena` 39 at
-m=8192).
+sizes; `ast-arena` sits at 39); the fused form is the fastest tree builder on
+that shape outright (32 vs `ast-arena` 39 at m=8192).
 
 Pre-fix, powchain (last CI run before the top-down family was patched; sizes
 differ per language and the gap grows with size, so ratios are not
@@ -295,10 +279,8 @@ linear scan is bounded at 16 candidates; past the budget, per-depth sorted
 position arrays per precedence class answer splits by binary search — Θ(n²)
 drops to O(n log n). `multipass-arena`/`direct-mp` in C++ additionally use an
 AVX2 flat/split check; Python folds whole precedence levels on budget trip;
-Haskell materialises buckets lazily. An iterator-passing fix also cut
-`multipass`'s random-corpus ratio 4.9× → 3.5×. Effect at m=8192 (ns/leaf,
-neutral runner; "after" cells are flat across sizes — no quadratic growth;
-individual cells wobble run to run):
+Haskell materialises buckets lazily. Effect at m=8192 (ns/leaf, neutral
+runner; "after" cells are flat across sizes — no quadratic growth):
 
 | | powchain before → after | towerchain after † |
 |---|--:|--:|
@@ -315,53 +297,14 @@ holes the same way; their adversarial chains are flat on the neutral runner too.
 
 So: the rest of the family is linear now — **because it was rescued**, with
 budgets, buckets and SIMD, and it still trails bottom-up by 1.5–3.6× (2–5×
-against the fused form).
-`multipass-reverse` is **the only member of the family whose worst case is its
-average case**: same two columns, same code, no machinery — it never asks a
-question whose answer lies elsewhere in the range. The pre-fix numbers are
-preserved from CI and cannot be regenerated from current sources; the shipped
-binaries reproduce the "after" column
-(`./build/adversarial_bench`, `python3 python/adversarial.py`,
+against the fused form). `multipass-reverse` is **the only member of the
+family whose worst case is its average case**: same two columns, same code,
+no machinery. The pre-fix numbers are preserved from CI and cannot be
+regenerated from current sources; the shipped binaries reproduce the "after"
+column (`./build/adversarial_bench`, `python3 python/adversarial.py`,
 `cabal run adversarial`).
 
 Per-language detail: [`cpp/`](cpp/README.md) · [`python/`](python/README.md) · [`haskell/`](haskell/README.md).
-
-## Multi-core scaling
-
-Batch throughput, corpus split across W workers, neutral 4-vCPU runner.
-**The ranking is core-count-invariant** — only the runtime's parallelism model
-matters. C++ (`std::thread`) ~2.7–2.9× at W=4 this run; Haskell (`-threaded`)
-~2.4–2.5×; Python **processes** ~2.2–2.4× but **threads 0.93–0.98× — flat, the
-GIL live**. Bands across runs: ~1.9–2.9×; per-strategy efficiency differences
-are VM noise (across six runs `ast-arena`'s efficiency spanned 0.53–0.80), so
-no strategy reliably scales better and multi-core does not amplify the
-allocation gap. Real 8-core scaling needs dedicated hardware.
-
-## Compile once, evaluate many
-
-The one-shot verdict ("don't build a tree") **inverts** when the same
-expression is evaluated repeatedly with different variable values. Per-eval
-ns/expr at n=1000, neutral runner:
-
-| compiled form | C++ | Python | Haskell |
-|---|--:|--:|--:|
-| ast-ptr (pointer AST) | 27k | 360k | **37k** |
-| ast-arena | 26k | 351k | 44k |
-| multipass-arena | 26k | 416k | 44k |
-| rpn | **18k** | — | — |
-| bytecode | 18k | **296k** | 57k |
-| **reparse-rd** (re-parse each eval) | 134k | 2.97M | 543k |
-
-1. **Any reusable form beats re-parsing ~7–15×**; break-even ≲ 5 evals,
-   usually ~1. (Re-parsing itself got 30–50 % cheaper in C++ and Haskell
-   from the lexing rules above, which is why the ratio is smaller than the
-   ~7–26× reported before.)
-2. **The best form is runtime-specific:** flat (`rpn`/`bytecode`) in C++;
-   pointer-AST vs bytecode is a run-to-run coin flip in Python (both beat the
-   arena forms); an AST in Haskell, where flat bytecode is the one form that
-   *loses* (GHC's pattern-matching tree walk beats a list-based VM). *Which*
-   structure to build is language-specific — *that* you should build one is
-   universal.
 
 ## Layout
 
@@ -370,5 +313,5 @@ cpp/        C++26 implementation (cpp/README.md — the deep dive)
 haskell/    Haskell implementation
 python/     Python implementation
 bench/      shared corpus generator + (generated) corpus/
-docs/       algorithm deep-dives (multipass-reverse.md)
+docs/       multipass-reverse.md (algorithm), one-pager.md (verdict)
 ```

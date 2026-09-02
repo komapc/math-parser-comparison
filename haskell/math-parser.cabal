@@ -24,21 +24,6 @@ executable bench
     build-depends:    base, time, math-parser
     default-language: Haskell2010
 
-executable scaling
-    import:           warnings
-    hs-source-dirs:   app
-    main-is:          Scaling.hs
-    build-depends:    base, time, math-parser
-    ghc-options:      -threaded -rtsopts
-    default-language: Haskell2010
-
-executable reeval
-    import:           warnings
-    hs-source-dirs:   app
-    main-is:          Reeval.hs
-    build-depends:    base, array, time, math-parser
-    default-language: Haskell2010
-
 executable adversarial
     import:           warnings
     hs-source-dirs:   app

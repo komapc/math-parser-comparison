@@ -8,6 +8,9 @@
 
 namespace mp {
 
+// Variable environment: a-z -> index 0..25.
+constexpr int kNumVars = 26;
+
 // Uniform one-shot interface: source text -> numeric value, in a single call.
 // Every strategy implements this, so they can be compared apples-to-apples.
 // vars: variable environment indexed a=0..z=25; nullptr for constant expressions.
@@ -31,9 +34,6 @@ std::unique_ptr<IEvaluator> make_ast_multipass();
 
 // Same algorithm, arena-allocated (no per-node heap allocation).
 std::unique_ptr<IEvaluator> make_ast_multipass_arena();
-
-// Parse with multipass-arena and return the arena AST (for reeval / ICompiler use).
-ArenaAst multipass_arena_parse(std::string_view src);
 
 // Direct-eval D&C variant (no AST, evaluate inline).
 std::unique_ptr<IEvaluator> make_direct_mp();
@@ -60,36 +60,8 @@ std::unique_ptr<IEvaluator> make_direct_scannerless();
 // Compile-to-flat-form strategy (one allocation, cache-friendly run).
 std::unique_ptr<IEvaluator> make_bytecode();
 
-// Parallel multipass: middle-split + fork-join at 1/2/4/8 threads.
-// NOT in all_evaluators() — use single_par_bench for scaling measurements.
-std::unique_ptr<IEvaluator> make_multipass_par1();
-std::unique_ptr<IEvaluator> make_multipass_par2();
-std::unique_ptr<IEvaluator> make_multipass_par4();
-std::unique_ptr<IEvaluator> make_multipass_par8();
-
-// Parallel multipass, take two: persistent pool + atomic-free arena + raised
-// fork threshold. Same tree as par*, but the fork-join is meant to actually pay.
-std::unique_ptr<IEvaluator> make_multipass_pool2();
-std::unique_ptr<IEvaluator> make_multipass_pool4();
-std::unique_ptr<IEvaluator> make_multipass_pool8();
-
-// Direct-eval fork-join: fuses evaluation into the parallel parse (no tree, no
-// node array), pulling the eval walk out of the serial fraction.
-std::unique_ptr<IEvaluator> make_multipass_dfork2();
-std::unique_ptr<IEvaluator> make_multipass_dfork4();
-std::unique_ptr<IEvaluator> make_multipass_dfork8();
-
-// Serial-floor probe: runs only tokenize + buildCandidates (the prologue every
-// parallel variant must do before forking), to measure the un-parallelisable floor.
-std::unique_ptr<IEvaluator> make_mp_setup_only();
-
 // All evaluators in display order (AST -> direct -> compiled).
 std::vector<std::unique_ptr<IEvaluator>> all_evaluators();
 
-// The intra-expression parallel variants (par*/pool*/dfork*). Kept out of
-// all_evaluators() so the one-shot benchmarks stay single-threaded, but held
-// to the same specification by the correctness suite and the differential
-// fuzz (with inputs long enough to actually fork).
-std::vector<std::unique_ptr<IEvaluator>> parallel_evaluators();
 
 }  // namespace mp

@@ -174,14 +174,6 @@ class MultiPassArena final : public IEvaluator {
 public:
     const char* name() const override { return "multipass-arena"; }
 
-    // Build and return an ArenaAst (moves nodes_ out; used by reeval).
-    ArenaAst buildArena(std::string_view src) {
-        build(src);
-        const std::size_t n = tokens_.size() - 1;
-        auto [cbeg, cend] = candRange(0, n, 0);
-        const int root = parseRange(0, n, 0, cbeg, cend);
-        return ArenaAst::adopt(std::move(nodes_), root);
-    }
 
     double eval(std::string_view src, const double* vars = nullptr) override {
         vars_ = vars;
@@ -499,9 +491,5 @@ std::unique_ptr<IEvaluator> make_ast_multipass_arena() {
     return std::make_unique<MultiPassArena>();
 }
 
-ArenaAst multipass_arena_parse(std::string_view src) {
-    MultiPassArena p;
-    return p.buildArena(src);
-}
 
 }  // namespace mp

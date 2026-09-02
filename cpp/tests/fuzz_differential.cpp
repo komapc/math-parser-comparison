@@ -51,8 +51,8 @@ std::string mutate(std::string s) {
     return s;
 }
 
-// Long, shallow expression (hundreds of leaves) so the parallel variants
-// actually fork: gen() alone tops out well below the ~128-token threshold.
+// Long, shallow expression (hundreds of leaves): gen() alone tops out at a
+// few dozen tokens, and the buffered strategies grow their stacks only here.
 std::string genLong() {
     const int leaves = 200 + static_cast<int>(rng() % 1500);
     std::string s;
@@ -68,7 +68,6 @@ std::string genLong() {
 int main() {
     const auto env = mp::test::testEnv();
     auto evs = all_evaluators();
-    for (auto& p : parallel_evaluators()) evs.push_back(std::move(p));
     int mismatches = 0;
 
     const auto tryEval = [&](IEvaluator& ev, const std::string& e,

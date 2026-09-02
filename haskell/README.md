@@ -5,7 +5,7 @@ Idiomatic Haskell port of all fifteen strategies (GHC, `base`/`array`/`container
 ```sh
 python3 bench/gen_corpus.py        # from repo root: generate shared corpora (once)
 cd haskell
-cabal test                         # correctness (448 checks)
+cabal test                         # correctness (480 checks)
 cabal run bench                    # cross-check + timing on shared corpora
 cabal run adversarial              # 4 structured shapes: top-down worst cases (now O(n log n)), nestchain, vs reverse Θ(n)
 ```
@@ -65,20 +65,16 @@ tiers, not the digits.** Reproduce locally with `cabal run bench`.
 
 Median of three CI runs. Correctness: all corpus expressions agree across all
 15 strategies. These numbers are ~1.6–2.9× lower than the ones this table
-carried before 2026-09-02: the shared lexer's `readNum` used `reads`, which
+carried before 2026-09-02: the shared lexer parsed numbers with `reads`, which
 goes through `Rational` and was about two-thirds of the fastest strategies'
-time; it now takes Clinger's fast path (≤15 significant digits × an exact
-power of ten is one correctly rounded operation — bit-identical to `reads`,
-which remains the fallback). With that constant gone, the spread is ~3×
-fastest-to-slowest, the same as Python's; the pointer classics (`ast-pratt`,
-`ast-rd`) lead every arena form by ~1.5×, and "no tree" buys nothing here.
-`multipass-reverse` sits with `multipass`/`direct-mp` (ahead up to n=1000,
-behind at n=10000, where its item list shows up as GC pressure) and beats
+time; it now takes Clinger's fast path (bit-identical, `reads` remains the
+fallback). With that constant gone the spread is ~3× fastest-to-slowest, the
+same as Python's; the pointer classics lead every arena form by ~1.5×, and
+"no tree" buys nothing here. `multipass-reverse` beats
 `multipass-arena`/`-bfs` at every size; the `multipass-bfs` blow-up at
-n=10000 is the sparse-table build cost showing through. The
-lexer-free `direct-scannerless` is a control, not a contender: it lands
-within 5–15 % of `direct-rd` — the lazy token list already fuses with its
-consumer, so there is little lexer cost left to remove.
+n=10000 is the sparse-table build cost. The lexer-free `direct-scannerless`
+is a control, not a contender: it lands within 5–15 % of `direct-rd` — the
+lazy token list already fuses with its consumer.
 
 ## What changes versus C++
 
