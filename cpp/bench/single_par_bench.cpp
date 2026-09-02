@@ -1,7 +1,7 @@
 // Single-expression parallel benchmark.
 //
 // Measures how parse latency for ONE expression scales with thread count.
-// This is distinct from parallel_bench (batch/throughput) and bench (one-shot).
+// This is distinct from scaling_bench (batch throughput) and corpus_bench (one-shot).
 //
 // Correctness preflight:
 //   par1 vs ast-arena: within 1e-6 relative (expected: FP re-association drift).

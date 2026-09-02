@@ -129,14 +129,17 @@ Neutral runner, median of three CI runs. Flat forms (`rpn`, `bytecode`) win per-
 
 Multipass finds the split point *first*, making both halves independent [fork-join](https://en.wikipedia.org/wiki/Fork%E2%80%93join_model) tasks. Every other strategy is a left-to-right stream and cannot parallelize within a single expression.
 
-**Batch scaling** (400 × 1 000-leaf expressions, i7-10610U, 4 physical / 8 logical cores):
+**Batch scaling** (shared corpus split across W worker threads, each with its own evaluator; ns/leaf, neutral 4-vCPU runner, median of three CI runs — `scaling_bench`):
 
-| Strategy | 1T ns/expr | 2T ns/expr | 4T ns/expr | 8T ns/expr | 4T × | 8T × |
-|---|--:|--:|--:|--:|--:|--:|
-| `ast-arena` | 222k | 110k | 68k | 58k | ×3.3 | ×3.8 |
-| `multipass-arena` | 248k | 154k | 86k | 76k | ×2.9 | ×3.3 |
+| Strategy | W=1 | W=2 | W=4 | speedup@4 |
+|---|--:|--:|--:|--:|
+| `direct-recursive-descent` | 50 | 25 | 18 | ×2.8 |
+| `direct-reverse` | 50 | 25 | 19 | ×2.7 |
+| `ast-arena` | 70 | 35 | 25 | ×2.9 |
+| `multipass-reverse-fold` | 70 | 35 | 24 | ×2.9 |
+| `multipass-arena` | 134 | 66 | 47 | ×2.9 |
 
-Per-core efficiency fluctuates run-to-run on this throttling laptop. `ast-arena` leads in absolute throughput at every thread count.
+Every strategy scales the same (~2.7–2.9× on 4 vCPUs); the ranking is core-count-invariant, so adding threads never rescues a slower strategy.
 
 **Single-expression fork-join** — three generations, all in the build
 (`single_par_bench`, `pool_bench`, `floor_bench`):
@@ -166,27 +169,26 @@ cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-14
 cmake --build build -j
 
 ctest --test-dir build --output-on-failure   # 926 checks + 6300-input differential fuzz (25 strategies)
-./build/bench                                 # one-shot (15 strategies)
-./build/corpus_bench                          # shared corpus (cross-language comparable)
-./build/reeval                                # compile-once / eval-many
-./build/parallel_bench                        # batch scaling 1–8 threads
+./build/corpus_bench                          # one-shot, shared corpus (15 strategies; cross-language comparable)
+./build/corpus_reeval                         # compile-once / eval-many, shared corpus
+./build/scaling_bench                         # batch-throughput scaling at 1/2/4 threads
 ./build/single_par_bench                      # single-expression fork-join scaling (par*)
 ./build/pool_bench                            # A/B: par* vs pool* vs dfork*
 ./build/floor_bench                           # serial-floor probe (tokenize + candidate index only)
 ./build/adversarial_bench                     # 4 structured shapes: top-down worst cases (now O(n log n)), nestchain (bottom-up's), vs reverse Θ(n)
 ```
 
-Requires GCC 14 + CMake ≥ 3.20. No external dependencies. `corpus_bench` reads
-`bench/corpus/` — run `python3 bench/gen_corpus.py` first.
+Requires GCC 14 + CMake ≥ 3.20. No external dependencies. The corpus, scaling
+and adversarial harnesses read `bench/corpus/` — run `python3 bench/gen_corpus.py` first.
 
 ## 🗂️ Layout
 
 ```
 include/parser/   interfaces (evaluator, arena_ast, reeval, …)
 src/              one file per strategy + shared lexer/ast
-bench/            benchmark.cpp  corpus_bench.cpp  reeval.cpp  parallel_bench.cpp  single_par_bench.cpp  pool_bench.cpp  floor_bench.cpp  scaling_bench.cpp  corpus_reeval.cpp  adversarial_bench.cpp
+bench/            corpus_bench.cpp  corpus_reeval.cpp  scaling_bench.cpp  adversarial_bench.cpp  (shared corpus, what CI reports)
+                  single_par_bench.cpp  pool_bench.cpp  floor_bench.cpp  (single-expression parallelism probes)
 tests/            test_parsers.cpp (926 checks incl. the 10 parallel variants) + fuzz_differential.cpp (6300-input cross-strategy fuzz), run via CTest
 ```
 
-> Numbers from a throttling i7-10610U — **absolute ns vary ±40%; ratios are the result**.
-> `src/parallel.cpp` kept for reference, excluded from the build.
+> One-shot, re-eval and batch-scaling numbers above are from the neutral CI runner. The single-expression fork-join table is from a throttling i7-10610U — **absolute ns there vary ±40 %; the ordering is the result**.
