@@ -26,6 +26,10 @@ no recursion, no prepass, every token touched once
 [Haskell](haskell/src/MathParser/Strategies.hs) ·
 **[full walk-through](docs/multipass-reverse.md)**)
 
+**Just the verdict?** [docs/one-pager.md](docs/one-pager.md) — one page,
+every input × every language, labelled best / narrowly ahead / tie / loses
+from three independent runs.
+
 ## Result 1 — vs the classics: competitive — narrowly ahead in C++ and Python
 
 Sixty-year-old, maximally-tuned algorithms on their home turf: random corpus,
