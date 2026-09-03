@@ -63,3 +63,13 @@ jobs:
       - name: Correctness
         working-directory: haskell
         run: cabal test
+
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: rustup update stable && rustc --version
+      - name: Correctness + differential fuzz
+        working-directory: rust
+        run: cargo test --release -- --nocapture

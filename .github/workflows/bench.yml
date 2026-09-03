@@ -1,6 +1,6 @@
 name: bench
 
-# Runs the three benchmark suites on a neutral GitHub-hosted runner — removes
+# Runs the four benchmark suites on a neutral GitHub-hosted runner — removes
 # the local-laptop thermal throttling that makes absolute ns unreliable. Results
 # land in the job summary and as a downloadable artifact.
 #
@@ -14,6 +14,7 @@ on:
       - 'cpp/**'
       - 'python/**'
       - 'haskell/**'
+      - 'rust/**'
       - 'bench/**'
       - '.github/workflows/bench.yml'
 
@@ -96,6 +97,21 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           { echo '## Haskell adversarial chains'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           cabal run -v0 adversarial | tee ../adversarial-haskell.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      # ---- Rust ----
+      - name: Rust benchmark (+ tests)
+        working-directory: rust
+        run: |
+          set -o pipefail
+          rustup update stable
+          rustc --version
+          cargo test --release
+          { echo '## Rust'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          cargo run -q --release --bin bench | tee ../bench-rust.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          { echo '## Rust adversarial chains'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          cargo run -q --release --bin adversarial | tee ../adversarial-rust.txt >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload results
