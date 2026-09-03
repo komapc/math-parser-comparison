@@ -2,7 +2,7 @@
 
 # 🧮 Math-Expression Parser & Evaluator
 
-**Fifteen ways to turn `-2 ^ 2 + 3 * (4 - 1)` into `5`, in C++, Haskell, and Python.**
+**Fifteen ways to turn `-2 ^ 2 + 3 * (4 - 1)` into `5`, in C++, Rust, Haskell, and Python.**
 
 </div>
 
@@ -22,44 +22,50 @@ built in the opposite order. It never searches for a split point, so it is
 same level reductions on the fly with two accumulators per parenthesis frame —
 no recursion, no prepass, every token touched once.
 ([C++](cpp/src/multipass_reverse.cpp) ·
+[Rust](rust/src/fold.rs) ·
 [Python](python/mathparser/evaluators.py) ·
 [Haskell](haskell/src/MathParser/Strategies.hs) ·
 **[full walk-through](docs/multipass-reverse.md)**)
 
-## Result 1 — vs the classics: narrowly ahead in C++ and Python
+## Result 1 — vs the classics: narrowly ahead in C++ and Python, a tie in Rust
 
 Random corpus, ns/leaf at n=1000, neutral 4-vCPU CI runner, median of three
 independent runs, normalised to the fastest tree builder per language
 (**bold** = fastest):
 
-| tree builder | representation | C++ | Python | Haskell |
-|---|---|--:|--:|--:|
-| `ast-recursive-descent` | pointer AST | 1.90 | 1.01 | 1.26 |
-| `ast-shunting-yard` | pointer AST | 1.97 | 1.03 | 1.47 |
-| `ast-pratt` | pointer AST | 1.99 | 1.05 | **1.00** |
-| `ast-arena` | arena AST | 1.05 | 1.19 | 1.48 |
-| `multipass` | pointer AST | 3.40 | 2.36 | 2.22 |
-| `multipass-arena` | arena AST | 1.91 | 2.51 | 2.76 |
-| `multipass-bfs` | arena AST | 2.07 | 2.93 | 3.13 |
-| `multipass-reverse` | arena AST | 1.43 | 1.42 | 1.91 |
-| `multipass-reverse-fold` | arena AST | **1.00** | **1.00** | 1.72 |
+| tree builder | representation | C++ | Rust | Python | Haskell |
+|---|---|--:|--:|--:|--:|
+| `ast-recursive-descent` | pointer AST | 1.87 | 1.96 | **1.00** | 1.11 |
+| `ast-shunting-yard` | pointer AST | 2.02 | 2.03 | 1.02 | 1.21 |
+| `ast-pratt` | pointer AST | 1.99 | 1.94 | 1.04 | **1.00** |
+| `ast-arena` | arena AST | 1.03 | **1.00** | 1.21 | 1.42 |
+| `multipass` | pointer AST | 3.55 | 4.11 | 2.25 | 1.82 |
+| `multipass-arena` | arena AST | 2.00 | 2.81 | 2.37 | 2.28 |
+| `multipass-bfs` | arena AST | 2.10 | 3.13 | 2.73 | 2.89 |
+| `multipass-reverse` | arena AST | 1.47 | 1.41 | 1.41 | 1.99 |
+| `multipass-reverse-fold` | arena AST | **1.00** | **1.00** | **1.00** | 1.59 |
 
 **The fused form is the fastest tree builder of nine in C++ and in Python** —
-~3–5 % ahead of `ast-arena` in C++, ~1–9 % ahead of the best pointer classic
-in Python. Positive in 11 of 12 size×run measurements, so read it as a
-consistent sliver, not a margin. The buffered `multipass-reverse` sits ~1.4×
-behind. Haskell is the exception: the pointer classics lead every arena form
-by ~1.5–1.7×. Contiguous memory is the whole game in C++, and a boxed, GC'd
+~2–5 % ahead of `ast-arena` in C++, ~1–8 % ahead of the best pointer classic
+in Python. Positive in 11 of 12 size×run measurements in each, so read it as
+a consistent sliver, not a margin. **In Rust the sliver is gone**: the same
+code under LLVM lands 0–2 % *behind* `ast-arena` in all 12 measurements — a
+tie, and a hint that the C++ edge is partly a GCC story. The buffered
+`multipass-reverse` sits ~1.4–1.5× behind in all three. Haskell is the
+exception: the pointer classics lead every arena form by ~1.5–1.7×.
+Contiguous memory is the whole game in C++ and Rust, and a boxed, GC'd
 runtime hides it.
 
 Its no-tree twin `direct-reverse` is a **three-way tie** with
 `direct-recursive-descent` and `direct-shunting-yard` in C++, all at ~50
-ns/leaf (two of three runs within ±1.5 %). In Python it wins outright:
-~9–12 % over `direct-shunting-yard` and ~7–20 % over `direct-rd` at every
-size, in every run. On the structured shapes it ties or beats both, except
-nestchain against `direct-sy` (~6 % behind). The lexer-free control
-`direct-scannerless` sits ~25 % below all three; that gap is the shared
-lexer, measured — see "Same rules" below.
+ns/leaf (+0…+3 % vs `direct-rd`, −1…+5 % vs `direct-sy` across runs). Rust
+repeats the C++ tier at ~52 ns/leaf: a tie with `direct-rd` (−5…+2 %) and
+7–10 % ahead of `direct-sy`. In Python it wins outright: ~10–13 % over
+`direct-shunting-yard` and ~7–21 % over `direct-rd` at every size, in every
+run. On the structured shapes it ties or beats both, except C++ nestchain
+against `direct-sy` (~10–16 % behind). The lexer-free control
+`direct-scannerless` sits 20–35 % below all three in C++, Rust and Python;
+that gap is the shared lexer, measured — see "Same rules" below.
 
 ## Result 2 — vs its family: strictly better
 
@@ -70,25 +76,25 @@ mixed-precedence chain (`3^2 * 2^2 / 2^2 * …` — a factored monomial) makes i
 
 | strategy | before the rescue patch | after | worst-case machinery |
 |---|--:|--:|---|
-| `multipass` | 3 791 | 166 | scan budget + buckets |
-| `multipass-arena` | 4 864 | 88 | budget + buckets + AVX2 |
+| `multipass` | 3 791 | 151 | scan budget + buckets |
+| `multipass-arena` | 4 864 | 86 | budget + buckets + AVX2 |
 | `direct-mp` | 3 236 | 70 | budget + buckets + AVX2 |
-| `multipass-bfs` | 84 † | 91 | O(n log n) sparse-table RMQ |
-| **`multipass-reverse`** | **43** | **46** | **none** |
-| **`multipass-reverse-fold`** | — (new) | **32** | **none** |
+| `multipass-bfs` | 84 † | 87 | O(n log n) sparse-table RMQ |
+| **`multipass-reverse`** | **43** | **40** | **none** |
+| **`multipass-reverse-fold`** | — (new) | **30** | **none** |
 
 `multipass-reverse` and its fused form are **the only members of the family
 whose worst case is their average case**. The others needed bounded scans,
 precedence buckets and AVX2 to go linear — and still trail the buffered form
-by 1.5–3.6× and the fused form by 2–5×. Bottom-up's own worst case, deep
+by 1.7–3.8× and the fused form by 2.3–5×. Bottom-up's own worst case, deep
 parenthesis nesting, is benchmarked too: flat, and the fused form is the
-fastest tree builder there (32 vs `ast-arena` 39 ns/leaf at m=8192).
+fastest tree builder there (33 vs `ast-arena` 50 ns/leaf at m=8192).
 († `multipass-bfs`'s O(1) splits dodge the powchain but a `^`-tower catches
 it the same way; the "before" column is the last pre-fix CI run.
 [Details.](FINDINGS.md#result-2--vs-its-family-strictly-better))
 
-Correctness: curated spec suites in all three languages plus differential
-fuzzing in C++ and Python — all fifteen strategies must agree, value or
+Correctness: curated spec suites in all four languages plus differential
+fuzzing in C++, Rust and Python — all fifteen strategies must agree, value or
 rejection, on 6 000 random and mutated inputs per run.
 
 ## Same rules for every parser
@@ -129,5 +135,5 @@ whether the approach generalizes is an open question, not a claim.
   step by step, and the fused variant.
 - [docs/one-pager.md](docs/one-pager.md) — every input × every language,
   labelled best / narrowly ahead / tie / loses from three runs.
-- [cpp/](cpp/README.md) · [python/](python/README.md) · [haskell/](haskell/README.md)
+- [cpp/](cpp/README.md) · [rust/](rust/README.md) · [python/](python/README.md) · [haskell/](haskell/README.md)
   — per-language implementations and tables.

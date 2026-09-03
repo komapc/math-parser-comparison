@@ -2,7 +2,7 @@
 
 # 🧮 Math-Expression Parser & Evaluator — Full Cross-Language Report
 
-**The same fifteen parsing/evaluation strategies in C++, Haskell, and Python.**
+**The same fifteen parsing/evaluation strategies in C++, Rust, Haskell, and Python.**
 
 </div>
 
@@ -11,6 +11,7 @@
 | | language | memory model |
 |---|---|---|
 | [`cpp/`](cpp/) | C++26 | manual / RAII, arenas |
+| [`rust/`](rust/) | Rust (LLVM) | ownership, arenas; one `unsafe` block |
 | [`haskell/`](haskell/) | Haskell (GHC) | lazy, GC, persistent |
 | [`python/`](python/) | Python 3 | reference-counted, everything boxed |
 
@@ -43,6 +44,9 @@ cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-14
 cmake --build build -j && ctest --test-dir build
 ./build/corpus_bench               # shared-corpus timing (cross-language comparable)
 
+# Rust  (stable toolchain)
+cd rust && cargo test --release && cargo run --release --bin bench
+
 # Python  (3.10+)
 python3 python/test_parsers.py && python3 python/test_fuzz.py
 python3 python/bench.py
@@ -53,8 +57,8 @@ cd haskell && cabal test && cabal run bench
 
 Correctness is enforced two ways: curated spec suites in each language (the
 same cases, including IEEE corners and literal overflow → `inf`/`0`), plus
-differential fuzzing in C++ and Python ([C++](cpp/tests/fuzz_differential.cpp)
-· [Python](python/test_fuzz.py)) — all fifteen strategies must agree, value or
+differential fuzzing in C++, Rust and Python ([C++](cpp/tests/fuzz_differential.cpp)
+· [Rust](rust/tests/fuzz.rs) · [Python](python/test_fuzz.py)) — all fifteen strategies must agree, value or
 rejection, on 3 000 random + 3 000 mutated inputs per run. Haskell has the
 spec suite only.
 
@@ -63,39 +67,45 @@ spec suite only.
 Median ns/leaf across the four sizes (n=10…10000), normalised to each
 language's fastest strategy — the column shows *ranking*, not cross-language
 speed. Neutral 4-vCPU GitHub runner, median of three independent CI runs
-(33634873982, 33635442782, 33635439496). **Trust the tiers, not the digits**
+(33734046295, 33734053376, 33734059421). **Trust the tiers, not the digits**
 (each `1.0` marks a cluster of near-ties, not a clear winner).
 
-| strategy | C++ ×fastest | Python ×fastest | Haskell ×fastest |
-|---|--:|--:|--:|
-| ast-recursive-descent | 2.6 | 1.3 | 1.1 |
-| ast-shunting-yard | 2.6 | 1.2 | 1.4 |
-| ast-pratt | 2.6 | 1.3 | **1.0** |
-| **ast-arena** | 1.4 | 1.4 | 1.4 |
-| multipass (pointer) | 4.8 | 2.6 | 2.1 |
-| multipass-arena | 2.6 | 2.8 | 2.5 |
-| direct-mp | 2.2 | 2.6 | 2.1 |
-| multipass-bfs (sparse RMQ) | 3.1 | 3.1 | 3.0 |
-| multipass-reverse | 2.0 | 1.7 | 1.9 |
-| **multipass-reverse-fold** | 1.4 | 1.2 | 1.6 |
-| direct-recursive-descent | **1.0** | 1.2 | 1.1 |
-| direct-shunting-yard | **1.0** | 1.1 | 1.3 |
-| direct-reverse | **1.0** | **1.0** | 1.1 |
-| bytecode-vm | 1.2 | 1.2 | 1.2 |
-| *direct-scannerless* (lexer-free control) | *0.75* | *0.84* | *0.93* |
+| strategy | C++ ×fastest | Rust ×fastest | Python ×fastest | Haskell ×fastest |
+|---|--:|--:|--:|--:|
+| ast-recursive-descent | 2.5 | 2.6 | 1.2 | 1.1 |
+| ast-shunting-yard | 2.6 | 2.7 | 1.2 | 1.2 |
+| ast-pratt | 2.6 | 2.6 | 1.3 | **1.0** |
+| **ast-arena** | 1.4 | 1.4 | 1.5 | 1.4 |
+| multipass (pointer) | 4.9 | 5.5 | 2.5 | 1.8 |
+| multipass-arena | 2.7 | 3.7 | 2.6 | 2.2 |
+| direct-mp | 2.2 | 3.3 | 2.4 | 2.0 |
+| multipass-bfs (sparse RMQ) | 3.1 | 4.2 | 3.0 | 2.7 |
+| multipass-reverse | 2.0 | 2.0 | 1.7 | 1.9 |
+| **multipass-reverse-fold** | 1.3 | 1.4 | 1.2 | 1.5 |
+| direct-recursive-descent | **1.0** | **1.0** | 1.2 | **1.0** |
+| direct-shunting-yard | **1.0** | 1.1 | 1.1 | 1.2 |
+| direct-reverse | **1.0** | **1.0** | **1.0** | **1.0** |
+| bytecode-vm | 1.3 | 1.3 | 1.2 | 1.2 |
+| *direct-scannerless* (lexer-free control) | *0.80* | *0.69* | *0.78* | *0.88* |
 
-Raw fastest, median ns/leaf: **C++ ≈ 49** (`direct-rd` / `direct-sy` /
-`direct-reverse`, a three-way tie), **Haskell ≈ 480** (`ast-pratt`),
-**Python ≈ 2 570** (`direct-reverse`) — C++ is ~10× faster than Haskell and
-~50× faster than Python in absolute terms. The lexer-free control sits at
-37 / 446 / 2 171.
+Raw fastest, median ns/leaf: **C++ ≈ 49** (`direct-reverse`, with
+`direct-rd` / `direct-sy` inside 5 %), **Rust ≈ 52** (`direct-rd` /
+`direct-reverse`, a tie), **Haskell ≈ 470** (`direct-reverse`, `ast-pratt`
+and `direct-rd` within 5 %), **Python ≈ 2 480** (`direct-reverse`) — C++ and
+Rust are ~9× faster than Haskell and ~50× faster than Python in absolute
+terms. The lexer-free control sits at 39 / 35 / 412 / 1 935.
 
 ### What survives the change of runtime
 
 1. **In C++, memory layout dominates.** Everything *contiguous* — `direct-*`
    (no tree), `bytecode-vm`, `ast-arena`, the fused reducer — clusters at
    1.0–1.4; every pointer-walking form pays ~2.6× for chasing `make_unique`'d
-   nodes.
+   nodes. Rust reproduces the C++ tiers almost line for line — same
+   clusters, same ratios — under a different compiler (LLVM), so the tiers
+   are the memory model's, not GCC's. Where the two differ is the top-down
+   family (the Rust port has no SIMD candidate scan, so `multipass-arena` /
+   `direct-mp` sit at 3.3–3.7× instead of 2.2–2.7×) and the fused reducer's
+   sliver over `ast-arena`, which LLVM does not reproduce.
 2. **Managed runtimes hide layout.** Boxed/GC'd nodes make contiguity
    invisible: `ast-arena` is *slower* than pointer-AST in Python and Haskell,
    and "no tree" shrinks to a 20–30 % edge in Python and vanishes in Haskell,
@@ -104,8 +114,8 @@ Raw fastest, median ns/leaf: **C++ ≈ 49** (`direct-rd` / `direct-sy` /
    real extra work no runtime rescues. `multipass-bfs`'s RMQ precompute pays
    off nowhere on random corpora. The bottom-up member is the exception — see
    below.
-4. **Overhead compresses the spread:** fastest-to-slowest is ~4.8× in C++ but
-   ~3× in Haskell and Python. (Haskell read ~1.7× until the number-parsing
+4. **Overhead compresses the spread:** fastest-to-slowest is ~5× in C++ and
+   Rust but ~3× in Haskell and Python. (Haskell read ~1.7× until the number-parsing
    fix below removed a constant term from every strategy.)
 
 ## Lexing rules — applied to every parser
@@ -198,12 +208,13 @@ runs; the ratio's range is over the three runs):
 
 | | `direct-rd` | `direct-scannerless` | control ÷ `direct-rd` |
 |---|--:|--:|--:|
-| C++ | 50 | 37 | 0.75 (0.66–0.75) |
-| Python | 2 963 | 2 171 | 0.73 (0.64–0.75) |
-| Haskell | 522 | 446 | 0.93 (0.74–1.02) |
+| C++ | 50 | 39 | 0.78 (0.75–0.80) |
+| Rust | 52 | 35 | 0.69 (0.64–0.70) |
+| Python | 2 898 | 1 935 | 0.67 (0.65–0.75) |
+| Haskell | 476 | 412 | 0.87 (0.82–0.96) |
 
-C++ and Python pay a quarter of `direct-rd`'s time for having a lexer at
-all; in Haskell the control buys 5–15 % and the difference is inside
+C++ pays a fifth of `direct-rd`'s time for having a lexer at all, Rust and
+Python a third; in Haskell the control buys ~13 % and the range touches
 run-to-run noise. The remaining gap is context: after an operand the fused
 parser tests only operator characters, where a general lexer classifies the
 character first. That is intrinsic to having a lexer, and it is the ceiling
@@ -222,25 +233,28 @@ ns/leaf at n=10000, neutral runner:
 
 | language | `multipass-reverse-fold` | `multipass-reverse` | fastest classic tree builder | fastest overall |
 |---|--:|--:|--:|--:|
-| C++ | **69** | 99 | ast-arena 73 | direct-rd / direct-reverse 50 (tie) |
-| Python | **3 535** | 4 884 | ast-sy 3 726 | direct-reverse 2 720 |
-| Haskell | 1 041 | 1 682 | ast-pratt 476 | ast-pratt 476 |
+| C++ | **67** | 100 | ast-arena 69 | direct-reverse 49 (direct-rd 50, tie) |
+| Rust | 72 | 102 | **ast-arena 71** (tie) | direct-rd / direct-reverse 52 (tie) |
+| Python | **3 512** | 4 846 | ast-sy 3 706 | direct-reverse 2 701 |
+| Haskell | 999 | 1 712 | ast-pratt 580 | direct-reverse 551 |
 
-(The lexer-free control `direct-scannerless` sits at 38 / 2 171 / 610.)
+(The lexer-free control `direct-scannerless` sits at 39 / 36 / 1 929 / 564.)
 
-The fused form is the fastest tree builder in C++ and Python (~3–5 % ahead
-of `ast-arena` in C++, ~1–9 % ahead of the best pointer classic in Python;
-positive in 11 of 12 size×run measurements across three independent CI
-runs, the one flip being C++ at n=10,000 in one run — a consistent sliver,
-not a margin). Its no-tree twin `direct-reverse` is genuinely faster in
-Python (~9–12 % over `direct-sy`, ~7–20 % over `direct-rd`, repeated across
-runs), but in C++ it is a **three-way tie** with `direct-recursive-descent`
-and `direct-shunting-yard` at ~50 ns/leaf — two runs within ±1.5 % at every
-size, one run 9–15 % apart, i.e. runner noise. Haskell is the exception: the
+The fused form is the fastest tree builder in C++ and Python (~2–5 % ahead
+of `ast-arena` in C++, −1…+8 % against the best pointer classic in Python;
+positive in 11 of 12 size×run measurements in each language across three
+independent CI runs — a consistent sliver, not a margin). In Rust it is a
+tie: 0–2 % *behind* `ast-arena` in all 12 measurements, so LLVM does not
+reproduce GCC's sliver. Its no-tree twin `direct-reverse` is genuinely
+faster in Python (~10–13 % over `direct-sy`, ~7–21 % over `direct-rd`,
+repeated across runs), but in C++ it is a **three-way tie** with
+`direct-recursive-descent` and `direct-shunting-yard` at ~50 ns/leaf
+(+0…+3 % and −1…+5 % across runs), and in Rust a tie with `direct-rd`
+(−5…+2 %) that is 7–10 % ahead of `direct-sy`. Haskell is the exception: the
 pointer classics lead every arena form by ~1.5–1.7×, and `direct-reverse` vs
-`direct-rd` swings ±15 % run to run (a tie, noisily). The buffered
+`direct-rd` swings −11…+18 % run to run (a tie, noisily). The buffered
 `multipass-reverse` — the pedagogical version — trails its fused form by
-~1.4–1.6×. Design of the fused form:
+~1.3–1.5×. Design of the fused form:
 [docs/multipass-reverse.md](docs/multipass-reverse.md#the-fused-variant).
 
 ### Result 2 — vs its family: strictly better
@@ -262,7 +276,7 @@ isolating *mixed precedence* as the trigger; a fourth shape (**nestchain**,
 deep parentheses — the one construct where bottom-up recurses) attacks
 reverse's own worst case, and it stays flat there too (66 ns/leaf across
 sizes; `ast-arena` sits at 39); the fused form is the fastest tree builder on
-that shape outright (32 vs `ast-arena` 39 at m=8192).
+that shape outright (33 vs `ast-arena` 50 at m=8192).
 
 Pre-fix, powchain (last CI run before the top-down family was patched; sizes
 differ per language and the gap grows with size, so ratios are not
@@ -274,29 +288,29 @@ cross-language comparable):
 | `multipass-bfs` (RMQ) | 84 | 13 709 | 3 010 |
 | **`multipass-reverse`** | **43** | **3 135** | **1 302** |
 
-**The fix** (applied to the top-down variants in all three languages): every
+**The fix** (applied to the top-down variants in all four languages): every
 linear scan is bounded at 16 candidates; past the budget, per-depth sorted
 position arrays per precedence class answer splits by binary search — Θ(n²)
 drops to O(n log n). `multipass-arena`/`direct-mp` in C++ additionally use an
-AVX2 flat/split check; Python folds whole precedence levels on budget trip;
+AVX2 flat/split check; Python and Rust fold whole precedence levels on budget trip;
 Haskell materialises buckets lazily. Effect at m=8192 (ns/leaf, neutral
 runner; "after" cells are flat across sizes — no quadratic growth):
 
 | | powchain before → after | towerchain after † |
 |---|--:|--:|
-| `multipass` | 3 791 → **166** | 158 |
-| `multipass-arena` | 4 864 → **88** | 81 |
-| `direct-mp` | 3 236 → **70** | 68 |
-| `multipass-bfs` | 84 → 91 (splits were already O(1)) | **86** |
-| `multipass-reverse` (unchanged) | 43 → 46 | 40 |
-| `multipass-reverse-fold` | — → **32** | **32** |
+| `multipass` | 3 791 → **151** | 160 |
+| `multipass-arena` | 4 864 → **86** | 83 |
+| `direct-mp` | 3 236 → **70** | 71 |
+| `multipass-bfs` | 84 → 87 (splits were already O(1)) | **90** |
+| `multipass-reverse` (unchanged) | 43 → 40 | 43 |
+| `multipass-reverse-fold` | — → **30** | **34** |
 
 † towerchain landed with the fix, so it has no pre-fix CI run (discovery-laptop
 pre-fix: ~2 900–11 000 ns/leaf). The Python and Haskell ports close the same
 holes the same way; their adversarial chains are flat on the neutral runner too.
 
 So: the rest of the family is linear now — **because it was rescued**, with
-budgets, buckets and SIMD, and it still trails bottom-up by 1.5–3.6× (2–5×
+budgets, buckets and SIMD, and it still trails bottom-up by 1.7–3.8× (2.3–5×
 against the fused form). `multipass-reverse` is **the only member of the
 family whose worst case is its average case**: same two columns, same code,
 no machinery. The pre-fix numbers are preserved from CI and cannot be
@@ -304,12 +318,13 @@ regenerated from current sources; the shipped binaries reproduce the "after"
 column (`./build/adversarial_bench`, `python3 python/adversarial.py`,
 `cabal run adversarial`).
 
-Per-language detail: [`cpp/`](cpp/README.md) · [`python/`](python/README.md) · [`haskell/`](haskell/README.md).
+Per-language detail: [`cpp/`](cpp/README.md) · [`rust/`](rust/README.md) · [`python/`](python/README.md) · [`haskell/`](haskell/README.md).
 
 ## Layout
 
 ```
 cpp/        C++26 implementation (cpp/README.md — the deep dive)
+rust/       Rust implementation (rust/README.md — what the port taught)
 haskell/    Haskell implementation
 python/     Python implementation
 bench/      shared corpus generator + (generated) corpus/

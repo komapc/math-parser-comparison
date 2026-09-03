@@ -32,6 +32,28 @@ cargo run --release --bin adversarial       # powchain / towerchain / sumchain /
 Drivers are generic functions over `Builder`, monomorphised per carrier the
 way the C++ policy templates are; the builder calls inline away.
 
+## Results (neutral 4-vCPU runner, median of three runs, ns/leaf)
+
+| tier | C++ | Rust |
+|---|--:|--:|
+| no tree (`direct-rd` / `direct-sy` / `direct-reverse`) | 50 / 52 / 49 | 52 / 56 / 52 |
+| contiguous tree (`ast-arena` / `multipass-reverse-fold`) | 69 / 67 | 71 / 72 |
+| pointer tree (`ast-rd` / `ast-pratt`) | 125 / 133 | 139 / 138 |
+| buffered bottom-up (`multipass-reverse`) | 98 | 100 |
+| bytecode-vm | 62 | 67 |
+| lexer-free control (`direct-scannerless`) | 39 | 36 |
+
+Same tiers to within a few percent (n=1000; runs 33734046295, 33734053376,
+33734059421). Two differences worth naming: the fold's 2–5 % edge over
+`ast-arena` in C++ does not reproduce here — Rust puts it 0–2 % *behind*
+in all 12 size×run measurements, a tie — and the top-down family is
+1.5–1.9× slower than in C++, which is the AVX2 candidate scan the port
+does not have. On the structured shapes the fold beats `ast-arena` by
+9–39 % on towerchain, sumchain and nestchain in every run and ties it on
+powchain (−8…+5 %); `direct-reverse` ties `direct-rd` on the random corpus
+and is 10–22 % ahead on the chains. Full cross-language tables:
+[FINDINGS.md](../FINDINGS.md), [docs/one-pager.md](../docs/one-pager.md).
+
 ## What the port was for
 
 Two questions the C++ numbers left open:
