@@ -20,3 +20,6 @@ __pycache__/
 haskell/dist-newstyle/
 haskell/.stack-work/
 *.hi
+
+# rust
+rust/target/

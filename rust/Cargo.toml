@@ -1,0 +1,28 @@
+[package]
+name = "math-parser"
+version = "0.1.0"
+edition = "2021"
+description = "Fifteen math-expression parsing/evaluation strategies, Rust port"
+publish = false
+
+[lib]
+name = "mathparser"
+path = "src/lib.rs"
+
+[[bin]]
+name = "bench"
+path = "src/bin/bench.rs"
+
+[[bin]]
+name = "adversarial"
+path = "src/bin/adversarial.rs"
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+lto = "fat"
+debug = false
+
+# tests run the differential fuzz; keep them optimised
+[profile.test]
+opt-level = 3
