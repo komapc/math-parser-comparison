@@ -12,6 +12,9 @@ a.out
 # generated benchmark corpora (reproduce with: python3 bench/gen_corpus.py)
 bench/corpus/
 
+# generated shared fuzz corpora (reproduce with: python3 bench/gen_fuzz.py)
+bench/fuzz/
+
 # python
 __pycache__/
 *.pyc
@@ -20,3 +23,6 @@ __pycache__/
 haskell/dist-newstyle/
 haskell/.stack-work/
 *.hi
+
+# rust
+rust/target/

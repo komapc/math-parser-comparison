@@ -10,27 +10,32 @@
 #include <string>
 #include <vector>
 
+#if defined(__x86_64__)
+#include <cstdlib>
+#include <immintrin.h>
+#endif
+
 namespace mp {
 namespace {
 
 // Divide-and-conquer parser. Full complexity analysis in multipass_arena.cpp.
 //
-// This variant (pointer-AST) adds two improvements over the previous version:
+// This variant (pointer-AST) uses two techniques:
 //
-//   #8  Iterator passing (ported from multipass-arena): when parseRange splits
-//       at candidate k, the two sub-ranges' candidate spans are already known —
-//       the left half gets [cbeg, splitIt) and the right gets [splitIt+1, cend).
-//       Flat-chain sub-ranges between chain operators have ZERO depth-d
-//       candidates and receive (cend, cend). The only call that still needs a
-//       binary search is a paren strip (depth change). Before this fix every
-//       recursive call did a binary search: O(log n) per call, O(n log² n)
-//       total. Now it is O(n log n) like the arena variant.
+//   Iterator passing (ported from multipass-arena): when parseRange splits
+//   at candidate k, the two sub-ranges' candidate spans are already known —
+//   the left half gets [cbeg, splitIt) and the right gets [splitIt+1, cend).
+//   Flat-chain sub-ranges between chain operators have ZERO depth-d
+//   candidates and receive (cend, cend). The only call that still needs a
+//   binary search is a paren strip (depth change). Without this, every
+//   recursive call would need a binary search: O(log n) per call, O(n log² n)
+//   total. With it, it is O(n log n) like the arena variant.
 //
-//   #9  AVX2 SIMD window (same design as multipass-arena): a per-depth int8_t
-//       prec array lets a single 32-byte load answer both the flat check and the
-//       split decision branchlessly. Compile-time gated on __x86_64__; runtime-
-//       dispatched so the same binary runs on non-AVX2 machines. Set
-//       MP_NO_SIMD=1 to force the scalar path for A/B comparison.
+//   AVX2 SIMD window (same design as multipass-arena): a per-depth int8_t
+//   prec array lets a single 32-byte load answer both the flat check and the
+//   split decision branchlessly. Compile-time gated on __x86_64__; runtime-
+//   dispatched so the same binary runs on non-AVX2 machines. Set
+//   MP_NO_SIMD=1 to force the scalar path for A/B comparison.
 
 int binPrec(TokenType t) {
     switch (t) {
@@ -74,8 +79,6 @@ bool anyIn(const std::vector<std::size_t>& v, std::size_t lo, std::size_t hi) {
 // ── AVX2 SIMD window (runtime-dispatched) ──────────────────────────────────
 #if defined(__x86_64__)
 #define MP_SIMD 1
-#include <cstdlib>
-#include <immintrin.h>
 
 const bool kHasSIMD = __builtin_cpu_supports("avx2") &&
                       std::getenv("MP_NO_SIMD") == nullptr;

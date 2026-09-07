@@ -60,6 +60,26 @@ jobs:
         with:
           ghc-version: '9.6'
           cabal-version: '3.10'
+      - name: Cache cabal store
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cabal/packages
+            ~/.cabal/store
+            haskell/dist-newstyle
+          key: ${{ runner.os }}-cabal-${{ hashFiles('haskell/*.cabal', 'haskell/cabal.project*') }}
+          restore-keys: |
+            ${{ runner.os }}-cabal-
       - name: Correctness
         working-directory: haskell
         run: cabal test
+
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: rustup update stable && rustc --version
+      - name: Correctness + differential fuzz
+        working-directory: rust
+        run: cargo test --release -- --nocapture

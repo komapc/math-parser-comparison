@@ -32,8 +32,8 @@
 // Usage: ./build/adversarial_bench
 #include "parser/evaluator.hpp"
 
+#include <algorithm>
 #include <chrono>
-#include <cmath>
 #include <limits>
 #include <print>
 #include <string>
@@ -95,7 +95,9 @@ double bestNs(IEvaluator& ev, const std::string& expr, int reps) {
     return best;
 }
 
-void runShape(const char* title, const std::vector<int>& ms,
+// Returns true iff a correctness mismatch was found (caller uses this to set
+// a nonzero exit code — a mismatch must fail CI, not just print a line).
+bool runShape(const char* title, const std::vector<int>& ms,
               std::string (*gen)(int), long (*leaves)(int)) {
     std::println("-- {} --", title);
     std::print("{:<26}", "strategy");
@@ -108,10 +110,13 @@ void runShape(const char* title, const std::vector<int>& ms,
     const auto evs = all_evaluators();
     // cross-check on the largest input
     const double ref = evs.front()->eval(exprs.back());
+    bool mismatch = false;
     for (const auto& ev : evs)
-        if (ev->eval(exprs.back()) != ref)
+        if (ev->eval(exprs.back()) != ref) {
             std::println("MISMATCH [{}]: {} != {}", ev->name(),
                          ev->eval(exprs.back()), ref);
+            mismatch = true;
+        }
 
     for (const auto& ev : evs) {
         std::print("{:<26}", ev->name());
@@ -122,18 +127,24 @@ void runShape(const char* title, const std::vector<int>& ms,
         std::println("");
     }
     std::println("");
+    return mismatch;
 }
 }  // namespace
 
 int main() {
     std::println("== C++: adversarial chains (structured inputs) ==\n");
-    runShape("powchain: b^e * b^e / ... (mixed precedence)",
+    bool anyMismatch = false;
+    anyMismatch |= runShape("powchain: b^e * b^e / ... (mixed precedence)",
              {512, 2048, 8192}, powChain, [](int m) { return 2L * m; });
-    runShape("towerchain: 1^1^...^1 * 1 * ... (flat-check attack)",
+    anyMismatch |= runShape("towerchain: 1^1^...^1 * 1 * ... (flat-check attack)",
              {512, 2048, 8192}, towerChain, [](int m) { return m + 1L; });
-    runShape("sumchain: 1 + 2 - 3 + ... (single precedence — control)",
+    anyMismatch |= runShape("sumchain: 1 + 2 - 3 + ... (single precedence — control)",
              {512, 2048, 8192}, sumChain, [](int m) { return (long)m; });
-    runShape("nestchain: (((...(1 + 1)...) + 1) (deep nesting — bottom-up's turn)",
+    anyMismatch |= runShape("nestchain: (((...(1 + 1)...) + 1) (deep nesting — bottom-up's turn)",
              {512, 2048, 8192}, nestChain, [](int m) { return m + 1L; });
+    if (anyMismatch) {
+        std::println("FAIL: one or more evaluators disagreed on an adversarial input.");
+        return 1;
+    }
     return 0;
 }

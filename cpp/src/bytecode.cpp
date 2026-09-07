@@ -67,7 +67,11 @@ public:
         for (const std::uint8_t opc : code_) {
             switch (static_cast<Bc>(opc)) {
                 case Bc::Push:    st_.push_back(consts_[ci++]); break;
-                case Bc::LoadVar: st_.push_back(vars ? vars[static_cast<std::size_t>(consts_[ci++])] : 0.0); break;
+                case Bc::LoadVar: {
+                    const auto idx = static_cast<std::size_t>(consts_[ci++]);
+                    st_.push_back(vars ? vars[idx] : 0.0);
+                    break;
+                }
                 case Bc::Neg:  st_.back() = -st_.back(); break;
                 default: {
                     const double r = st_.back(); st_.pop_back();

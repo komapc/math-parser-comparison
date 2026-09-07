@@ -7,8 +7,13 @@
 
 namespace mp {
 
-// Uniform interface implemented by each parsing strategy. The benchmark
-// harness drives strategies exclusively through this interface.
+// Interface implemented by the AST-producing parsing strategies (recursive-
+// descent, shunting-yard, Pratt, multipass). It is not what the benchmark
+// harness drives directly: AstEvaluator (src/evaluators.cpp) wraps an
+// IParser to produce an IEvaluator, which is the interface the harness
+// actually uses for every strategy — including the ones (e.g. the arena/lean/
+// opt multipass variants) that implement IEvaluator directly and never go
+// through IParser at all.
 class IParser {
 public:
     virtual ~IParser() = default;
