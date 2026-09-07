@@ -18,10 +18,12 @@
 module Main (main) where
 
 import Control.Exception (SomeException, evaluate, try)
-import Control.Monad (unless)
+import Control.Monad (unless, when)
 import System.Directory (doesFileExist)
 import System.Exit (exitFailure, exitSuccess)
+import System.IO (hFlush, stdout)
 import System.Process (callProcess)
+import System.Timeout (timeout)
 import Text.Printf (printf)
 
 import MathParser.Strategies
@@ -70,6 +72,16 @@ ensureFuzzFiles = do
 loadLines :: FilePath -> IO [String]
 loadLines path = lines <$> readFile path
 
+-- Progress every 500 inputs, flushed immediately: if a run is killed by an
+-- external timeout (rather than hitting the per-call budget above and
+-- reporting HANG), the last line printed still narrows down where.
+checkAllReporting :: String -> [Evaluator] -> Int -> String -> IO [String]
+checkAllReporting label evs n expr = do
+  when (n `mod` 500 == 0) $ do
+    printf "  %s: %d done\n" label n
+    hFlush stdout
+  checkAll evs expr
+
 main :: IO ()
 main = do
   ensureFuzzFiles
@@ -77,8 +89,10 @@ main = do
   mutated <- loadLines mutatedPath
 
   let evs = allEvaluators
-  wfMismatches <- concat <$> mapM (checkAll evs) wellFormed
-  muMismatches <- concat <$> mapM (checkAll evs) mutated
+  wfMismatches <- concat <$> mapM (\(n, e) -> checkAllReporting "well-formed" evs n e)
+                                   (zip [1 ..] wellFormed)
+  muMismatches <- concat <$> mapM (\(n, e) -> checkAllReporting "mutated" evs n e)
+                                   (zip [1 ..] mutated)
   let mismatches = wfMismatches ++ muMismatches
 
   mapM_ putStrLn mismatches
@@ -86,27 +100,47 @@ main = do
          (length wellFormed) (length mutated) (length evs) (length mismatches)
   if null mismatches then exitSuccess else exitFailure
 
+-- Per-call budget for tryEval. Every corpus expression is at most a few
+-- hundred characters (bounded generator depth + single-character mutations),
+-- so a correct strategy finishes in microseconds; 2s is generous headroom,
+-- not a real limit, and turns a genuine hang (an actual bug, since none of
+-- these strategies has unbounded work on bounded input) into a named,
+-- reported failure instead of an unattributed CI timeout.
+budgetMicros :: Int
+budgetMicros = 2000000
+
 -- Evaluates every strategy on one expression; the first evaluator sets the
 -- reference (value, or "threw"), every other must agree. Returns a printable
--- line per disagreement (empty list = all agreed).
+-- line per disagreement or hang (empty list = all agreed).
 checkAll :: [Evaluator] -> String -> IO [String]
 checkAll [] _ = pure []
 checkAll (ref : rest) expr = do
-  (baseVal, baseThrew) <- tryEval ref expr
-  results <- mapM (\ev -> do
-                      (val, threw) <- tryEval ev expr
-                      pure $ if threw /= baseThrew || (not threw && not (nearly val baseVal))
-                             then Just (mismatchMsg ref expr baseVal baseThrew ev val threw)
-                             else Nothing)
-                   rest
-  pure [msg | Just msg <- results]
+  baseR <- tryEval ref expr
+  case baseR of
+    Nothing -> pure [hangMsg ref]
+    Just (baseVal, baseThrew) -> do
+      results <- mapM (\ev -> do
+                          r <- tryEval ev expr
+                          pure $ case r of
+                            Nothing -> Just (hangMsg ev)
+                            Just (val, threw) ->
+                              if threw /= baseThrew || (not threw && not (nearly val baseVal))
+                                then Just (mismatchMsg ref expr baseVal baseThrew ev val threw)
+                                else Nothing)
+                       rest
+      pure [msg | Just msg <- results]
   where
-    tryEval :: Evaluator -> String -> IO (Double, Bool)
+    tryEval :: Evaluator -> String -> IO (Maybe (Double, Bool))
     tryEval ev e = do
-      r <- try (evaluate (evRun ev env e)) :: IO (Either SomeException Double)
+      r <- timeout budgetMicros
+             (try (evaluate (evRun ev env e)) :: IO (Either SomeException Double))
       pure $ case r of
-        Right v -> (v, False)
-        Left _  -> (0.0, True)
+        Nothing         -> Nothing
+        Just (Right v)  -> Just (v, False)
+        Just (Left _)   -> Just (0.0, True)
+    hangMsg :: Evaluator -> String
+    hangMsg ev = printf "HANG on %s: %s did not finish within %ds"
+                   (show expr) (evName ev) (budgetMicros `div` 1000000 :: Int)
     mismatchMsg :: Evaluator -> String -> Double -> Bool -> Evaluator -> Double -> Bool -> String
     mismatchMsg r e bv bt other ov ot =
       printf "MISMATCH on %s: %s=%s vs %s=%s"
