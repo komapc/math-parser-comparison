@@ -113,8 +113,11 @@ control sits at 38 / 34 / 504 / 2 292 (C++ / Rust / Haskell / Python).
    sliver over `ast-arena`, which LLVM does not reproduce.
 2. **Managed runtimes hide layout.** Boxed/GC'd nodes make contiguity
    invisible: `ast-arena` is *slower* than pointer-AST in Python and Haskell,
-   and "no tree" shrinks to a 20–30 % edge in Python and vanishes in Haskell,
-   where `ast-pratt` is the fastest strategy outright.
+   and "no tree" shrinks from C++'s ~2.6× to a ~20 % edge in both — in
+   Haskell `direct-recursive-descent`/`direct-reverse` are fastest outright,
+   with the pointer classics (`ast-recursive-descent`/`ast-pratt`) close
+   behind rather than winning as they did before this session's lexer and
+   correctness fixes.
 3. **Top-down multipass loses in every language** — repeated split-scans are
    real extra work no runtime rescues. `multipass-bfs`'s RMQ precompute pays
    off nowhere on random corpora. The bottom-up member is the exception — see
