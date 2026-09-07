@@ -36,26 +36,26 @@ way the C++ policy templates are; the builder calls inline away.
 
 | tier | C++ | Rust |
 |---|--:|--:|
-| no tree (`direct-rd` / `direct-sy` / `direct-reverse`) | 52 / 50 / 50 | 54 / 61 / 57 |
-| contiguous tree (`ast-arena` / `multipass-reverse-fold`) | 72 / 69 | 74 / 77 |
-| pointer tree (`ast-rd` / `ast-pratt`) | 132 / 138 | 132 / 132 |
-| buffered bottom-up (`multipass-reverse`) | 97 | 102 |
-| bytecode-vm | 62 | 74 |
-| lexer-free control (`direct-scannerless`) | 38 | 34 |
+| no tree (`direct-rd` / `direct-sy` / `direct-reverse`) | 51 / 50 / 50 | 54 / 63 / 57 |
+| contiguous tree (`ast-arena` / `multipass-reverse-fold`) | 71 / 69 | 74 / 76 |
+| pointer tree (`ast-rd` / `ast-pratt`) | 130 / 137 | 133 / 132 |
+| buffered bottom-up (`multipass-reverse`) | 96 | 102 |
+| bytecode-vm | 61 | 77 |
+| lexer-free control (`direct-scannerless`) | 37 | 34 |
 
-Same tiers to within a few percent (n=1000; runs 34130395595, 34131316618,
-34132166596; this batch ran rustc 1.98.1, one point release newer than the
-previous batch). Two differences worth naming: the fold's small edge over
-`ast-arena` in C++ does not reproduce here — Rust is a genuine tie, sign
-flipping run to run rather than settling one way — and the top-down family
-that lost its AVX2 candidate scan in the port is slower in Rust, unevenly:
-pointer `multipass` itself is closest at ~1.3×, while the arena/direct forms
-that actually used the scan (`multipass-arena`, `direct-mp`, `multipass-bfs`)
-are 1.5–1.8× behind C++. On the structured shapes the fold beats
-`ast-arena` on towerchain, sumchain and nestchain in every run and is
-ahead, narrowly, on powchain; `direct-reverse` ties `direct-rd` on
-the random corpus, is only narrowly ahead on powchain, and clearly ahead on
-towerchain, sumchain and nestchain. Full cross-language tables:
+Same tiers to within a few percent (n=1000; runs 34136843367, 34137622680,
+34138407724; rustc 1.98.1, unchanged from the previous batch). Two
+differences worth naming: the fold's small edge over `ast-arena` in C++
+does not reproduce here — Rust is a genuine tie, sign flipping run to run
+rather than settling one way — and the top-down family that lost its AVX2
+candidate scan in the port is slower in Rust, unevenly: pointer `multipass`
+itself is closest at ~1.3×, while the arena/direct forms that actually used
+the scan (`multipass-arena`, `direct-mp`, `multipass-bfs`) are 1.6–1.8×
+behind C++. On the structured shapes the fold beats `ast-arena` on
+towerchain and nestchain in every run, is ahead, narrowly, on powchain, and
+is now a tie on sumchain (sign flips run to run, mirroring the same shape's
+volatility in C++); `direct-reverse` ties `direct-rd` on the random corpus
+and clearly ahead on every structured shape. Full cross-language tables:
 [FINDINGS.md](../FINDINGS.md), [docs/one-pager.md](../docs/one-pager.md).
 
 ## What the port was for
