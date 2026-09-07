@@ -5,16 +5,27 @@ The axis that actually distinguishes them is *representation* × *parse order*:
   representation         builder        used by
   ------------------     -----------    -------------------------------------
   pointer AST (tuples)   TupleBuilder   ast-*, multipass
-  arena (flat list)      ArenaBuilder   ast-arena, multipass-arena/-bfs
-  none (inline float)    DirectBuilder  direct-*
+  arena (flat list)      ArenaBuilder   ast-arena, multipass-arena/-bfs,
+                                        multipass-reverse,
+                                        multipass-reverse-fold
+  none (inline float)    DirectBuilder  direct-* (except direct-scannerless,
+                                        which has no separate builder)
 
-  parse order            driver         used by
-  ------------------     -----------    -------------------------------------
-  recursive descent      rd_parse       ast-recursive-descent, ast-arena, direct-rd
-  shunting-yard          sy_parse       ast-shunting-yard, direct-shunting-yard
-  Pratt                  pratt_parse    ast-pratt
-  divide & conquer       _MP.parse      multipass, multipass-arena, -bfs, direct-mp
-  (bytecode is its own compile-then-run two-phase)
+  parse order            driver              used by
+  ------------------     -----------------   -------------------------------
+  recursive descent      rd_parse            ast-recursive-descent, ast-arena,
+                                              direct-rd
+  shunting-yard          sy_parse            ast-shunting-yard,
+                                              direct-shunting-yard
+  Pratt                  pratt_parse         ast-pratt
+  divide & conquer       _MP.parse           multipass, multipass-arena, -bfs,
+                                              direct-mp
+  reverse (bottom-up)    reverse_mp_parse    multipass-reverse
+  reverse, fused         reverse_fold_parse  multipass-reverse-fold,
+                                              direct-reverse
+  (bytecode-vm is its own compile-then-run two-phase; direct-scannerless
+  fuses the lexer into a character-level recursive-descent evaluator, with
+  no separate driver+builder split — see scannerless_eval below)
 
 A builder exposes num/var/neg/pos/binop returning its representation, plus
 result() to collapse the root to a float given the variable environment.
@@ -864,8 +875,9 @@ def scannerless_eval(src, vars):
     syntax, error positions); whitespace is consumed exactly once, right after
     each token, by take(), so the grammar never has to think about it. Every
     other strategy pays for the token list first -- this one is the control
-    for what that costs (in C++ about a third of a direct evaluator's time;
-    here the interpreter's per-call overhead is the thing being measured).
+    for what that costs: here in Python, about a third of direct-rd's time
+    (see FINDINGS.md's lexer-cost table); the interpreter's per-call overhead
+    is the rest of what's being measured.
     """
     n = len(src)
     i = 0
@@ -920,6 +932,9 @@ def scannerless_eval(src, vars):
             if c.isdigit() or c == ".":
                 m = _NUMBER_RE.match(src, i)
                 if not m:
+                    # c.isdigit() is Unicode-aware (e.g. Arabic-Indic '١' or
+                    # superscript '²'), so it can accept a character
+                    # _NUMBER_RE (ASCII-only) rejects.
                     raise ValueError(f"invalid number at position {i}")
                 v = float(m.group())
                 i = m.end()
@@ -927,6 +942,10 @@ def scannerless_eval(src, vars):
                 return v
             if c.isalpha() or c == "_":
                 m = _IDENT_RE.match(src, i)
+                if not m:
+                    # c.isalpha() is Unicode-aware (e.g. Greek 'π'), so it
+                    # can accept a character _IDENT_RE (ASCII-only) rejects.
+                    raise ValueError(f"unexpected character {c!r} at position {i}")
                 if len(m.group()) != 1 or c == "_":
                     raise ValueError(f"unknown identifier at position {i}")
                 idx = ord(c.lower()) - ord("a")

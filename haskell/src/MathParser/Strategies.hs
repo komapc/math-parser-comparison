@@ -8,10 +8,12 @@
 -- algorithm is written once and instantiated at three carriers:
 --
 --   * 'Expr'   — the algebraic data type (pointer-AST analog)   -> ast-*, multipass
---   * 'Arena'  — a state-threaded flat node array               -> ast-arena, multipass-arena/-bfs
+--   * 'Arena'  — a state-threaded flat node array               -> ast-arena, multipass-arena/-bfs,
+--                                                                   multipass-reverse/-reverse-fold
 --   * 'Direct' — an @Env -> Double@ closure (no tree)           -> direct-*
 --
--- bytecode-vm is a separate compile-to-instructions-then-run pass.
+-- bytecode-vm is a separate compile-to-instructions-then-run pass, and
+-- direct-scannerless (scanParse) fuses the lexer into the grammar.
 module MathParser.Strategies
   ( Evaluator(..)
   , Env
@@ -21,7 +23,7 @@ module MathParser.Strategies
 import           Data.Array          hiding ((!), bounds, listArray)
 import           Data.Array.Unboxed  (UArray, (!), bounds, listArray)
 import           Data.Bits (countLeadingZeros, finiteBitSize)
-import           Data.Char (isDigit, isSpace, isAlpha, isAlphaNum, toLower, ord)
+import           Data.Char (isDigit, toLower, ord)
 import           Data.List (foldl')
 import qualified Data.IntMap.Strict as IM
 
@@ -104,7 +106,7 @@ type ArenaSt = (Int, [Node])
 newtype Arena = Arena (ArenaSt -> (Int, ArenaSt))
 
 emitNode :: Node -> ArenaSt -> (Int, ArenaSt)
-emitNode nd (n, xs) = (n, (n + 1, nd : xs))
+emitNode nd (n, xs) = let !n' = n + 1 in (n, (n', nd : xs))
 
 instance Sym Arena where
   sNum x = Arena (emitNode (NNum x))
@@ -303,7 +305,8 @@ syParse toks = finish (go toks [] [] True)
       KVar | expect    -> go ts (sVar (round (tVal t)) : out) ops False
            | otherwise -> error "unexpected variable"
       KLParen -> go ts out (OpE KLParen 0 False False True : ops) True
-      KRParen -> let (out1, ops1) = popUntilLP out ops in go ts out1 ops1 False
+      KRParen | expect    -> error "expected number or '('"
+              | otherwise -> let (out1, ops1) = popUntilLP out ops in go ts out1 ops1 False
       KEnd | expect    -> error "unexpected end of input"
            | otherwise -> (out, ops)
       k | k `elem` [KPlus, KMinus, KStar, KSlash, KCaret] ->
@@ -720,7 +723,8 @@ bcCompile toks = compile toks [] [] True
       KVar | expect    -> compile ts (ILoad (round (tVal t)) : code) ops False
            | otherwise -> error "unexpected variable"
       KLParen -> compile ts code (OpE KLParen 0 False False True : ops) True
-      KRParen -> let (c1, ops1) = popUntilLP code ops in compile ts c1 ops1 False
+      KRParen | expect    -> error "expected number or '('"
+              | otherwise -> let (c1, ops1) = popUntilLP code ops in compile ts c1 ops1 False
       KEnd | expect    -> error "unexpected end of input"
            | otherwise -> reverse (foldl' (flip applyE) code ops)
       k | k `elem` [KPlus, KMinus, KStar, KSlash, KCaret] ->

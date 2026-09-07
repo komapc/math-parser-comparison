@@ -29,7 +29,13 @@ const CASES: &[(&str, f64)] = &[
     ("1e400", INF),
     ("1e-400 + a", 2.0),
 ];
-const ERRORS: &[&str] = &["a +", "(a + b", "a b", "* a", "a + * b", "", "a)", "(a)(b)", "a(3)", "."];
+const ERRORS: &[&str] = &[
+    "a +", "(a + b", "a b", "* a", "a + * b", "", "a)", "(a)(b)", "a(3)", ".",
+    // regression: Haskell's shunting-yard family accepted empty parens
+    "a()", "()",
+    // regression: Haskell's shared lexer fast-pathed ".e5" to 0.0
+    ".e5", ".E-3",
+];
 
 fn nearly(a: f64, b: f64) -> bool {
     if a.is_nan() || b.is_nan() { return a.is_nan() && b.is_nan(); }
@@ -62,6 +68,6 @@ fn spec() {
         }
     }
     println!("{} checks across {} evaluators, {} failure(s)", checks, evs.len(), failures);
-    assert_eq!(checks, 480);
+    assert_eq!(checks, 540);
     assert_eq!(failures, 0);
 }

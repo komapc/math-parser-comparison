@@ -110,12 +110,39 @@ int main() {
         // stray ')' and adjacent operand groups (regression: bytecode-vm
         // accepted these), and a digitless number
         {"a)"}, {"(a)(b)"}, {"a(3)"}, {"."},
+        // regression: the Haskell shunting-yard family accepted empty
+        // parens because ')' never checked whether an operand was expected;
+        // kept here too so the shared spec covers it for every language
+        {"a()"}, {"()"},
+        // regression: the Haskell shared lexer fast-pathed ".e5" to 0.0
+        {".e5"}, {".E-3"},
     };
 
     auto evs = all_evaluators();
     for (auto& ev : evs) {
         for (const auto& c : cases) checkValue(*ev, c, vars);
         for (const auto& e : errs)  checkError(*ev, e);
+    }
+
+    // Regression: bytecode-vm desynchronised its constant pool when no
+    // variable table was passed, so a variable after the first constant
+    // read the wrong slot ("1 + a + 2" -> 1 instead of 3). Every evaluator
+    // must agree that an unbound variable reads as 0.0, whatever comes
+    // after it in the source.
+    for (auto& ev : evs) {
+        ++g_checks;
+        try {
+            const double got = ev->eval("1 + a + 2", nullptr);
+            if (!nearly(got, 3.0)) {
+                std::println("FAIL [{:<26}] \"1 + a + 2\" (no vars) = {:g}, expected 3",
+                            ev->name(), got);
+                ++g_failures;
+            }
+        } catch (const std::exception& e) {
+            std::println("FAIL [{:<26}] \"1 + a + 2\" (no vars) threw: {}",
+                        ev->name(), e.what());
+            ++g_failures;
+        }
     }
 
     std::println("\n{} checks across {} evaluators, {} failure(s)", g_checks, evs.size(), g_failures);

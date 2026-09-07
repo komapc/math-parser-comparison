@@ -7,10 +7,25 @@ module MathParser.Lexer
   , tokenize
   , spanNumber
   , readNum
+  , isSpace
+  , isAlpha
+  , isAlphaNum
   ) where
 
-import Data.Char (isDigit, isSpace, isAlpha, isAlphaNum, toLower, ord, digitToInt)
+import Data.Char (isDigit, toLower, ord, digitToInt)
 import Data.List (foldl')
+
+-- ASCII-only, matching the C++ lexer exactly (cpp/include/parser/lexer.hpp):
+-- 'isSpace'/'isAlpha' from Data.Char are Unicode-aware and would accept
+-- non-breaking spaces, combining marks, etc. as valid input.
+isSpace :: Char -> Bool
+isSpace c = c == ' ' || c == '\t' || c == '\n' || c == '\r'
+
+isAlpha :: Char -> Bool
+isAlpha c = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+
+isAlphaNum :: Char -> Bool
+isAlphaNum c = isAlpha c || isDigit c
 
 data Kind
   = KNum | KVar | KPlus | KMinus | KStar | KSlash | KCaret
@@ -71,9 +86,10 @@ spanNumber s =
 
 readNum :: String -> Int -> Double
 readNum lexeme i
-  -- A lexeme with no digits (a bare ".") is not a number; without this guard
-  -- the padding below would turn it into "0.0" and silently accept it.
-  | not (any isDigit lexeme) = errorAt i "invalid number"
+  -- A lexeme with no MANTISSA digits (a bare "." or ".e5") is not a number;
+  -- checking `lexeme` as a whole would let exponent digits satisfy this
+  -- guard and silently accept ".e5" as 0.0.
+  | not (any isDigit (takeWhile (`notElem` "eE") lexeme)) = errorAt i "invalid number"
   | Just v <- fastPath lexeme = v
   | otherwise = slowPath lexeme i
 

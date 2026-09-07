@@ -4,6 +4,8 @@
 //! generator, seed 20260702.
 
 use mathparser::all_evaluators;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 struct Rng(u64);
 impl Rng {
@@ -64,6 +66,55 @@ fn mutate(r: &mut Rng, s: &str) -> String {
     b.into_iter().collect()
 }
 
+// `cargo test` runs with cwd = the crate root (rust/), matching
+// src/bin/bench.rs's "../bench/corpus" default — but probe a couple of
+// candidates anyway rather than hard-assuming one relative depth.
+fn find_bench_dir() -> Option<PathBuf> {
+    for cand in ["../bench", "../../bench", "bench"] {
+        let p = Path::new(cand);
+        if p.join("gen_fuzz.py").exists() {
+            return Some(p.to_path_buf());
+        }
+    }
+    None
+}
+
+// Loads bench/fuzz/{well_formed,mutated}.txt — the corpus every other
+// language's fuzz test also reads (bench/gen_fuzz.py), on top of (not
+// instead of) this file's own generator above. Generates the files via
+// `python3 bench/gen_fuzz.py` if missing; if that also fails, prints a
+// note and returns None rather than failing the whole suite over missing
+// tooling.
+fn load_shared_fuzz() -> Option<(Vec<String>, Vec<String>)> {
+    let bench = match find_bench_dir() {
+        Some(b) => b,
+        None => {
+            println!("note: bench/ not found from cwd={:?}; skipping shared-corpus fuzz check",
+                std::env::current_dir().ok());
+            return None;
+        }
+    };
+    let wf = bench.join("fuzz").join("well_formed.txt");
+    let mu = bench.join("fuzz").join("mutated.txt");
+    if !wf.exists() || !mu.exists() {
+        let script = bench.join("gen_fuzz.py");
+        println!("shared fuzz corpus missing; generating via `python3 {}`", script.display());
+        let ok = Command::new("python3").arg(&script).status().map(|s| s.success()).unwrap_or(false);
+        if !ok || !wf.exists() || !mu.exists() {
+            println!("note: could not generate shared fuzz corpus (python3 unavailable?); \
+                      skipping shared-corpus fuzz check");
+            return None;
+        }
+    }
+    // .lines() splits on the sole trailing '\n' without an extra blank
+    // entry, but keeps blank lines *between* entries — some mutated lines
+    // are legitimately the empty string, a valid malformed-input case.
+    let read = |p: &Path| -> Vec<String> {
+        std::fs::read_to_string(p).unwrap_or_default().lines().map(str::to_owned).collect()
+    };
+    Some((read(&wf), read(&mu)))
+}
+
 fn same(a: f64, b: f64) -> bool {
     if a.is_nan() || b.is_nan() { return a.is_nan() && b.is_nan(); }
     if a == b { return true; }
@@ -114,5 +165,41 @@ fn differential() {
         }
     }
     println!("3000 well-formed + 3000 mutated exprs x {} strategies, {} mismatch(es)", evs.len(), mismatches);
+
+    if let Some((shared_wf, shared_mu)) = load_shared_fuzz() {
+        for src in &shared_wf {
+            let reference = evs[0].eval(src, Some(&vars));
+            let r0 = match &reference {
+                Ok(v) => *v,
+                Err(e) => { report(src, &format!("reference errors: {}", e), &mut mismatches); continue; }
+            };
+            for ev in evs.iter_mut().skip(1) {
+                match ev.eval(src, Some(&vars)) {
+                    Ok(v) if same(v, r0) => {}
+                    Ok(v) => report(src, &format!("{} = {} vs {}", ev.name(), v, r0), &mut mismatches),
+                    Err(e) => report(src, &format!("{} errors: {}", ev.name(), e), &mut mismatches),
+                }
+            }
+        }
+        for src in &shared_mu {
+            let reference = evs[0].eval(src, Some(&vars));
+            for ev in evs.iter_mut().skip(1) {
+                let got = ev.eval(src, Some(&vars));
+                let agree = match (&reference, &got) {
+                    (Ok(a), Ok(b)) => same(*a, *b),
+                    (Err(_), Err(_)) => true,
+                    _ => false,
+                };
+                if !agree {
+                    report(src, &format!("{}: {:?} vs {:?}", ev.name(),
+                        got.as_ref().map_err(|e| e.0.clone()),
+                        reference.as_ref().map_err(|e| e.0.clone())), &mut mismatches);
+                }
+            }
+        }
+        println!("{} well-formed + {} mutated exprs (shared corpus) x {} strategies, {} mismatch(es) total",
+            shared_wf.len(), shared_mu.len(), evs.len(), mismatches);
+    }
+
     assert_eq!(mismatches, 0);
 }
