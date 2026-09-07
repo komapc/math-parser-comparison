@@ -167,7 +167,14 @@ impl<'a> Lexer<'a> {
 #[cold]
 #[inline(never)]
 fn fail_char(c: u8, pos: u32) -> Error {
-    Error(format!("unexpected character '{}' at position {}", c as char, pos).into())
+    // `c as char` widens a non-ASCII byte to its Latin-1 code point rather
+    // than the (unknown, multi-byte) UTF-8 character it was part of —
+    // mojibake. Print the raw byte instead, like the C++ lexer does.
+    if c.is_ascii() {
+        Error(format!("unexpected character '{}' at position {}", c as char, pos).into())
+    } else {
+        Error(format!("unexpected byte 0x{:02x} at position {}", c, pos).into())
+    }
 }
 
 /// The whole token array. Always ends with a `Kind::End` token.

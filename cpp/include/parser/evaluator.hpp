@@ -38,7 +38,8 @@ std::unique_ptr<IEvaluator> make_ast_multipass_arena();
 // Direct-eval D&C variant (no AST, evaluate inline).
 std::unique_ptr<IEvaluator> make_direct_mp();
 
-// Optimised multipass (sparse-table RMQ + paren pre-index + BFS).
+// Optimised multipass (sparse-table RMQ + paren pre-index): plain recursive
+// divide-and-conquer with O(1) candidate lookup per depth, despite the name.
 std::unique_ptr<IEvaluator> make_multipass_bfs();
 
 // Reverse (bottom-up) multipass: reduce innermost/highest-precedence first.

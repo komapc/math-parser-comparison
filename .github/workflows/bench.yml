@@ -42,6 +42,10 @@ jobs:
       - name: Generate shared corpora
         run: python3 bench/gen_corpus.py
 
+      # GCC only, deliberately: ci.yml's build matrix already covers clang-18
+      # for correctness, but mixing compilers here would add cross-compiler
+      # noise to numbers that are meant to isolate cross-language/algorithm
+      # differences.
       - name: Install GCC 14 + libgmp
         run: sudo apt-get update && sudo apt-get install -y g++-14 libgmp-dev
 

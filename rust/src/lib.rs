@@ -15,10 +15,14 @@ pub mod scannerless;
 use builder::{ANode, Arena, Builder, Direct, PtrAst, Vars};
 use classics::SyStacks;
 
-/// Boxed message so `Result<Token, Error>` (and `Result<f64, Error>`) stays
-/// 16 bytes and is returned in registers — the error path is cold, the Ok
-/// path is every token. With an inline `String` the Result is 24 bytes and
-/// goes through memory on every call.
+/// Boxed message keeps `Error` itself at 16 bytes (`Box<str>`: pointer +
+/// length) instead of 24 for an inline `String`. That's enough for
+/// `Result<f64, Error>` to also stay 16 bytes — `Box`'s pointer is never
+/// null, so that spare niche carries the discriminant. `Token` is already
+/// a full 16 bytes with no niche to spare, so `Result<Token, Error>` is
+/// 24 bytes regardless; the smaller `Error` still means fewer bytes moved
+/// on the cold path, on every call, whether or not the `Result` gets the
+/// niche.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Error(pub Box<str>);
 

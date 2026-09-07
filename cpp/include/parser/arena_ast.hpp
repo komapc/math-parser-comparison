@@ -32,12 +32,16 @@ public:
     // with the multipass family's reused member buffers.
     void reparse(std::string_view src);
 
-    // Adopt a pre-built node vector + root index (used by alternative parsers).
-    static ArenaAst adopt(std::vector<Node> nodes, int root);
-
-    // Evaluate with the variable environment (nullptr for constant expressions).
+    // Evaluate with the variable environment. vars must be non-null if the
+    // expression contains any identifier: evalNode() dereferences vars[i]
+    // unguarded on a Var node (see arena_ast.cpp) for hot-path speed. Callers
+    // that may have no variables (e.g. ArenaEvaluator in evaluators.cpp) pass
+    // a zero-filled array instead of nullptr — this method does not do that
+    // substitution itself.
     double eval(const double* vars) const { return evalNode(root_, vars); }
 
+    // Unused outside this header today; kept as a cheap inspection hook
+    // (e.g. for a future structural node-count comparison across strategies).
     std::size_t nodeCount() const { return nodes_.size(); }
 
 private:

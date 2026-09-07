@@ -28,6 +28,13 @@ void Lexer::failChar(char c, std::uint32_t pos) {
 }
 
 double Lexer::outOfRange(const char* first, const char* last) {
+    // std::strtod is locale-dependent (this ERANGE fallback is the only place
+    // it's used — the fast path above is std::from_chars, which is always
+    // "C"-locale). A process running under a comma-decimal locale would
+    // misparse a token like "1.5e400" here. Not fixed: doing so portably
+    // needs strtod_l/newlocale (POSIX-only, not in the C++ standard) purely
+    // to guard an out-of-range-literal edge case, which is disproportionate
+    // for a benchmark harness that never changes its own locale.
     return std::strtod(std::string(first, last).c_str(), nullptr);
 }
 

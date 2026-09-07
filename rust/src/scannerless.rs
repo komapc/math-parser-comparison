@@ -115,7 +115,13 @@ pub fn scannerless_eval(src: &str, vars: Vars) -> Result<f64, Error> {
         if matches!(c, b'0'..=b'9' | b'.' | b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'(' | b')') {
             return Err(Error::at("unexpected token", st.p as u32));
         }
-        return Err(Error(format!("unexpected character '{}' at position {}", c as char, st.p).into()));
+        // See lexer.rs::fail_char: print the raw byte for non-ASCII input
+        // instead of widening it to a Latin-1 `char` (mojibake).
+        return Err(if c.is_ascii() {
+            Error(format!("unexpected character '{}' at position {}", c as char, st.p).into())
+        } else {
+            Error(format!("unexpected byte 0x{:02x} at position {}", c, st.p).into())
+        });
     }
     Ok(v)
 }

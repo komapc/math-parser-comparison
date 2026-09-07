@@ -56,8 +56,10 @@ public:
             }
 
             if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_') {
-                // Maximal identifier run. Only single-letter variables a-z/A-Z are
-                // supported for now (multi-char names are reserved for functions).
+                // Maximal identifier run. Only single-letter variables a-z/A-Z
+                // are supported; this is a fixed-scope comparison, not an
+                // extensible parser, so multi-char identifiers are simply an
+                // error (see the length check below), not a reserved feature.
                 const char* q = p_;
                 while (q < end_ && ((*q >= 'a' && *q <= 'z') ||
                                     (*q >= 'A' && *q <= 'Z') ||

@@ -5,7 +5,7 @@
 //!
 //! Usage: cargo run --release --bin bench [corpus_dir] [strategy...]   (default: ../bench/corpus, all)
 
-use mathparser::{all_evaluators, with_big_stack, Evaluator};
+use mathparser::{all_evaluators, with_big_stack};
 use std::time::Instant;
 
 const SIZES: [usize; 4] = [10, 100, 1000, 10000];
@@ -70,6 +70,3 @@ fn main() {
     let only: Vec<String> = args.collect(); // optional: strategy names to run
     std::process::exit(with_big_stack(move || run(dir, only)));
 }
-
-#[allow(dead_code)]
-fn _assert_object_safe(_: &dyn Evaluator) {}

@@ -23,6 +23,9 @@ codegen-units = 1
 lto = "fat"
 debug = false
 
-# tests run the differential fuzz; keep them optimised
+# Only affects a plain `cargo test` (debug build). CI and the README both
+# run `cargo test --release`, which uses [profile.release] above instead;
+# this just keeps a debug-mode `cargo test` (which still runs the
+# differential fuzz) from being unusably slow.
 [profile.test]
 opt-level = 3

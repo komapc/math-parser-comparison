@@ -172,7 +172,6 @@ fn pratt<B: Builder>(s: &mut Stream, b: &mut B, rbp: u8) -> Result<B::V, Error> 
 struct SyOp {
     kind: Kind,
     prec: u8,
-    right_assoc: bool,
     unary: bool,
     lparen: bool,
 }
@@ -217,7 +216,7 @@ pub fn sy_parse<B: Builder>(src: &str, b: &mut B, st: &mut SyStacks<B::V>) -> Re
                 if !expect_operand {
                     return Err(Error::at("unexpected '('", t.pos));
                 }
-                st.ops.push(SyOp { kind: Kind::LParen, prec: 0, right_assoc: false, unary: false, lparen: true });
+                st.ops.push(SyOp { kind: Kind::LParen, prec: 0, unary: false, lparen: true });
                 expect_operand = true;
             }
             Kind::RParen => {
@@ -238,7 +237,7 @@ pub fn sy_parse<B: Builder>(src: &str, b: &mut B, st: &mut SyStacks<B::V>) -> Re
                     if !matches!(t.kind, Kind::Plus | Kind::Minus) {
                         return Err(Error::at("unexpected operator", t.pos));
                     }
-                    st.ops.push(SyOp { kind: t.kind, prec: UNARY_PREC, right_assoc: true, unary: true, lparen: false });
+                    st.ops.push(SyOp { kind: t.kind, prec: UNARY_PREC, unary: true, lparen: false });
                 } else {
                     let prec = bin_prec(t.kind);
                     let ra = t.kind == Kind::Caret;
@@ -249,7 +248,7 @@ pub fn sy_parse<B: Builder>(src: &str, b: &mut B, st: &mut SyStacks<B::V>) -> Re
                         st.ops.pop();
                         sy_emit(b, &mut st.out, top)?;
                     }
-                    st.ops.push(SyOp { kind: t.kind, prec, right_assoc: ra, unary: false, lparen: false });
+                    st.ops.push(SyOp { kind: t.kind, prec, unary: false, lparen: false });
                     expect_operand = true;
                 }
             }
@@ -283,6 +282,5 @@ fn sy_emit<B: Builder>(b: &mut B, out: &mut Vec<B::V>, op: SyOp) -> Result<(), E
         let l = out.pop().ok_or_else(|| Error("invalid expression".into()))?;
         out.push(b.binop(op_of(op.kind), l, r));
     }
-    let _ = op.right_assoc;
     Ok(())
 }
