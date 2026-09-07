@@ -81,14 +81,15 @@ across all 15 strategies — see `bench.py`'s `correctness()`.
 - **The arena trick disappears.** In C++ a flat node vector beats per-node
   allocation ~2×. In Python every node is a boxed object regardless, so
   `ast-arena` is no faster — in fact slightly *slower* than the pointer-AST builders
-  (3680 vs 3204–3343 @ n=1000) — the win was about memory *layout*, which Python
+  (3766 vs 3283–3414 @ n=1000) — the win was about memory *layout*, which Python
   doesn't expose.
-- **"No allocation" still leads, but only just.** `direct-*` and `bytecode-vm`
-  (which never build a tree) are the fastest tier, but only ~10% ahead of the
-  pointer-AST builders — when every operation is already boxed, skipping the tree
-  saves little. What clearly loses is the **top-down multipass family** (~2.2–2.7×):
-  the repeated split-scans are real extra work no runtime hides. Bottom-up
-  `multipass-reverse` (~1.5×) escapes most of that by never scanning for a split.
+- **"No allocation" still leads, but by less than it looks.** `direct-*` and
+  `bytecode-vm` (which never build a tree) are the fastest tier, roughly
+  15–20 % ahead of the pointer-AST builders — when every operation is
+  already boxed, skipping the tree saves some, not most. What clearly loses
+  is the **top-down multipass family** (~2.6–3.4×): the repeated split-scans
+  are real extra work no runtime hides. Bottom-up `multipass-reverse`
+  (~1.7×) escapes most of that by never scanning for a split.
 
 See the top-level [README](../README.md) for the cross-language table and the
 [one-pager](../docs/one-pager.md) for the cross-language verdict and
