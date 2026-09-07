@@ -5,7 +5,7 @@ Idiomatic Haskell port of all fifteen strategies (GHC, `base`/`array`/`container
 ```sh
 python3 bench/gen_corpus.py        # from repo root: generate shared corpora (once)
 cd haskell
-cabal test                         # correctness (480 checks)
+cabal test                         # correctness (540 checks)
 cabal run bench                    # cross-check + timing on shared corpora
 cabal run adversarial              # 4 structured shapes: top-down worst cases (now O(n log n)), nestchain, vs reverse Θ(n)
 ```
@@ -31,10 +31,13 @@ algorithm is written once and instantiated at three carriers:
 
 Drivers: `rdParse` (recursive descent), `prattParse`, `syParse` (shunting-yard),
 `mpRun` (top-down divide & conquer, with an optional `Data.Array` sparse-table
-RMQ for `multipass-bfs`), and `reverseMpParse` (bottom-up reduction,
+RMQ for `multipass-bfs`), `reverseMpParse` (bottom-up reduction,
 innermost/highest precedence first → `multipass-reverse`; algorithm explained in
-[docs/multipass-reverse.md](../docs/multipass-reverse.md)). `bytecode-vm`
-compiles to an instruction list and runs it on a value stack. Arithmetic matches
+[docs/multipass-reverse.md](../docs/multipass-reverse.md)), and `reverseFoldParse`
+(the fused single-sweep form of `reverseMpParse` → `multipass-reverse-fold` and
+`direct-reverse`). `bytecode-vm` compiles to an instruction list and runs it on
+a value stack. `scanParse` fuses the lexer into the grammar for
+`direct-scannerless`, the lexer-cost control row. Arithmetic matches
 C++ `double` semantics exactly: `x/0 = inf`, and `^` is GHC's `**`, which is
 libm `pow` — bit-identical to `std::pow`, including negative bases with
 integral exponents.
@@ -94,4 +97,6 @@ lazy token list already fuses with its consumer.
   It read ~1.7× until 2026-09-02, when the lexer's `reads`-based number parsing
   was replaced: a shared constant cost had been compressing every gap.
 
-See the top-level [README](../README.md) for the cross-language table.
+See the top-level [README](../README.md) for the cross-language table and the
+[one-pager](../docs/one-pager.md) for the cross-language verdict and
+scoreboard.

@@ -46,15 +46,16 @@ independent runs, normalised to the fastest tree builder per language
 | `multipass-reverse-fold` | arena AST | **1.00** | **1.00** | **1.00** | 1.59 |
 
 **The fused form is the fastest tree builder of nine in C++ and in Python** —
-~2–5 % ahead of `ast-arena` in C++, ~1–8 % ahead of the best pointer classic
+~2–5 % ahead of `ast-arena` in C++, −1…+8 % against the best pointer classic
 in Python. Positive in 11 of 12 size×run measurements in each, so read it as
 a consistent sliver, not a margin. **In Rust the sliver is gone**: the same
 code under LLVM lands 0–2 % *behind* `ast-arena` in all 12 measurements — a
 tie, and a hint that the C++ edge is partly a GCC story. The buffered
 `multipass-reverse` sits ~1.4–1.5× behind in all three. Haskell is the
-exception: the pointer classics lead every arena form by ~1.5–1.7×.
-Contiguous memory is the whole game in C++ and Rust, and a boxed, GC'd
-runtime hides it.
+exception: the pointer classics lead every arena form, from ~1.4× at the
+tight end (`ast-arena`) to ~2.9× at the wide end (`multipass-bfs`); the fold
+itself trails by ~1.5–1.9× depending on corpus size. Contiguous memory is the
+whole game in C++ and Rust, and a boxed, GC'd runtime hides it.
 
 Its no-tree twin `direct-reverse` is a **three-way tie** with
 `direct-recursive-descent` and `direct-shunting-yard` in C++, all at ~50
@@ -63,9 +64,12 @@ repeats the C++ tier at ~52 ns/leaf: a tie with `direct-rd` (−5…+2 %) and
 7–10 % ahead of `direct-sy`. In Python it wins outright: ~10–13 % over
 `direct-shunting-yard` and ~7–21 % over `direct-rd` at every size, in every
 run. On the structured shapes it ties or beats both, except C++ nestchain
-against `direct-sy` (~10–16 % behind). The lexer-free control
-`direct-scannerless` sits 20–35 % below all three in C++, Rust and Python;
-that gap is the shared lexer, measured — see "Same rules" below.
+against `direct-sy` (~10–16 % behind). Haskell is mixed: it wins the random
+corpus and powchain, but loses towerchain, sumchain and nestchain to
+recursive descent by 2–25 % — the same boxed-node effect that erases the
+tree-building form's edge. The lexer-free control `direct-scannerless` sits
+20–35 % below all three in C++, Rust and Python; that gap is the shared
+lexer, measured — see "Same rules" below.
 
 ## Result 2 — vs its family: strictly better
 
@@ -113,8 +117,9 @@ then applied wherever it applies:
    builds it. Every streaming C++ strategy got 16–33 % faster.
 3. **Measure the lexer, don't guess it.** `direct-scannerless` is
    `direct-recursive-descent` with the lexer fused into the grammar, so the
-   gap between the two *is* the lexer's cost: ~25 % in C++ and Python,
-   ~5–15 % and noisy in Haskell. It is the control row, not a contender.
+   gap between the two *is* the lexer's cost: a fifth of the time in C++, a
+   third in Rust and Python, ~5–15 % and noisy in Haskell. It is the control
+   row, not a contender.
 
 Details and per-strategy effects: [FINDINGS.md](FINDINGS.md#lexing-rules--applied-to-every-parser).
 

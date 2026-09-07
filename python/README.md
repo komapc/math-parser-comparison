@@ -3,7 +3,7 @@
 Idiomatic Python port of all fifteen strategies. Run from the repo root.
 
 ```sh
-python3 python/test_parsers.py     # correctness (480 checks)
+python3 python/test_parsers.py     # correctness (540 checks)
 python3 python/test_fuzz.py        # differential fuzz: 15 strategies must agree on 6000 inputs
 python3 bench/gen_corpus.py        # generate shared corpora (once)
 python3 python/bench.py            # cross-check + timing on shared corpora
@@ -27,9 +27,14 @@ so the shared logic lives in two places instead of being copy-pasted:
   explained in [docs/multipass-reverse.md](../docs/multipass-reverse.md)) and
   `reverse_fold_parse` (the fused form: same order, two accumulators per paren
   frame, no recursion → `multipass-reverse-fold` / `direct-reverse`).
-  `bytecode-vm` is a separate compile-then-run pass.
 
-A strategy is a driver feeding a builder, e.g. `multipass-arena` = `_MP` + `ArenaBuilder`.
+Most strategies are a driver feeding a builder, e.g. `multipass-arena` = `_MP`
++ `ArenaBuilder`. Two are not: `bytecode-vm` is a separate compile-then-run
+pass (`compile_bytecode` then `run_bytecode`, no builder), and
+`scannerless_eval` (→ `direct-scannerless`) fuses the lexer into a
+character-level recursive-descent evaluator with no token list, tree, or
+separate builder at all — every grammar rule collapses straight to a float
+as it matches.
 
 Arithmetic is kept IEEE-faithful to the C++ `double` semantics (`_div`/`_pow`
 return `nan`/`inf` instead of raising), so results agree across languages.
@@ -60,14 +65,16 @@ Reproduce locally with `python3 python/bench.py`.
 
 `multipass-reverse` is the only buffered multipass variant that stays flat as n
 grows (the others recurse and rescan per split). Its fused form
-`multipass-reverse-fold` is the fastest tree builder at every size and
+`multipass-reverse-fold` is the fastest tree builder at every size (a clear
+lead at n=10/100/10000, a tie with `ast-recursive-descent` at n=1000) and
 `direct-reverse` the fastest strategy overall: recursive descent pays a Python
 call per grammar level per leaf, the fold pays none. Median of three CI runs.
 `direct-scannerless` (recursive descent with the lexer fused in — no `Token`
 objects at all) is a control, not a contender: ~25–35 % faster than
 `direct-rd`, and that gap is what the shared token list costs here (a
 generator-based token stream was measured too and is a wash, 0.93–1.05×).
-Correctness: 1110/1110 corpus expressions agree across all 15 strategies.
+Correctness: a capped subset (500 per size) of the shared corpus agrees
+across all 15 strategies — see `bench.py`'s `correctness()`.
 
 ## What changes versus C++
 
@@ -83,4 +90,6 @@ Correctness: 1110/1110 corpus expressions agree across all 15 strategies.
   the repeated split-scans are real extra work no runtime hides. Bottom-up
   `multipass-reverse` (~1.5×) escapes most of that by never scanning for a split.
 
-See the top-level [README](../README.md) for the cross-language table.
+See the top-level [README](../README.md) for the cross-language table and the
+[one-pager](../docs/one-pager.md) for the cross-language verdict and
+scoreboard.
