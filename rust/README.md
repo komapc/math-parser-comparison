@@ -1,9 +1,9 @@
 # Rust port
 
 The fourth language: all fifteen strategies, same grammar, same shared lexer,
-same 480-check spec suite and 6 000-expression differential fuzz, same corpora
-and adversarial shapes as the C++, Python and Haskell trees. Safe Rust except
-for one unsafe mechanism, confined to the fused fold (below). No dependencies.
+same 540-check spec suite and 6 000-expression differential fuzz, same corpora
+and adversarial shapes as the C++, Python and Haskell trees. Safe Rust
+throughout — no `unsafe` anywhere in the crate. No dependencies.
 
 ```sh
 cd rust
@@ -75,10 +75,9 @@ Two questions the C++ numbers left open:
    push/pop. Measured here by instruction count (load-independent):
    `Vec` push/pop/truncate cost the fold about 3 % of instructions and
    `direct-reverse` about 7 %, with no measurable change in cycles or branch
-   misses. `fold.rs` keeps the raw-buffer form (one unsafe mechanism, all
-   sites confined to that file; bound argument in the comment); switching
-   it back to `Vec` is a mechanical edit and the safe version is what the
-   buffered `reverse.rs` uses.
+   misses. So `fold.rs` uses the safe `Vec` form, like the buffered
+   `reverse.rs`: an instruction-count saving that never shows up in cycles
+   is not worth `unsafe`. Yes, it survives.
 
 What actually mattered, in order:
 

@@ -2,7 +2,7 @@
 
 # 🧮 Math-Expression Parser & Evaluator
 
-**Fifteen ways to turn `-2 ^ 2 + 3 * (4 - 1)` into `5`, in C++, Rust, Haskell, and Python.**
+**Fifteen strategies for turning `-2 ^ 2 + 3 * (4 - 1)` into `5` — nine tree builders, five direct evaluators and one lexer-free control — in C++, Rust, Haskell, and Python.**
 
 </div>
 
@@ -15,8 +15,10 @@ Just the verdict, one page: **[docs/one-pager.md](docs/one-pager.md)**.
 
 `multipass-reverse` reduces the *tightest-binding* constructs first — deepest
 parentheses, then `^`, then `*` `/`, then `+` `-` — one in-place sweep per
-precedence level, until a single node remains. Same tree as every other parser,
-built in the opposite order. It never searches for a split point, so it is
+precedence level, until a single node remains. It builds the tree in the
+opposite order, and that tree evaluates identically to every other parser's on
+every spec and fuzz input (checked by value, not by shape). For this fixed
+four-level grammar it never searches for a split point, so it is
 **Θ(n) on every input, with no fallback machinery**. A fused form,
 `multipass-reverse-fold` (and its no-tree twin `direct-reverse`), performs the
 same level reductions on the fly with two accumulators per parenthesis frame —
@@ -28,6 +30,9 @@ no recursion, no prepass, every token touched once.
 **[full walk-through](docs/multipass-reverse.md)**)
 
 ## Result 1 — vs the classics: narrowly ahead in C++ and Python, a tie in Rust
+
+Tree builders and direct evaluators are compared separately: the table below
+builds a tree, the paragraph after it covers the no-tree forms.
 
 Random corpus, ns/leaf at n=1000, neutral 4-vCPU CI runner, median of three
 independent runs, normalised to the fastest tree builder per language
@@ -59,8 +64,9 @@ and a hint that the C++ edge is partly a GCC story. The buffered
 `multipass-reverse` sits ~1.4× behind in all three. Haskell is the
 exception: the pointer classics lead every arena form, from ~1.3× at the
 tight end (`ast-arena`) to ~2.4× at the wide end (`multipass-bfs`); the fold
-itself trails by ~1.1–1.5× depending on corpus size. Contiguous memory is
-the whole game in C++ and Rust, and a boxed, GC'd runtime hides it.
+itself trails by ~1.1–1.5× depending on corpus size. The pattern fits
+memory layout being the main factor: contiguous forms win in C++ and Rust,
+and the advantage disappears in a runtime that boxes every node.
 
 Its no-tree twin `direct-reverse` is a **three-way tie** with
 `direct-recursive-descent` and `direct-shunting-yard` in C++, all at ~50
@@ -77,7 +83,7 @@ edge. The lexer-free control `direct-scannerless` sits roughly 16–44 %
 below the field in C++, Rust and Python; that gap is the shared lexer,
 measured — see "Same rules" below.
 
-## Result 2 — vs its family: strictly better
+## Result 2 — vs its family: ahead on every tested input
 
 The top-down `multipass` variants build the same tree by scanning for the
 loosest operator and splitting. That scan is attackable: a flat
@@ -101,7 +107,7 @@ parenthesis nesting, is benchmarked too: flat, and the fused form is the
 fastest tree builder there (32 vs `ast-arena` 42 ns/leaf at m=8192).
 († `multipass-bfs`'s O(1) splits dodge the powchain but a `^`-tower catches
 it the same way; the "before" column is the last pre-fix CI run.
-[Details.](FINDINGS.md#result-2--vs-its-family-strictly-better))
+[Details.](FINDINGS.md#result-2--vs-its-family-ahead-on-every-tested-input))
 
 Correctness: curated spec suites in all four languages plus differential
 fuzzing in C++, Rust and Python — all fifteen strategies must agree, value or
@@ -125,7 +131,8 @@ then applied wherever it applies:
    `direct-recursive-descent` with the lexer fused into the grammar, so the
    gap between the two *is* the lexer's cost: roughly a quarter of the time
    in C++ and Python, a third in Rust, and noisy — sometimes negative — in
-   Haskell. It is the control row, not a contender.
+   Haskell. It is included as a control, not as a parser using the
+   common lexer, so it is left out of the rankings.
 
 Details and per-strategy effects: [FINDINGS.md](FINDINGS.md#lexing-rules--applied-to-every-parser).
 
@@ -154,3 +161,11 @@ measured, not assumed.
   labelled best / narrowly ahead / tie / loses from three runs.
 - [cpp/](cpp/README.md) · [rust/](rust/README.md) · [python/](python/README.md) · [haskell/](haskell/README.md)
   — per-language implementations and tables.
+
+## How this was built
+
+Development was substantially assisted by Claude Code, which is why most
+commits carry a `Co-Authored-By: Claude` line. The algorithm, the rules and
+the conclusions are the author's; every number above comes from the CI runs
+cited, and every claim can be rechecked from the code and commands in this
+repo.

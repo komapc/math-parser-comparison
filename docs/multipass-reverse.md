@@ -9,7 +9,7 @@ The two results, in one line each ([data](../FINDINGS.md)):
 **vs the classics it is competitive** — its fused form
 (`multipass-reverse-fold`, [below](#the-fused-variant)) is the fastest tree
 builder of nine in C++ and Python, narrowly, and a genuine tie with `ast-arena`
-in Rust; **vs its top-down family it is strictly better** — the only member
+in Rust; **vs its top-down family it is ahead on every tested input** — the only member
 whose worst case is its average case.
 
 Implementations: [C++](../cpp/src/multipass_reverse.cpp) ·
@@ -145,7 +145,7 @@ each has an input that defeats it:
 
 † Since patched in all four languages: scans bounded at 16 candidates with a
 per-depth precedence-bucket fallback caps the family at **O(n log n)** —
-[before/after numbers](../FINDINGS.md#result-2--vs-its-family-strictly-better).
+[before/after numbers](../FINDINGS.md#result-2--vs-its-family-ahead-on-every-tested-input).
 Bottom-up needs no budget and no fallback, because it never asks a question
 whose answer lies elsewhere in the range.
 
@@ -245,7 +245,7 @@ previous batch):
 across the three runs (35.7, 27.6, 18.3 — no single clean outlier) and
 `direct-reverse` spikes on a different run (33.5 vs 18.8/19.0) — see the
 runner-variance note in
-[FINDINGS.md](../FINDINGS.md#result-2--vs-its-family-strictly-better); the
+[FINDINGS.md](../FINDINGS.md#result-2--vs-its-family-ahead-on-every-tested-input); the
 other columns on this shape were stable across all three runs.
 
 Tree tier C++: the fastest tree builder on the random corpus (~4 % ahead of

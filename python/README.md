@@ -70,7 +70,7 @@ lead at n=10/100/10000, a tie with `ast-recursive-descent` at n=1000) and
 `direct-reverse` the fastest strategy overall: recursive descent pays a Python
 call per grammar level per leaf, the fold pays none. Median of three CI runs.
 `direct-scannerless` (recursive descent with the lexer fused in — no `Token`
-objects at all) is a control, not a contender: ~23–26 % faster than
+objects at all) is included as a control, not ranked: ~23–26 % faster than
 `direct-rd`, and that gap is what the shared token list costs here (a
 generator-based token stream was measured too and is a wash, 0.93–1.05×).
 Correctness: a capped subset (500 per size) of the shared corpus agrees

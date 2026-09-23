@@ -11,7 +11,7 @@
 | | language | memory model |
 |---|---|---|
 | [`cpp/`](cpp/) | C++26 | manual / RAII, arenas |
-| [`rust/`](rust/) | Rust (LLVM) | ownership, arenas; one unsafe mechanism (raw-pointer stacks), confined to `fold.rs` |
+| [`rust/`](rust/) | Rust (LLVM) | ownership, arenas; safe Rust, no `unsafe` |
 | [`haskell/`](haskell/) | Haskell (GHC) | lazy, GC, persistent |
 | [`python/`](python/) | Python 3 | reference-counted, everything boxed |
 
@@ -273,7 +273,7 @@ wins powchain and towerchain but loses sumchain and nestchain by 1–20 %
 ~1.4×. Design of the fused form:
 [docs/multipass-reverse.md](docs/multipass-reverse.md#the-fused-variant).
 
-### Result 2 — vs its family: strictly better
+### Result 2 — vs its family: ahead on every tested input
 
 The top-down variants answer "where is the loosest operator in this range?" by
 scanning. Two structured inputs make that quadratic:

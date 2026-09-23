@@ -26,7 +26,7 @@ A dependency-free C++26 project implementing classic (and not-so-classic) algori
 > Neutral 4-vCPU GitHub runner, median of three [CI bench](../.github/workflows/bench.yml) runs; `×` is relative to the fastest strategy that uses the shared lexer. **Trust the tiers, not the digits.**
 
 ```
-direct-scannerless        ██                           37 ns   ×0.75  ← lexer-free control (not a contender)
+direct-scannerless        ██                           37 ns   ×0.75  ← lexer-free control (not ranked)
 direct-shunting-yard      ██                           50 ns   ×1.0
 direct-reverse            ██                           50 ns   ×1.0
 direct-recursive-descent  ██                           50 ns   ×1.0   ← three-way tie at the top
@@ -83,7 +83,7 @@ The pointer-AST strategies produce numerically identical results (checked by the
 
 > - **Fastest?** `direct-rd` / `direct-sy` / `direct-reverse` — a three-way tie (ordering inside this group flips run-to-run), `bytecode-vm` ~20 % behind. Fusing the lexer into the grammar (`direct-scannerless`) buys another 25 %, at the price of having no lexer to share.
 > - **Need a tree?** `multipass-reverse-fold` or `ast-arena` — one allocation, never per-node `unique_ptr`; the fused reducer is ~3–5 % ahead and has no worst case.
-> - **Structured input?** Bottom-up only. Every top-down D&C form needed rescue machinery to stay O(n log n) on mixed-precedence chains and still trails `multipass-reverse-fold` by 2–5× there ([FINDINGS](../FINDINGS.md#result-2--vs-its-family-strictly-better)).
+> - **Structured input?** Bottom-up only. Every top-down D&C form needed rescue machinery to stay O(n log n) on mixed-precedence chains and still trails `multipass-reverse-fold` by 2–5× there ([FINDINGS](../FINDINGS.md#result-2--vs-its-family-ahead-on-every-tested-input)).
 
 See the [one-pager](../docs/one-pager.md) for the cross-language verdict and
 scoreboard.

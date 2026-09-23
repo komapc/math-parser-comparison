@@ -22,14 +22,14 @@ covers a sign flip across runs, but also a range that sits entirely within
 
 ## Verdict
 
-- **Against its own family it is strictly better everywhere** — 1.4× faster
+- **Against its own family it wins on every tested input** — 1.4× faster
   than the buffered version of itself, which is in turn 1.5–3.6× faster than
   the top-down divide-and-conquer variants on the family's own C++
   worst-case shape (2.1–5.2× for the fused form itself; see the scoreboard
   below for the other three languages), with no worst-case machinery: its
   worst case *is* its average case. (`multipass-arena`'s own worst-case
   shape, sumchain, is a separate story — see the note below the scoreboard.)
-- **Against the sixty-year-old classics it is a peer in C++, Rust and Python**
+- **Against the classic parsers it is a peer in C++, Rust and Python**
   — the fastest tree builder on the C++ random corpus (narrowly) and on most
   structured C++ shapes (towerchain is a tie by the range rule this batch); a
   genuine tie with the arena classic on the Rust random corpus (sign flips
@@ -39,8 +39,8 @@ covers a sign flip across runs, but also a range that sits entirely within
   rest, with honest losses (C++ nestchain to shunting-yard by ~14–24 %,
   Python powchain to recursive descent by ~4 %).
 - **In Haskell the tree-building form loses** to the pointer-AST classics by
-  1.2–1.8×: its advantage is contiguous memory, and a runtime that boxes every
-  node hides exactly that. Its no-tree form is mixed there: it wins the
+  1.2–1.8×. Its edge elsewhere appears to come from contiguous memory, and a
+  runtime that boxes every node leaves little of that to exploit. Its no-tree form is mixed there: it wins the
   random corpus, powchain and towerchain, but loses sumchain and nestchain to
   recursive descent.
 
