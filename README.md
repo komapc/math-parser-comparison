@@ -135,6 +135,12 @@ exactly that and is **not** a general-purpose technique: richer grammars
 and Pratt's home turf. The results above are claims about that narrow job —
 whether the approach generalizes is an open question, not a claim.
 
+Nor is bottom-up per-level reduction new: operator-precedence parsing and the
+multi-pass reduction of the earliest FORTRAN compilers work the same way. What
+this repo tests is whether a fused, allocation-free form of that old idea
+competes with today's defaults under identical rules — and the answer is
+measured, not assumed.
+
 ## Where to look
 
 - [FINDINGS.md](FINDINGS.md) — grammar, build & run, the cross-language table,

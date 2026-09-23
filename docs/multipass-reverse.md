@@ -6,10 +6,11 @@ until a single node remains: "multipass" in the original sense, **one
 reduction pass per precedence level**, like a human simplifying on paper.
 
 The two results, in one line each ([data](../FINDINGS.md)):
-**vs the classics it is competitive** — and its fused form
+**vs the classics it is competitive** — its fused form
 (`multipass-reverse-fold`, [below](#the-fused-variant)) is the fastest tree
-builder of nine in C++, Rust and Python, narrowly; **vs its top-down family it
-is strictly better** — the only member whose worst case is its average case.
+builder of nine in C++ and Python, narrowly, and a genuine tie with `ast-arena`
+in Rust; **vs its top-down family it is strictly better** — the only member
+whose worst case is its average case.
 
 Implementations: [C++](../cpp/src/multipass_reverse.cpp) ·
 [Rust](../rust/src/reverse.rs) ·

@@ -116,8 +116,8 @@ control sits at 38 / 34 / 504 / 2 292 (C++ / Rust / Haskell / Python).
    and "no tree" shrinks from C++'s ~2.6× to a ~20 % edge in both — in
    Haskell `direct-recursive-descent`/`direct-reverse` are fastest outright,
    with the pointer classics (`ast-recursive-descent`/`ast-pratt`) close
-   behind rather than winning as they did before this session's lexer and
-   correctness fixes.
+   behind rather than winning as they did before the lexer fast path and
+   the cross-language correctness fixes.
 3. **Top-down multipass loses in every language** — repeated split-scans are
    real extra work no runtime rescues. `multipass-bfs`'s RMQ precompute pays
    off nowhere on random corpora. The bottom-up member is the exception — see
