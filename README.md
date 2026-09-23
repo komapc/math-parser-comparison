@@ -35,7 +35,7 @@ independent runs, normalised to the fastest tree builder per language
 
 | tree builder | representation | C++ | Rust | Python | Haskell |
 |---|---|--:|--:|--:|--:|
-| `ast-recursive-descent` | pointer AST | 1.90 | 1.79 | 1.00 | **1.00** |
+| `ast-recursive-descent` | pointer AST | 1.90 | 1.79 | **1.00** | **1.00** |
 | `ast-shunting-yard` | pointer AST | 1.96 | 1.88 | 1.03 | 1.16 |
 | `ast-pratt` | pointer AST | 1.99 | 1.77 | 1.04 | 1.11 |
 | `ast-arena` | arena AST | 1.04 | **1.00** | 1.17 | 1.29 |
@@ -139,7 +139,7 @@ and Pratt's home turf. The results above are claims about that narrow job —
 whether the approach generalizes is an open question, not a claim.
 
 Nor is bottom-up per-level reduction new: operator-precedence parsing and the
-multi-pass reduction of the earliest FORTRAN compilers work the same way. What
+multi-pass expression translators of early compilers work the same way. What
 this repo tests is whether a fused, single-sweep form of that old idea
 competes with today's defaults under identical rules — and the answer is
 measured, not assumed.
