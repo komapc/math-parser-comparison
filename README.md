@@ -36,19 +36,20 @@ builds a tree, the paragraph after it covers the no-tree forms.
 
 Random corpus, ns/leaf at n=1000, neutral 4-vCPU CI runner, median of three
 independent runs, normalised to the fastest tree builder per language
-(**bold** = fastest):
+(**bold** = fastest). The Rust column comes from three fresh runs after the
+fold was moved to safe Rust; the other columns are unchanged:
 
 | tree builder | representation | C++ | Rust | Python | Haskell |
 |---|---|--:|--:|--:|--:|
-| `ast-recursive-descent` | pointer AST | 1.90 | 1.79 | **1.00** | **1.00** |
-| `ast-shunting-yard` | pointer AST | 1.96 | 1.88 | 1.03 | 1.16 |
-| `ast-pratt` | pointer AST | 1.99 | 1.77 | 1.04 | 1.11 |
+| `ast-recursive-descent` | pointer AST | 1.90 | 1.71 | **1.00** | **1.00** |
+| `ast-shunting-yard` | pointer AST | 1.96 | 1.78 | 1.03 | 1.16 |
+| `ast-pratt` | pointer AST | 1.99 | 1.72 | 1.04 | 1.11 |
 | `ast-arena` | arena AST | 1.04 | **1.00** | 1.17 | 1.29 |
-| `multipass` | pointer AST | 3.38 | 4.02 | 2.29 | 1.67 |
-| `multipass-arena` | arena AST | 1.88 | 2.74 | 2.43 | 2.03 |
-| `multipass-bfs` | arena AST | 2.06 | 3.00 | 2.83 | 2.39 |
-| `multipass-reverse` | arena AST | 1.39 | 1.37 | 1.39 | 1.46 |
-| `multipass-reverse-fold` | arena AST | **1.00** | 1.02 | **1.00** | 1.20 |
+| `multipass` | pointer AST | 3.38 | 3.95 | 2.29 | 1.67 |
+| `multipass-arena` | arena AST | 1.88 | 2.70 | 2.43 | 2.03 |
+| `multipass-bfs` | arena AST | 2.06 | 2.96 | 2.83 | 2.39 |
+| `multipass-reverse` | arena AST | 1.39 | 1.38 | 1.39 | 1.46 |
+| `multipass-reverse-fold` | arena AST | **1.00** | 1.05 | **1.00** | 1.20 |
 
 **On the random corpus the fused form is the fastest tree builder of nine in
 C++ and in Python** — ~1–5 % ahead of `ast-arena` in C++, +2…+7 % against
@@ -57,7 +58,7 @@ the best pointer classic in Python (at n=1000 the Python range starts at
 measurements in both languages, so read it as a consistent sliver, not a
 margin. On the structured shapes it ties or leads in C++, Rust and Python
 everywhere except Python powchain, ~4 % behind `ast-rd`. **In Rust it's a genuine
-tie**: the same code under LLVM lands anywhere from ~5 % ahead to ~4 %
+tie**: the same algorithm under LLVM lands anywhere from ~5 % ahead to ~5 %
 behind `ast-arena` depending on the run and size, with the sign flipping run
 to run rather than settling one way — noisier than the C++/Python sliver,
 and a hint that the C++ edge is partly a GCC story. The buffered
@@ -72,8 +73,8 @@ Its no-tree twin `direct-reverse` is a **three-way tie** with
 `direct-recursive-descent` and `direct-shunting-yard` in C++, all at ~50
 ns/leaf (0…+2 % vs `direct-rd`, −2…+1 % vs `direct-sy` across runs — this
 shape's classics are much closer than the wider sumchain range below).
-Rust repeats the C++ tier at ~55 ns/leaf: a tie with `direct-rd` (−5…+4 %)
-and ahead of `direct-sy`. In Python it wins outright: ahead of both
+Rust repeats the C++ tier at ~54–58 ns/leaf: a tie with `direct-rd`
+(−8…0 %) and ~4 % ahead of `direct-sy`. In Python it wins outright: ahead of both
 `direct-shunting-yard` and `direct-rd` at every size, in every run. On the
 structured shapes it ties or beats both, except C++ nestchain against
 `direct-sy` (~14–24 % behind). Haskell is mixed: it wins the random corpus,
@@ -167,5 +168,5 @@ measured, not assumed.
 Development was substantially assisted by Claude Code, which is why most
 commits carry a `Co-Authored-By: Claude` line. The algorithm, the rules and
 the conclusions are the author's; every number above comes from the CI runs
-cited, and every claim can be rechecked from the code and commands in this
-repo.
+cited in [FINDINGS.md](FINDINGS.md), and every claim can be rechecked from
+the code and commands in this repo.
