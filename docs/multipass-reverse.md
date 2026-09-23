@@ -9,7 +9,7 @@ The two results, in one line each ([data](../FINDINGS.md)):
 **vs the classics it is competitive** — its fused form
 (`multipass-reverse-fold`, [below](#the-fused-variant)) is the fastest tree
 builder of nine in C++ and Python, narrowly, and a genuine tie with `ast-arena`
-in Rust; **vs its top-down family it is strictly better** — the only member
+in Rust; **vs its top-down family it is ahead on every tested input** — the only member
 whose worst case is its average case.
 
 Implementations: [C++](../cpp/src/multipass_reverse.cpp) ·
@@ -145,7 +145,7 @@ each has an input that defeats it:
 
 † Since patched in all four languages: scans bounded at 16 candidates with a
 per-depth precedence-bucket fallback caps the family at **O(n log n)** —
-[before/after numbers](../FINDINGS.md#result-2--vs-its-family-strictly-better).
+[before/after numbers](../FINDINGS.md#result-2--vs-its-family-ahead-on-every-tested-input).
 Bottom-up needs no budget and no fallback, because it never asks a question
 whose answer lies elsewhere in the range.
 
@@ -173,16 +173,17 @@ Neutral runner, ns/leaf at n=1000 ([full tables](../FINDINGS.md#cross-language-r
 
 | | C++ | Rust | Python | Haskell |
 |---|--:|--:|--:|--:|
-| fastest classic tree builder | `ast-arena` 71 | `ast-arena` 74 | `ast-rd` 3 244 | `ast-rd` 583 |
-| **`multipass-reverse-fold`** | **69** | 76 | **3 232** | 699 |
-| `multipass-reverse` | 96 | 102 | 4 505 | 852 |
+| fastest classic tree builder | `ast-arena` 71 | `ast-arena` 76 | `ast-rd` 3 244 | `ast-rd` 583 |
+| **`multipass-reverse-fold`** | **69** | 79 | **3 232** | 699 |
+| `multipass-reverse` | 96 | 104 | 4 505 | 852 |
 | best *top-down* multipass | `direct-mp` 101 | `direct-mp` 183 | `direct-mp` 7 211 | `direct-mp` 993 |
 | fastest *no-tree* classic (`direct-rd`) | 51 | 54 | 2 990 | 464 |
-| **`direct-reverse`** | 50 | 57 | **2 732** | **454** |
+| **`direct-reverse`** | 50 | 58 | **2 732** | **454** |
 | *`direct-scannerless`* (lexer-free control) | *37* | *34* | *2 291* | *448* |
 
-Median of three CI runs (34136843367 / 34137622680 / 34138407724; rustc
-1.98.1, unchanged from the previous batch). The buffered form beats the
+Median of three CI runs (34136843367 / 34137622680 / 34138407724; Rust
+column 35906739767 / 35906748758 / 35906757643, after the fold moved to safe
+Rust; rustc 1.98.1). The buffered form beats the
 top-down family in every language; the fused form is the fastest tree
 builder in C++ and Python, a genuine tie with `ast-arena` in Rust (the sign
 flips run to run), and second in Haskell — this batch, `ast-recursive-descent`
@@ -230,8 +231,8 @@ two policies) · [Rust](../rust/src/fold.rs) ·
 
 Neutral 4-vCPU CI runner (structured shapes at m=8192; full tables in
 [FINDINGS.md](../FINDINGS.md)), median of three CI runs
-(34136843367 / 34137622680 / 34138407724; rustc 1.98.1, unchanged from the
-previous batch):
+(34136843367 / 34137622680 / 34138407724; Rust: 35906739767 / 35906748758 /
+35906757643, rustc 1.98.1):
 
 | C++, ns/leaf | `mp-reverse-fold` | `ast-arena` | `direct-reverse` | `direct-rd` | `direct-sy` | *`direct-scannerless`* (control) |
 |---|--:|--:|--:|--:|--:|--:|
@@ -245,7 +246,7 @@ previous batch):
 across the three runs (35.7, 27.6, 18.3 — no single clean outlier) and
 `direct-reverse` spikes on a different run (33.5 vs 18.8/19.0) — see the
 runner-variance note in
-[FINDINGS.md](../FINDINGS.md#result-2--vs-its-family-strictly-better); the
+[FINDINGS.md](../FINDINGS.md#result-2--vs-its-family-ahead-on-every-tested-input); the
 other columns on this shape were stable across all three runs.
 
 Tree tier C++: the fastest tree builder on the random corpus (~4 % ahead of
@@ -266,13 +267,12 @@ tie on sumchain (−4…+32 %, the outlier run above) and loses nestchain by
 
 Rust reproduces similar tiers, with one new exception: fold is a genuine tie
 with `ast-arena` on the random corpus (sign flips run to run) and beats it
-on three of four structured shapes by 3–33 % — sumchain is now a tie too
-(−11…+6 %, the same single-precedence shape that is volatile in C++, see
-[FINDINGS.md](../FINDINGS.md)). `direct-reverse` is a genuine tie with
-`direct-rd` on the random corpus (sign flips run to run) but pulls ahead on
-powchain, towerchain and sumchain (+2…+18 %) and wins nestchain outright
-(+23…+36 %, `direct-rd`'s recursion costing more as the nesting deepens);
-against `direct-sy` it wins every structured shape (+19…+28 %).
+on three of four structured shapes by 2–30 % — powchain is a tie (−1…+2 %)
+since the move to safe Rust. `direct-reverse` is a genuine tie with
+`direct-rd` on the random corpus but pulls ahead on powchain, towerchain and
+sumchain (+5…+18 %) and wins nestchain outright (+23…+35 %, `direct-rd`'s
+recursion costing more as the nesting deepens); against `direct-sy` it wins
+every structured shape (+17…+28 %).
 
 Python: fastest tree builder (3 232 vs `ast-rd` 3 244 ns/leaf at n=1000) and
 fastest overall (`direct-reverse` 2 732 vs `direct-rd` 2 990), a real edge

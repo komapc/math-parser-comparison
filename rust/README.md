@@ -1,9 +1,9 @@
 # Rust port
 
 The fourth language: all fifteen strategies, same grammar, same shared lexer,
-same 480-check spec suite and 6 000-expression differential fuzz, same corpora
-and adversarial shapes as the C++, Python and Haskell trees. Safe Rust except
-for one unsafe mechanism, confined to the fused fold (below). No dependencies.
+same 540-check spec suite and 6 000-expression differential fuzz, same corpora
+and adversarial shapes as the C++, Python and Haskell trees. Safe Rust
+throughout — no `unsafe` anywhere in the crate. No dependencies.
 
 ```sh
 cd rust
@@ -36,15 +36,16 @@ way the C++ policy templates are; the builder calls inline away.
 
 | tier | C++ | Rust |
 |---|--:|--:|
-| no tree (`direct-rd` / `direct-sy` / `direct-reverse`) | 51 / 50 / 50 | 54 / 63 / 57 |
-| contiguous tree (`ast-arena` / `multipass-reverse-fold`) | 71 / 69 | 74 / 76 |
-| pointer tree (`ast-rd` / `ast-pratt`) | 130 / 137 | 133 / 132 |
-| buffered bottom-up (`multipass-reverse`) | 96 | 102 |
-| bytecode-vm | 61 | 77 |
+| no tree (`direct-rd` / `direct-sy` / `direct-reverse`) | 51 / 50 / 50 | 54 / 61 / 58 |
+| contiguous tree (`ast-arena` / `multipass-reverse-fold`) | 71 / 69 | 76 / 79 |
+| pointer tree (`ast-rd` / `ast-pratt`) | 130 / 137 | 130 / 131 |
+| buffered bottom-up (`multipass-reverse`) | 96 | 104 |
+| bytecode-vm | 61 | 72 |
 | lexer-free control (`direct-scannerless`) | 37 | 34 |
 
-Same tiers to within a few percent (n=1000; runs 34136843367, 34137622680,
-34138407724; rustc 1.98.1, unchanged from the previous batch). Two
+Same tiers to within a few percent (n=1000; C++ runs 34136843367,
+34137622680, 34138407724; Rust runs 35906739767, 35906748758, 35906757643,
+after the fold moved to safe Rust; rustc 1.98.1). Two
 differences worth naming: the fold's small edge over `ast-arena` in C++
 does not reproduce here — Rust is a genuine tie, sign flipping run to run
 rather than settling one way — and the top-down family that lost its AVX2
@@ -52,10 +53,9 @@ candidate scan in the port is slower in Rust, unevenly: pointer `multipass`
 itself is closest at ~1.3×, while the arena/direct forms that actually used
 the scan (`multipass-arena`, `direct-mp`, `multipass-bfs`) are 1.6–1.8×
 behind C++. On the structured shapes the fold beats `ast-arena` on
-towerchain and nestchain in every run, is ahead, narrowly, on powchain, and
-is now a tie on sumchain (sign flips run to run, mirroring the same shape's
-volatility in C++); `direct-reverse` ties `direct-rd` on the random corpus
-and clearly ahead on every structured shape. Full cross-language tables:
+nestchain by 19–30 % in every run, is ahead, narrowly, on towerchain and
+sumchain, and ties on powchain; `direct-reverse` ties `direct-rd` on the
+random corpus and is ahead on every structured shape. Full cross-language tables:
 [FINDINGS.md](../FINDINGS.md), [docs/one-pager.md](../docs/one-pager.md).
 
 ## What the port was for
@@ -75,10 +75,12 @@ Two questions the C++ numbers left open:
    push/pop. Measured here by instruction count (load-independent):
    `Vec` push/pop/truncate cost the fold about 3 % of instructions and
    `direct-reverse` about 7 %, with no measurable change in cycles or branch
-   misses. `fold.rs` keeps the raw-buffer form (one unsafe mechanism, all
-   sites confined to that file; bound argument in the comment); switching
-   it back to `Vec` is a mechanical edit and the safe version is what the
-   buffered `reverse.rs` uses.
+   misses on the laptop. So `fold.rs` now uses the safe `Vec` form, like
+   the buffered `reverse.rs`. On the CI runner the switch is visible after
+   all: the fold went from 1.02× to 1.05× `ast-arena` at n=1000, and on
+   powchain from narrowly ahead to a tie. The random-corpus verdict does not
+   move — a tie either way — so the safe form stays: a ~3 % sliver is not
+   worth `unsafe`. It survives, at the cost of that sliver.
 
 What actually mattered, in order:
 

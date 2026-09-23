@@ -12,14 +12,12 @@
 //! Mechanically it is an operator-precedence shift-reduce parser with the
 //! four levels hard-coded; see the README.
 //!
-//! Stack discipline: like the C++ version, both stacks are pre-sized raw
-//! buffers indexed by local counters — the crate's one unsafe mechanism
-//! (raw-pointer indexing), confined to this file across several `unsafe`
-//! blocks plus the `fold_segment` helper below. Each token pushes at most
-//! one item / one frame and there is at most one token per source byte, so
-//! `src.len() + 1` bounds both. The `Vec` push/pop form costs ~3 % of
-//! instructions on the tree variant and ~7 % on direct-reverse, measured by
-//! `perf stat`; see README.md.
+//! Stack discipline: both stacks are plain `Vec`s owned by `FoldState` and
+//! reused across evals (warm capacity), driven by push/pop/truncate — safe
+//! Rust, no `unsafe`. The C++ version indexes pre-sized raw buffers instead;
+//! an earlier raw-pointer port of that saved ~3 % of instructions on the
+//! tree variant and ~7 % on direct-reverse (`perf stat`) with no measurable
+//! change in cycles, so the safe form was kept.
 
 use crate::builder::Builder;
 use crate::lexer::{Kind, Lexer, Token};
@@ -52,18 +50,11 @@ impl<V: Copy> Default for FoldState<V> {
 
 pub fn fold_parse<B: Builder>(src: &str, b: &mut B, st: &mut FoldState<B::V>) -> Result<B::V, Error>
 where B::V: Copy + Default {
-    // Each token pushes at most one item / one frame, and there is at most
-    // one token per source byte, so the source length bounds both stacks.
-    let bound = src.len() + 1;
-    if st.seg.len() < bound {
-        st.seg.resize(bound, Seg::Un(Kind::End));
-        st.frames.resize(bound, Frame { term: Default::default(), sum: Default::default(), seg_base: 0, pend_mul: Kind::End, pend_add: Kind::End });
-    }
-    let seg: *mut Seg<B::V> = st.seg.as_mut_ptr();
-    let frames: *mut Frame<B::V> = st.frames.as_mut_ptr();
-    let mut seg_top: usize = 0;
+    let seg = &mut st.seg;
+    let frames = &mut st.frames;
+    seg.clear();
+    frames.clear();
     let mut seg_base: usize = 0;
-    let mut n_frames: usize = 0;
 
     // The live frame is scalars; a Frame is only materialised on '('.
     let mut term: B::V = Default::default();
@@ -78,23 +69,17 @@ where B::V: Copy + Default {
     // Fold the segment ending in `c` right-to-left (right-assoc ^; ^ binds
     // tighter than a prefix sign). The state machine guarantees the buffer
     // above seg_base is a well-formed (Un | PowBase)* prefix.
-    // SAFETY: seg_top <= bound always holds (one push per token at most),
-    // and seg_base <= seg_top by construction.
     #[inline]
-    unsafe fn fold_segment<B: Builder>(b: &mut B, seg: *mut Seg<B::V>, seg_top: &mut usize, seg_base: usize, c: B::V) -> B::V
+    fn fold_segment<B: Builder>(b: &mut B, seg: &mut Vec<Seg<B::V>>, seg_base: usize, c: B::V) -> B::V
     where B::V: Copy {
-        if *seg_top == seg_base { return c; } // lone operand: no memory touched
         let mut acc = c;
-        let mut i = *seg_top;
-        loop {
-            i -= 1;
-            acc = match *seg.add(i) {
-                Seg::Un(k) => b.unary(k, acc),
-                Seg::PowBase(v) => b.pow(v, acc),
+        while seg.len() > seg_base {
+            acc = match seg.pop() {
+                Some(Seg::Un(k)) => b.unary(k, acc),
+                Some(Seg::PowBase(v)) => b.pow(v, acc),
+                None => unreachable!(),
             };
-            if i <= seg_base { break; }
         }
-        *seg_top = seg_base;
         acc
     }
 
@@ -108,9 +93,8 @@ where B::V: Copy + Default {
             let k = t.kind;
             if k == Kind::Num { val = b.num(t.value); break; }
             if k == Kind::LParen {
-                unsafe { *frames.add(n_frames) = Frame { term, sum, seg_base, pend_mul, pend_add }; }
-                n_frames += 1;
-                seg_base = seg_top;
+                frames.push(Frame { term, sum, seg_base, pend_mul, pend_add });
+                seg_base = seg.len();
                 pend_mul = Kind::End;
                 pend_add = Kind::End;
                 continue;
@@ -123,13 +107,11 @@ where B::V: Copy + Default {
                     cur = lx.next()?;
                     let lv = if leaf.kind == Kind::Num { b.num(leaf.value) } else { b.var(leaf.value as usize) };
                     if cur.kind != Kind::Caret { val = b.unary(k, lv); break; }
-                    unsafe { *seg.add(seg_top) = Seg::Un(k); }
-                    seg_top += 1;
+                    seg.push(Seg::Un(k));
                     val = lv;
                     break;
                 }
-                unsafe { *seg.add(seg_top) = Seg::Un(k); }
-                seg_top += 1;
+                seg.push(Seg::Un(k));
                 continue;
             }
             if k == Kind::Ident { val = b.var(t.value as usize); break; }
@@ -142,7 +124,7 @@ where B::V: Copy + Default {
             let k = t.kind;
             if k == Kind::Plus || k == Kind::Minus {
                 // + - barrier: closes the segment, the term and the sum
-                let v = unsafe { fold_segment(b, seg, &mut seg_top, seg_base, val) };
+                let v = fold_segment(b, seg, seg_base, val);
                 term = if pend_mul == Kind::End { v } else { b.mul_div(pend_mul, term, v) };
                 sum = if pend_add == Kind::End { term } else { b.add_sub(pend_add, sum, term) };
                 pend_add = k;
@@ -150,10 +132,8 @@ where B::V: Copy + Default {
                 break;
             }
             if k == Kind::RParen {
-                if n_frames == 0 { return Err(Error::at("mismatched parenthesis", t.pos)); }
-                n_frames -= 1;
-                let f = unsafe { *frames.add(n_frames) };
-                let v = unsafe { fold_segment(b, seg, &mut seg_top, seg_base, val) };
+                let Some(f) = frames.pop() else { return Err(Error::at("mismatched parenthesis", t.pos)); };
+                let v = fold_segment(b, seg, seg_base, val);
                 let tv = if pend_mul == Kind::End { v } else { b.mul_div(pend_mul, term, v) };
                 val = if pend_add == Kind::End { tv } else { b.add_sub(pend_add, sum, tv) };
                 term = f.term; sum = f.sum; seg_base = f.seg_base;
@@ -162,19 +142,18 @@ where B::V: Copy + Default {
             }
             if k == Kind::Star || k == Kind::Slash {
                 // * / barrier: closes the segment into the term
-                let v = unsafe { fold_segment(b, seg, &mut seg_top, seg_base, val) };
+                let v = fold_segment(b, seg, seg_base, val);
                 term = if pend_mul == Kind::End { v } else { b.mul_div(pend_mul, term, v) };
                 pend_mul = k;
                 break;
             }
             if k == Kind::Caret {
-                unsafe { *seg.add(seg_top) = Seg::PowBase(val); }
-                seg_top += 1;
+                seg.push(Seg::PowBase(val));
                 break;
             }
             if k == Kind::End {
-                if n_frames != 0 { return Err(Error("missing ')'".into())); }
-                let v = unsafe { fold_segment(b, seg, &mut seg_top, seg_base, val) };
+                if !frames.is_empty() { return Err(Error("missing ')'".into())); }
+                let v = fold_segment(b, seg, seg_base, val);
                 let tv = if pend_mul == Kind::End { v } else { b.mul_div(pend_mul, term, v) };
                 return Ok(if pend_add == Kind::End { tv } else { b.add_sub(pend_add, sum, tv) });
             }
