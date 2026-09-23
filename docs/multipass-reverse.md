@@ -190,7 +190,7 @@ edges out `ast-pratt` as the fastest pointer classic on this shape. Its
 no-tree twin is a real win in Python and Haskell, but in C++ and Rust it's
 honestly a **tie** with `direct-recursive-descent` and `direct-shunting-yard`
 at ~50–75 ns/leaf, not a lead. Both share `ast-arena`'s two structural
-advantages — contiguous arena output and allocation-free parsing — and the
+advantages — contiguous arena output and no per-node heap allocation — and the
 fused one adds a third: no recursion.
 
 ## The fused variant

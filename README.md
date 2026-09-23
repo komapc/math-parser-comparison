@@ -45,10 +45,13 @@ independent runs, normalised to the fastest tree builder per language
 | `multipass-reverse` | arena AST | 1.39 | 1.37 | 1.39 | 1.46 |
 | `multipass-reverse-fold` | arena AST | **1.00** | 1.02 | **1.00** | 1.20 |
 
-**The fused form is the fastest tree builder of nine in C++ and in Python** —
-~1–5 % ahead of `ast-arena` in C++, +2…+7 % against the best pointer classic
-in Python. Positive in all 12 size×run measurements in both languages, so
-read it as a consistent sliver, not a margin. **In Rust it's a genuine
+**On the random corpus the fused form is the fastest tree builder of nine in
+C++ and in Python** — ~1–5 % ahead of `ast-arena` in C++, +2…+7 % against
+the best pointer classic in Python (at n=1000 the Python range starts at
+0 %, a tie by the one-pager's rule). Positive in all 12 size×run
+measurements in both languages, so read it as a consistent sliver, not a
+margin. On the structured shapes it ties or leads in C++, Rust and Python
+everywhere except Python powchain, ~4 % behind `ast-rd`. **In Rust it's a genuine
 tie**: the same code under LLVM lands anywhere from ~5 % ahead to ~4 %
 behind `ast-arena` depending on the run and size, with the sign flipping run
 to run rather than settling one way — noisier than the C++/Python sliver,
@@ -137,7 +140,7 @@ whether the approach generalizes is an open question, not a claim.
 
 Nor is bottom-up per-level reduction new: operator-precedence parsing and the
 multi-pass reduction of the earliest FORTRAN compilers work the same way. What
-this repo tests is whether a fused, allocation-free form of that old idea
+this repo tests is whether a fused, single-sweep form of that old idea
 competes with today's defaults under identical rules — and the answer is
 measured, not assumed.
 
