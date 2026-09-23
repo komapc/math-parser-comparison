@@ -8,10 +8,14 @@
 
 #include "test_util.hpp"
 
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <print>
 #include <random>
 #include <utility>
 #include <string>
+#include <vector>
 
 using namespace mp;
 
@@ -63,6 +67,56 @@ std::string genLong() {
     return s;
 }
 
+// Reads every line of a file verbatim, including blank ones: some mutated
+// lines are legitimately the empty string (a valid malformed-input case),
+// so this must NOT drop empty lines the way corpus_bench's loader does.
+std::vector<std::string> loadLines(const std::filesystem::path& p) {
+    std::vector<std::string> out;
+    std::ifstream f(p);
+    std::string line;
+    while (std::getline(f, line)) out.push_back(line);
+    return out;
+}
+
+// ctest chdir's into the test's binary directory, whose parent differs
+// between a local `cpp/build` and CI's repo-root `build` — so probe a
+// small set of candidates rather than assuming one relative depth.
+std::filesystem::path findBenchDir() {
+    namespace fs = std::filesystem;
+    for (const char* cand : {"../bench", "../../bench", "bench"}) {
+        if (fs::exists(fs::path(cand) / "gen_fuzz.py")) return fs::path(cand);
+    }
+    return {};
+}
+
+// Loads bench/fuzz/{well_formed,mutated}.txt — the corpus every other
+// language's fuzz test also reads (bench/gen_fuzz.py), on top of (not
+// instead of) this file's own C++-specific generator above. Generates the
+// files via `python3 bench/gen_fuzz.py` if missing; if that also fails
+// (e.g. no python3 in this environment), prints a note and skips the extra
+// check rather than failing the whole suite over missing tooling.
+std::pair<std::vector<std::string>, std::vector<std::string>> loadSharedFuzz() {
+    namespace fs = std::filesystem;
+    const fs::path bench = findBenchDir();
+    if (bench.empty()) {
+        std::println("note: bench/ not found from cwd={}; skipping shared-corpus fuzz check",
+                     fs::current_path().string());
+        return {};
+    }
+    const fs::path wf = bench / "fuzz" / "well_formed.txt";
+    const fs::path mu = bench / "fuzz" / "mutated.txt";
+    if (!fs::exists(wf) || !fs::exists(mu)) {
+        const std::string cmd = "python3 " + (bench / "gen_fuzz.py").string();
+        std::println("shared fuzz corpus missing; generating via `{}`", cmd);
+        if (std::system(cmd.c_str()) != 0 || !fs::exists(wf) || !fs::exists(mu)) {
+            std::println("note: could not generate shared fuzz corpus (python3 unavailable?); "
+                         "skipping shared-corpus fuzz check");
+            return {};
+        }
+    }
+    return {loadLines(wf), loadLines(mu)};
+}
+
 }  // namespace
 
 int main() {
@@ -98,5 +152,14 @@ int main() {
 
     std::println("{} well-formed + {} mutated + {} long exprs x {} strategies, {} mismatch(es)",
                  kWellFormed, kMutated, 2 * kLong, evs.size(), mismatches);
+
+    const auto [sharedWellFormed, sharedMutated] = loadSharedFuzz();
+    for (const auto& e : sharedWellFormed) checkAll(e);
+    for (const auto& e : sharedMutated) checkAll(e);
+    if (!sharedWellFormed.empty() || !sharedMutated.empty()) {
+        std::println("{} well-formed + {} mutated exprs (shared corpus) x {} strategies, "
+                     "{} mismatch(es) total",
+                     sharedWellFormed.size(), sharedMutated.size(), evs.size(), mismatches);
+    }
     return mismatches == 0 ? 0 : 1;
 }

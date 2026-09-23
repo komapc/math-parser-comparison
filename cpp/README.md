@@ -6,7 +6,7 @@
 
 ![C++26](https://img.shields.io/badge/C%2B%2B-26-00599C?logo=cplusplus&logoColor=white)
 ![CMake](https://img.shields.io/badge/CMake-3.20%2B-064F8C?logo=cmake&logoColor=white)
-![tests](https://img.shields.io/badge/tests-480%20checks%20%2B%20fuzz-brightgreen)
+![tests](https://img.shields.io/badge/tests-555%20checks%20%2B%20fuzz-brightgreen)
 ![warnings](https://img.shields.io/badge/-Wall%20-Wextra%20-Wpedantic-clean-brightgreen)
 ![deps](https://img.shields.io/badge/dependencies-none-blue)
 
@@ -14,7 +14,7 @@
 
 ---
 
-> Part of a [three-language comparison](../README.md) (C++ · Haskell · Python). This is the C++ implementation — and the in-depth analysis the other two are measured against.
+> Part of a [four-language comparison](../README.md) (C++, Rust, Haskell, and Python). This is the C++ implementation — and the in-depth analysis the other three are measured against.
 
 A dependency-free C++26 project implementing classic (and not-so-classic) algorithms for parsing and evaluating arithmetic expressions. Every strategy shares one lexer and one grammar — the benchmarks measure the *algorithm*, not incidental differences. The lexer has two modes over one set of rules (streaming `Lexer::next()` for strategies that read left to right, `tokenize()` for those whose algorithm indexes the token array); the one strategy that bypasses it, `direct-scannerless`, exists precisely to measure what it costs ([why](../FINDINGS.md#lexing-rules--applied-to-every-parser)).
 
@@ -77,13 +77,16 @@ Precedence: `+ -` < `* /` < unary < `^` (right-associative). So `-2^2 = -4`, `2^
 | [`direct-mp`](src/multipass_lean.cpp) | D&C | none — returns `double` | token array + pre-scan vectors |
 | [`bytecode-vm`](src/bytecode.cpp) | Shunting-yard → [bytecode](https://en.wikipedia.org/wiki/Bytecode) + VM | flat opcode stream | member vectors, reused |
 
-The pointer-AST strategies produce structurally identical trees; the three left-to-right variants (`ast-rd`, `ast-sy`, `ast-pratt`) cluster tightly — algorithm barely matters, only allocation. The arena layout gives ~2× speedup over pointer nodes.
+The pointer-AST strategies produce numerically identical results (checked by the correctness suite and the differential fuzzer — there is no node-count or structural-shape comparison); the three left-to-right variants (`ast-rd`, `ast-sy`, `ast-pratt`) cluster tightly — algorithm barely matters, only allocation. The arena layout gives ~2× speedup over pointer nodes.
 
 ## 🏁 Verdict
 
 > - **Fastest?** `direct-rd` / `direct-sy` / `direct-reverse` — a three-way tie (ordering inside this group flips run-to-run), `bytecode-vm` ~20 % behind. Fusing the lexer into the grammar (`direct-scannerless`) buys another 25 %, at the price of having no lexer to share.
 > - **Need a tree?** `multipass-reverse-fold` or `ast-arena` — one allocation, never per-node `unique_ptr`; the fused reducer is ~3–5 % ahead and has no worst case.
 > - **Structured input?** Bottom-up only. Every top-down D&C form needed rescue machinery to stay O(n log n) on mixed-precedence chains and still trails `multipass-reverse-fold` by 2–5× there ([FINDINGS](../FINDINGS.md#result-2--vs-its-family-strictly-better)).
+
+See the [one-pager](../docs/one-pager.md) for the cross-language verdict and
+scoreboard.
 
 ## 🛠️ Build & run
 
@@ -93,13 +96,15 @@ From the repo root (`-S cpp`); drop the `cpp/` prefix if you're already in this 
 cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-14
 cmake --build build -j
 
-ctest --test-dir build --output-on-failure   # 480 checks + 6300-input differential fuzz (15 strategies)
+ctest --test-dir build --output-on-failure   # 555 checks + 6300-input differential fuzz (15 strategies)
 ./build/corpus_bench                          # one-shot, shared corpus (cross-language comparable)
 ./build/adversarial_bench                     # 4 structured shapes: top-down worst cases (now O(n log n)), nestchain (bottom-up's), vs reverse Θ(n)
 ```
 
-Requires GCC 14 + CMake ≥ 3.20. No external dependencies. Both harnesses
-read `bench/corpus/` — run `python3 bench/gen_corpus.py` first.
+Requires GCC 14 (also builds with Clang 17+; CI tests clang-18) + CMake ≥ 3.20.
+No external dependencies. `corpus_bench` reads `bench/corpus/` — run
+`python3 bench/gen_corpus.py` first; `adversarial_bench` generates its own
+structured chains and needs no corpus.
 
 ## 🗂️ Layout
 
@@ -107,7 +112,13 @@ read `bench/corpus/` — run `python3 bench/gen_corpus.py` first.
 include/parser/   interfaces (evaluator, ast, arena_ast, lexer, token, parser)
 src/              one file per strategy + shared lexer/ast
 bench/            corpus_bench.cpp  adversarial_bench.cpp  (shared corpus, what CI reports)
-tests/            test_parsers.cpp (480 checks) + fuzz_differential.cpp (6300-input cross-strategy fuzz), run via CTest
+tests/            test_parsers.cpp (555 checks) + fuzz_differential.cpp (6300-input cross-strategy fuzz), run via CTest
 ```
 
 > All numbers above are from the neutral CI runner (median of three runs).
+
+**Scope caveat:** none of the 15 strategies has a recursion-depth guard. A deeply
+nested or chained input (roughly >50k–100k levels) can crash with a stack
+overflow (SIGSEGV) instead of a clean parse error. Which strategies survive at
+a given depth is compiler/stack-layout luck, not a design property — the one
+exception is `direct-reverse`, which is structurally iterative and immune.

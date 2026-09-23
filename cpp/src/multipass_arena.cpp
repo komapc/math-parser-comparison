@@ -11,6 +11,11 @@
 #include <string>
 #include <vector>
 
+#if defined(__x86_64__)
+#include <immintrin.h>
+#include <cstdlib>
+#endif
+
 namespace mp {
 namespace {
 
@@ -119,8 +124,6 @@ bool anyIn(const std::vector<uint32_t>& v, std::size_t lo, std::size_t hi) {
 // Flatness for ranges ≤ 32 is one compare against the first prec broadcast.
 #if defined(__x86_64__)
 #define MP_ARENA_SIMD 1
-#include <immintrin.h>
-#include <cstdlib>
 
 // MP_ARENA_NO_SIMD=1 forces the scalar path — lets an A/B benchmark compare
 // both paths inside one binary (no code-layout luck between two builds).

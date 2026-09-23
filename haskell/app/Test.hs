@@ -32,6 +32,13 @@ errs =
   -- stray ')' and adjacent operand groups, and a digitless number
   -- (regression: the lexer accepted "." as 0.0)
   , "a)", "(a)(b)", "a(3)", "."
+  -- regression: the shunting-yard family (ast/direct-sy, bytecode-vm)
+  -- accepted "a()" as "a" because ')' never checked whether an operand
+  -- was expected
+  , "a()", "()"
+  -- regression: the shared lexer's digit guard counted exponent digits,
+  -- so ".e5" fast-pathed to 0.0 instead of erroring
+  , ".e5", ".E-3"
   ]
 
 nearly :: Double -> Double -> Bool

@@ -7,7 +7,6 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <queue>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -68,7 +67,7 @@ static bool anyIn(const std::vector<uint32_t>& v, uint32_t lo, uint32_t hi) {
 
 // ─────────────────────────────────────────────────── shared infrastructure ──
 //
-// All variants below share:
+// MultipassBase precomputes, for the one variant defined in this file:
 //   candsByDepth_      per-depth sorted candidate lists (binary + unary)
 //   parenMatch_        matching bracket position (O(1) lookup)
 //   parenCandStart_/End_  range in candsByDepth_[depth+1] inside each '('
@@ -104,7 +103,12 @@ protected:
         parenMatch_.assign(n, 0);
         parenCandStart_.assign(n, 0);
         parenCandEnd_.assign(n, 0);
-        // Clear contents but keep inner-vector capacities (no realloc churn).
+        // candsByDepth_ / bucketsByDepth_: clear() only empties the inner
+        // vectors, so their capacities survive across calls (no realloc
+        // churn on repeated parses of similarly-shaped input). st_ does NOT
+        // get this treatment: it is fully cleared here and rebuilt from
+        // scratch below (buildSt() reassigns each st_[d]), so every call
+        // reallocates the sparse tables.
         for (auto& v : candsByDepth_) v.clear();
         for (auto& b : bucketsByDepth_) {
             b.p1.clear(); b.p2.clear(); b.caret.clear(); b.un.clear();
@@ -237,10 +241,20 @@ protected:
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Variant 1 — multipass-paren-idx
-// Same recursive algorithm as multipass_arena (iterator passing + flat-chain
-// fold + RTL linear findSplit) but with pre-indexed paren contents.
-// Eliminates ALL binary searches: paren-strips use parenCandStart_/End_.
+// multipass-bfs — pre-indexed recursive divide-and-conquer.
+//
+// Despite the strategy name, this is plain top-down recursion, not a
+// breadth-first traversal — the name is kept because it's used throughout
+// benchmark scripts, CI tables, and cross-language comparisons; renaming it
+// would ripple into bench.yml, tables.py, every language's registry, and
+// every doc table. What actually distinguishes this variant from
+// multipass_arena is that every candidate lookup is O(1): buildAll()
+// pre-indexes, per depth, a sorted candidate list (candsByDepth_) plus a
+// sparse table over it for O(1) range-minimum queries (stQuery), and for
+// each '(' a precomputed index range into candsByDepth_[depth+1]
+// (parenCandStart_/End_) — so paren strips no longer need the binary search
+// that multipass_arena still does. Otherwise the recursion is the same
+// iterator-passing + flat-chain-fold + RTL findSplit design.
 // ═══════════════════════════════════════════════════════════════════════════
 class MultipassBfs final : public MultipassBase, public IEvaluator {
 public:
@@ -253,14 +267,6 @@ public:
         return evalNode(buildBfs(0, tokens_.size()-1, 0));
     }
 private:
-    struct Task {
-        std::size_t tok_lo, tok_hi;
-        int depth, clo, chi;
-        int result_slot;   // index into results[]
-        int parent_slot;   // parent's result slot (-1 = root)
-        bool is_rhs;       // whether this task fills parent's rhs
-    };
-
     int buildBfs(std::size_t tok_lo, std::size_t tok_hi, int depth) {
         int clo = 0, chi = depth < (int)candsByDepth_.size()
                            ? (int)candsByDepth_[depth].size() : 0;

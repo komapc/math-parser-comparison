@@ -5,7 +5,7 @@ Idiomatic Haskell port of all fifteen strategies (GHC, `base`/`array`/`container
 ```sh
 python3 bench/gen_corpus.py        # from repo root: generate shared corpora (once)
 cd haskell
-cabal test                         # correctness (480 checks)
+cabal test                         # correctness (540 checks)
 cabal run bench                    # cross-check + timing on shared corpora
 cabal run adversarial              # 4 structured shapes: top-down worst cases (now O(n log n)), nestchain, vs reverse Θ(n)
 ```
@@ -31,10 +31,13 @@ algorithm is written once and instantiated at three carriers:
 
 Drivers: `rdParse` (recursive descent), `prattParse`, `syParse` (shunting-yard),
 `mpRun` (top-down divide & conquer, with an optional `Data.Array` sparse-table
-RMQ for `multipass-bfs`), and `reverseMpParse` (bottom-up reduction,
+RMQ for `multipass-bfs`), `reverseMpParse` (bottom-up reduction,
 innermost/highest precedence first → `multipass-reverse`; algorithm explained in
-[docs/multipass-reverse.md](../docs/multipass-reverse.md)). `bytecode-vm`
-compiles to an instruction list and runs it on a value stack. Arithmetic matches
+[docs/multipass-reverse.md](../docs/multipass-reverse.md)), and `reverseFoldParse`
+(the fused single-sweep form of `reverseMpParse` → `multipass-reverse-fold` and
+`direct-reverse`). `bytecode-vm` compiles to an instruction list and runs it on
+a value stack. `scanParse` fuses the lexer into the grammar for
+`direct-scannerless`, the lexer-cost control row. Arithmetic matches
 C++ `double` semantics exactly: `x/0 = inf`, and `^` is GHC's `**`, which is
 libm `pow` — bit-identical to `std::pow`, including negative bases with
 integral exponents.
@@ -47,51 +50,57 @@ tiers, not the digits.** Reproduce locally with `cabal run bench`.
 
 | strategy | n=10 | n=100 | n=1000 | n=10000 |
 |---|--:|--:|--:|--:|
-| ast-recursive-descent | **504** | 505 | 589 | 479 |
-| ast-shunting-yard | 620 | 615 | 686 | 899 |
-| ast-pratt | 529 | **484** | 466 | **476** |
-| ast-arena | 682 | 637 | 689 | 1037 |
-| multipass | 952 | 875 | 1035 | 1507 |
-| multipass-arena | 1161 | 1059 | 1285 | 2137 |
-| direct-mp | 1004 | 933 | 986 | 1626 |
-| multipass-bfs | 1424 | 1251 | 1458 | 3223 |
-| multipass-reverse | 923 | 875 | 892 | 1682 |
-| multipass-reverse-fold | 733 | 676 | 804 | 1041 |
-| direct-recursive-descent | 528 | 516 | **432** | 613 |
-| direct-shunting-yard | 634 | 575 | 552 | 883 |
-| direct-reverse | 567 | 505 | 474 | 618 |
-| bytecode-vm | 618 | 565 | 576 | 871 |
-| *direct-scannerless* (control) | *469* | *400* | *424* | *610* |
+| ast-recursive-descent | 536 | 552 | 583 | 744 |
+| ast-shunting-yard | 627 | 606 | 679 | 949 |
+| ast-pratt | 564 | 540 | 648 | 623 |
+| ast-arena | 667 | 612 | 754 | 998 |
+| multipass | 906 | 871 | 972 | 1534 |
+| multipass-arena | 1036 | 982 | 1184 | 2019 |
+| direct-mp | 948 | 896 | 993 | 1584 |
+| multipass-bfs | 1298 | 1207 | 1393 | 3081 |
+| multipass-reverse | 826 | 790 | 852 | 1583 |
+| multipass-reverse-fold | 618 | 600 | 699 | 933 |
+| direct-recursive-descent | 507 | 493 | 464 | 631 |
+| direct-shunting-yard | 540 | 545 | 617 | 892 |
+| direct-reverse | **491** | **466** | **454** | **594** |
+| bytecode-vm | 564 | 555 | 634 | 888 |
+| *direct-scannerless* (control) | *450* | *387* | *448* | *602* |
 
-Median of three CI runs. Correctness: all corpus expressions agree across all
-15 strategies. These numbers are ~1.6–2.9× lower than the ones this table
-carried before 2026-09-02: the shared lexer parsed numbers with `reads`, which
-goes through `Rational` and was about two-thirds of the fastest strategies'
-time; it now takes Clinger's fast path (bit-identical, `reads` remains the
-fallback). With that constant gone the spread is ~3× fastest-to-slowest, the
-same as Python's; the pointer classics lead every arena form by ~1.5×, and
-"no tree" buys nothing here. `multipass-reverse` beats
-`multipass-arena`/`-bfs` at every size; the `multipass-bfs` blow-up at
-n=10000 is the sparse-table build cost. The lexer-free `direct-scannerless`
-is a control, not a contender: it lands within 5–15 % of `direct-rd` — the
-lazy token list already fuses with its consumer.
+Median of three CI runs (34136843367 / 34137622680 / 34138407724). Correctness:
+all corpus expressions agree across all 15 strategies. `direct-reverse` is now
+the fastest strategy at every size, edging out `direct-recursive-descent`
+(both stay within ~2–8 % of each other; noisy across runs, see the one-pager).
+The spread is ~2.8× fastest-to-slowest on the median (vs C++'s ~4.7×), tighter
+than Python's ~3.0×; the pointer classics lead every arena form, from ~1.4× at
+the tight end (`ast-arena`) to ~2.6× at the wide end (`multipass-bfs`), and
+"no tree" buys little here. `multipass-reverse` beats `multipass-arena`/`-bfs`
+at every size; the `multipass-bfs` blow-up at n=10000 is the sparse-table
+build cost. The lexer-free `direct-scannerless` is a control, not a
+contender: it lands within a few percent of `direct-rd`/`direct-reverse`,
+noisily — the lazy token list already fuses with its consumer.
 
 ## What changes versus C++
 
-- **The arena trick disappears** — `ast-arena` (689 @ n=1000) is *slower* than
-  the pointer-AST `Expr` builders (`ast-pratt` 466, `ast-recursive-descent`
-  589). A flat `Array` of boxed, GC'd nodes is no cheaper than the tree; the C++
+- **The arena trick disappears** — `ast-arena` (754 @ n=1000) is *slower* than
+  the pointer-AST `Expr` builders (`ast-pratt` 648, `ast-recursive-descent`
+  583). A flat `Array` of boxed, GC'd nodes is no cheaper than the tree; the C++
   win was about contiguous memory *layout*, which a managed runtime hides.
-- **"No tree" stops winning, too.** In C++ the `direct-*` forms are fastest; in
-  Haskell a pointer-AST builder is nominally fastest and `direct-rd` /
-  `direct-reverse` sit just behind (`bytecode-vm` ~20 % back). With every node
-  boxed and GC'd, *not* allocating the tree no longer buys a layout advantage —
-  the top four strategies are a ~10 % near-tie on the median.
+- **"No tree" wins here now.** In C++ the `direct-*` forms are fastest; in
+  Haskell `direct-reverse` is fastest at every size this batch, edging out
+  `direct-rd` by a few percent (noisy across runs — see the one-pager),
+  with `ast-recursive-descent` the closest pointer classic (`bytecode-vm`
+  further back). With every node boxed and GC'd, *not* allocating the tree
+  buys less of a layout advantage than in the unmanaged languages, and the
+  ranking among the leaders is close enough on this runner to be sensitive
+  to which run you read.
 - **The sparse-table `multipass-bfs` is the slowest at scale** — building the
   `Array`-based RMQ costs more than the linear split scan it replaces, exactly as
   in C++. The precompute loses to a plain linear scan in every runtime.
-- **The spread is ~3× on the median** (vs C++'s ~4.8×), the same as Python's.
-  It read ~1.7× until 2026-09-02, when the lexer's `reads`-based number parsing
-  was replaced: a shared constant cost had been compressing every gap.
+- **The spread is ~2.8× on the median** (vs C++'s ~4.7×), tighter than
+  Python's ~3.0×. It read ~1.7× until 2026-09-02, when the lexer's
+  `reads`-based number parsing was replaced: a shared constant cost had been
+  compressing every gap.
 
-See the top-level [README](../README.md) for the cross-language table.
+See the top-level [README](../README.md) for the cross-language table and the
+[one-pager](../docs/one-pager.md) for the cross-language verdict and
+scoreboard.

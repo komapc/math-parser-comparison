@@ -9,7 +9,7 @@ from typing import NamedTuple
 # Token kinds.
 NUM, IDENT, PLUS, MINUS, STAR, SLASH, CARET, LPAREN, RPAREN, END = range(10)
 
-_NUMBER_RE = re.compile(r"(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?")
+_NUMBER_RE = re.compile(r"(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
 _IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _SINGLE = {
     "+": PLUS, "-": MINUS, "*": STAR, "/": SLASH,
@@ -34,13 +34,22 @@ def tokenize(src: str) -> list[Token]:
         if c.isdigit() or c == ".":
             m = _NUMBER_RE.match(src, i)
             if not m:
+                # c.isdigit() is Unicode-aware (e.g. Arabic-Indic '١' or
+                # superscript '²'), so it can accept a character _NUMBER_RE
+                # (ASCII-only) rejects; raise explicitly rather than assume.
                 raise ValueError(f"invalid number at position {i}")
             out.append(Token(NUM, float(m.group()), i))
             i = m.end()
             continue
         if c.isalpha() or c == "_":
             m = _IDENT_RE.match(src, i)
-            assert m  # c already matches the first char class
+            if not m:
+                # c.isalpha() is Unicode-aware (e.g. Greek 'π'), so it can
+                # accept a character _IDENT_RE (ASCII-only) rejects; raise
+                # explicitly rather than via `assert`, which is stripped
+                # under `python -O` and would otherwise be relied on for
+                # input validation.
+                raise ValueError(f"unexpected character {c!r} at position {i}")
             word = m.group()
             if len(word) != 1 or c == "_":
                 raise ValueError(f"unknown identifier at position {i}")

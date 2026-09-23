@@ -1,7 +1,7 @@
 cabal-version:      2.4
 name:               math-parser
 version:            0.1.0
-synopsis:           Fourteen math-expression evaluation strategies, idiomatic Haskell
+synopsis:           Fifteen math-expression evaluation strategies, idiomatic Haskell
 build-type:         Simple
 
 common warnings
@@ -37,4 +37,16 @@ test-suite test
     hs-source-dirs:   app
     main-is:          Test.hs
     build-depends:    base, math-parser
+    default-language: Haskell2010
+
+-- Differential fuzz against the shared corpus (bench/fuzz/), mirroring
+-- cpp/tests/fuzz_differential.cpp, python/test_fuzz.py and rust/tests/fuzz.rs.
+-- A second test-suite: `cabal test` runs both this and `test` together, the
+-- same way each other language runs correctness+fuzz under one invocation.
+test-suite fuzz
+    import:           warnings
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   app
+    main-is:          Fuzz.hs
+    build-depends:    base, directory, process, math-parser
     default-language: Haskell2010

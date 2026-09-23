@@ -8,23 +8,26 @@ Three flat chains plus one nested shape (mirrors cpp/bench/adversarial_bench.cpp
   sumchain   1 + 2 - 3 + 4 ...                 single-precedence (control)
   nestchain  (((...(1 + 1)...) + 1)            deep parenthesis nesting
 
-On powchain the top-down splitters degenerate: the candidate list mixes prec 2
-and prec 4, so the flat-chain fold never applies and the linear right-to-left
-split scan has no prec-1 early exit — every split rescans its whole range:
-Theta(n^2) (multipass, multipass-arena). The sparse-table RMQ (multipass-bfs)
-answers splits in O(1). towerchain attacks the OTHER linear scan, the
-flat-chain *check*: every right-end * split leaves the long same-precedence ^
-prefix in the left sub-range and rereads it — quadratic even with O(1) splits,
-so it also catches multipass-bfs. Bottom-up multipass-reverse reduces each
-level in one pass regardless: Theta(n). sumchain is the control where the
-whole family stays linear.
+Historically (pre-fix), powchain made the top-down splitters degenerate: the
+candidate list mixed prec 2 and prec 4, so the flat-chain fold never applied
+and the linear right-to-left split scan had no prec-1 early exit — every
+split rescanned its whole range: Theta(n^2) (multipass, multipass-arena). The
+sparse-table RMQ (multipass-bfs) answered splits in O(1). towerchain attacked
+the OTHER linear scan, the flat-chain *check*: every right-end * split left
+the long same-precedence ^ prefix in the left sub-range and reread it —
+quadratic even with O(1) splits, so it also caught multipass-bfs. Bottom-up
+multipass-reverse reduces each level in one pass regardless: Theta(n).
+sumchain is the control where the whole family stays linear.
 
-NOTE: the shipped top-down variants include the O(n log n) bounded-scan +
-bucket fix, so the quadratic behaviour above is pre-fix; nestchain is the
-shape adversarial to BOTTOM-UP (its only recursion is per paren group).
-Full pre/post-fix expectations: docs/multipass-reverse.md.
+The shipped top-down variants now include the O(n log n) bounded-scan +
+bucket fix, so the quadratic behaviour described above no longer reproduces
+on any strategy here — this file still measures the same shapes to guard
+against a regression. nestchain is the shape adversarial to BOTTOM-UP (its
+only recursion is per paren group). Full pre/post-fix expectations:
+docs/multipass-reverse.md.
 """
 import sys
+import threading
 import time
 
 sys.path.insert(0, __file__.rsplit("/", 1)[0])
@@ -92,7 +95,7 @@ def _time_one(ev, expr):
     return time.perf_counter() - t0
 
 
-def main():
+def run():
     print("== Python: adversarial chains (structured inputs) ==\n")
     run_shape("powchain: b^e * b^e / ... (mixed precedence)",
               pow_chain, lambda m: 2 * m)
@@ -103,6 +106,21 @@ def main():
     run_shape("nestchain: (((...(1 + 1)...) + 1) (deep nesting — bottom-up's turn)",
               nest_chain, lambda m: m + 1)
     return 0
+
+
+def main():
+    # nestchain at m=1024 recurses past CPython's default C stack, so the
+    # work runs in a thread with a large stack (same pattern as bench.py).
+    rc = [1]
+
+    def target():
+        rc[0] = run()
+
+    threading.stack_size(512 * 1024 * 1024)
+    t = threading.Thread(target=target)
+    t.start()
+    t.join()
+    return rc[0]
 
 
 if __name__ == "__main__":

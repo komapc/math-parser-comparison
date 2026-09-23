@@ -46,6 +46,10 @@ ERRORS = [
     # stray ')' and adjacent operand groups (regressions: the shunting-yard
     # family accepted these), and a digitless number
     "a)", "(a)(b)", "a(3)", ".",
+    # regression: Haskell's shunting-yard family accepted empty parens
+    "a()", "()",
+    # regression: Haskell's shared lexer fast-pathed ".e5" to 0.0
+    ".e5", ".E-3",
 ]
 
 

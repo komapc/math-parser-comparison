@@ -4,19 +4,19 @@
 // direct-mp collapses both passes: the recursion returns a double directly,
 // so there is no intermediate tree and no evalNode overhead.
 //
-// Improvements in this version:
+// This variant combines three techniques:
 //
-//   #7  Bounded scans + precedence buckets (same as other multipass variants):
-//       cap Theta(n^2) worst cases at O(n log n).
+//   Bounded scans + precedence buckets (same as other multipass variants):
+//   cap Theta(n^2) worst cases at O(n log n).
 //
-//   #8  Index passing: the split already passes (d, clo, chi) slices to sub-
-//       ranges, avoiding a binary search on every call (only paren strips need
-//       one, via parenRange which uses the precomputed pcStart_/pcEnd_ arrays).
+//   Index passing: the split already passes (d, clo, chi) slices to sub-
+//   ranges, avoiding a binary search on every call (only paren strips need
+//   one, via parenRange which uses the precomputed pcStart_/pcEnd_ arrays).
 //
-//   #9  AVX2 SIMD flat check and split (same design as multipass-arena):
-//       a per-depth int8_t prec array lets a single 32-byte load answer both
-//       questions branchlessly. Runtime-dispatched; set MP_LEAN_NO_SIMD=1 to
-//       force the scalar path.
+//   AVX2 SIMD flat check and split (same design as multipass-arena):
+//   a per-depth int8_t prec array lets a single 32-byte load answer both
+//   questions branchlessly. Runtime-dispatched; set MP_LEAN_NO_SIMD=1 to
+//   force the scalar path.
 
 #include "parser/evaluator.hpp"
 #include "parser/lexer.hpp"
@@ -30,6 +30,11 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+#if defined(__x86_64__)
+#include <cstdlib>
+#include <immintrin.h>
+#endif
 
 namespace mp {
 namespace {
@@ -96,8 +101,6 @@ static bool anyIn(const std::vector<uint32_t>& v, uint32_t lo, uint32_t hi) {
 // ── AVX2 SIMD window (runtime-dispatched) ──────────────────────────────────
 #if defined(__x86_64__)
 #define MP_LEAN_SIMD 1
-#include <cstdlib>
-#include <immintrin.h>
 
 const bool kHasSIMD = __builtin_cpu_supports("avx2") &&
                       std::getenv("MP_LEAN_NO_SIMD") == nullptr;
@@ -250,7 +253,7 @@ protected:
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Variant 1 — direct-mp  (recursive, no AST)
+// direct-mp  (recursive, no AST)
 // ═══════════════════════════════════════════════════════════════════════════
 class DirectMp final : public LeanBase, public IEvaluator {
 public:
