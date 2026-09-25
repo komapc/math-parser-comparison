@@ -22,6 +22,12 @@ executable bench
     hs-source-dirs:   app
     main-is:          Bench.hs
     build-depends:    base, time, math-parser
+    -- A 64 MB nursery for both bench binaries (not the tests). With the
+    -- default 1 MB one, n=10000 measured mostly minor GCs: on the laptop GC
+    -- was ~20 % of the run, and -A64m cut n=10000 by 20-43 % for every
+    -- strategy while leaving n<=1000 within noise. -rtsopts lets you
+    -- override it: `cabal run bench -- +RTS -A1m -s`.
+    ghc-options:      -rtsopts "-with-rtsopts=-A64m"
     default-language: Haskell2010
 
 executable adversarial
@@ -29,6 +35,8 @@ executable adversarial
     hs-source-dirs:   app
     main-is:          Adversarial.hs
     build-depends:    base, time, math-parser
+    -- same nursery as bench, see there
+    ghc-options:      -rtsopts "-with-rtsopts=-A64m"
     default-language: Haskell2010
 
 test-suite test
