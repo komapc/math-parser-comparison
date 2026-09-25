@@ -25,7 +25,9 @@ env:
 
 jobs:
   bench:
-    runs-on: ubuntu-latest
+    # Pinned image, not ubuntu-latest: the distro's GCC 14 and Python 3 come
+    # from it, so a silent image bump would move those columns.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -88,8 +90,8 @@ jobs:
       # ---- Haskell ----
       - uses: haskell-actions/setup@v2
         with:
-          ghc-version: '9.6'
-          cabal-version: '3.10'
+          ghc-version: '9.6.7'
+          cabal-version: '3.10.3.0'
       - name: Haskell benchmark (+ tests)
         working-directory: haskell
         run: |
@@ -108,7 +110,7 @@ jobs:
         working-directory: rust
         run: |
           set -o pipefail
-          rustup update stable
+          rustup toolchain install   # the version pinned in rust/rust-toolchain.toml
           rustc --version
           cargo test --release
           { echo '## Rust'; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
@@ -118,6 +120,25 @@ jobs:
           cargo run -q --release --bin adversarial | tee ../adversarial-rust.txt >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
+      # Everything that could explain a shift between two runs, next to the
+      # numbers: CPU model, image, and every toolchain's exact version.
+      - name: Record environment
+        if: always()
+        run: |
+          {
+            echo "image: ${ImageOS:-?} ${ImageVersion:-?}"
+            uname -a
+            echo "nproc: $(nproc)"
+            lscpu
+            echo; g++-14 --version | head -1
+            cmake --version | head -1
+            python3 --version
+            ghc --version || true
+            cabal --version | head -1 || true
+            (cd rust && rustc --version && cargo --version) || true
+          } > env.txt 2>&1
+          { echo '## Environment'; echo '```'; cat env.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
@@ -126,3 +147,4 @@ jobs:
           path: |
             bench-*.txt
             adversarial-*.txt
+            env.txt

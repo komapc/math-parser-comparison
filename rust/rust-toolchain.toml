@@ -1,0 +1,7 @@
+# Pinned so a bench run months apart compiles with the same rustc: an
+# unpinned `stable` would move the Rust column with every release. This is
+# the version the 2026-09-25 tables were measured with; bump it on purpose,
+# and re-bench when you do.
+[toolchain]
+channel = "1.98.1"
+profile = "minimal"
