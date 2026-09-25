@@ -40,6 +40,7 @@ const ERRORS: &[&str] = &[
 fn nearly(a: f64, b: f64) -> bool {
     if a.is_nan() || b.is_nan() { return a.is_nan() && b.is_nan(); }
     if a == b { return true; }
+    if a.is_infinite() || b.is_infinite() { return false; }
     (a - b).abs() <= 1e-9 * a.abs().max(b.abs()).max(1.0)
 }
 

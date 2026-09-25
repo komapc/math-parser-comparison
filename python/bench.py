@@ -35,6 +35,8 @@ def same(a, b):
         return True
     if a == b:
         return True
+    if math.isinf(a) or math.isinf(b):
+        return False
     return abs(a - b) <= 1e-6 * max(1.0, abs(a), abs(b))
 
 

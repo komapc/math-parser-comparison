@@ -29,6 +29,7 @@ same :: Double -> Double -> Bool
 same a b
   | isNaN a && isNaN b = True
   | a == b = True
+  | isInfinite a || isInfinite b = False
   | otherwise = abs (a - b) <= 1e-6 * maximum [1, abs a, abs b]
 
 main :: IO ()
