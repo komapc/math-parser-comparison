@@ -84,15 +84,10 @@ std::string nestChain(int m) {
     return s;
 }
 
-double bestNs(IEvaluator& ev, const std::string& expr, int reps) {
-    double best = std::numeric_limits<double>::infinity();
-    for (int r = 0; r < reps; ++r) {
-        const auto t0 = Clock::now();
-        g_sink = ev.eval(expr);
-        best = std::min(best, std::chrono::duration<double, std::nano>(
-                                  Clock::now() - t0).count());
-    }
-    return best;
+double timeNs(IEvaluator& ev, const std::string& expr) {
+    const auto t0 = Clock::now();
+    g_sink = ev.eval(expr);
+    return std::chrono::duration<double, std::nano>(Clock::now() - t0).count();
 }
 
 // Returns true iff a correctness mismatch was found (caller uses this to set
@@ -118,12 +113,19 @@ bool runShape(const char* title, const std::vector<int>& ms,
             mismatch = true;
         }
 
-    for (const auto& ev : evs) {
-        std::print("{:<26}", ev->name());
-        for (std::size_t i = 0; i < ms.size(); ++i) {
-            const double ns = bestNs(*ev, exprs[i], 5);
-            std::print("{:>12.1f}", ns / (double)leaves(ms[i]));
-        }
+    // Interleaved round-robin, best of 5 per cell — see corpus_bench.cpp.
+    const double inf = std::numeric_limits<double>::infinity();
+    std::vector<std::vector<double>> best(
+        evs.size(), std::vector<double>(ms.size(), inf));
+    for (std::size_t i = 0; i < ms.size(); ++i)
+        for (int r = 0; r < 5; ++r)
+            for (std::size_t k = 0; k < evs.size(); ++k)
+                best[k][i] = std::min(best[k][i], timeNs(*evs[k], exprs[i]));
+
+    for (std::size_t k = 0; k < evs.size(); ++k) {
+        std::print("{:<26}", evs[k]->name());
+        for (std::size_t i = 0; i < ms.size(); ++i)
+            std::print("{:>12.1f}", best[k][i] / (double)leaves(ms[i]));
         std::println("");
     }
     std::println("");

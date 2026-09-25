@@ -45,15 +45,12 @@ fn nest_chain(m: usize) -> String {
     s
 }
 
-fn best_ns(ev: &mut dyn Evaluator, expr: &str, reps: usize) -> f64 {
-    let mut best = f64::INFINITY;
-    for _ in 0..reps {
-        let t0 = Instant::now();
-        let v = ev.eval(expr, None).unwrap_or(f64::NAN);
-        best = best.min(t0.elapsed().as_nanos() as f64);
-        std::hint::black_box(v);
-    }
-    best
+fn time_ns(ev: &mut dyn Evaluator, expr: &str) -> f64 {
+    let t0 = Instant::now();
+    let v = ev.eval(expr, None).unwrap_or(f64::NAN);
+    let ns = t0.elapsed().as_nanos() as f64;
+    std::hint::black_box(v);
+    ns
 }
 
 fn run_shape(title: &str, ms: &[usize], gen: fn(usize) -> String, leaves: fn(usize) -> usize) {
@@ -71,11 +68,19 @@ fn run_shape(title: &str, ms: &[usize], gen: fn(usize) -> String, leaves: fn(usi
         let got = ev.eval(last, None).unwrap_or(f64::NAN);
         if got != reference { println!("MISMATCH [{}]: {} != {}", ev.name(), got, reference); }
     }
-    for ev in evs.iter_mut() {
+    // Interleaved round-robin, best of 5 per cell — see bench.rs.
+    let mut best = vec![vec![f64::INFINITY; ms.len()]; evs.len()];
+    for i in 0..ms.len() {
+        for _ in 0..5 {
+            for (k, ev) in evs.iter_mut().enumerate() {
+                best[k][i] = best[k][i].min(time_ns(ev.as_mut(), &exprs[i]));
+            }
+        }
+    }
+    for (k, ev) in evs.iter().enumerate() {
         print!("{:<26}", ev.name());
         for (i, &m) in ms.iter().enumerate() {
-            let ns = best_ns(ev.as_mut(), &exprs[i], 5);
-            print!("{:>12.1}", ns / leaves(m) as f64);
+            print!("{:>12.1}", best[k][i] / leaves(m) as f64);
         }
         println!();
     }

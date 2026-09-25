@@ -5,7 +5,7 @@ module Main (main) where
 
 import Control.Exception (evaluate)
 import Control.Monad (forM_, forM)
-import Data.List (foldl')
+import Data.List (foldl', transpose)
 import Data.Time.Clock (getCurrentTime, diffUTCTime)
 import Text.Printf (printf)
 
@@ -52,24 +52,26 @@ main = do
 
   printf "%-26s%12s%12s%12s%12s\n" "strategy" "n=10" "n=100" "n=1000" "n=10000"
   putStrLn (replicate (26 + 48) '-')
-  forM_ evs $ \ev -> do
+  -- Interleaved: each rep times every strategy once, round-robin, so slow
+  -- drift on the runner lands on all strategies alike instead of on whichever
+  -- ran late. Best-of-reps per cell. The heap now carries over from one
+  -- strategy to the next within a rep; each timing forces its own result.
+  cells <- forM corpora $ \(n, corpus) -> do
+    rounds <- forM [1 .. reps n] $ \r ->
+      forM evs $ \ev -> timeNs ev corpus r
+    let perLeaf t = t / fromIntegral (length corpus) / fromIntegral n
+    pure (map (perLeaf . minimum) (transpose rounds))
+  forM_ (zip evs (transpose cells)) $ \(ev, row) -> do
     printf "%-26s" (evName ev)
-    forM_ (zip sizes (map snd corpora)) $ \(n, corpus) -> do
-      ns <- timeStrategy ev corpus n
-      printf "%12.1f" ns
+    forM_ row $ \ns -> printf "%12.1f" ns
     putStrLn ""
 
--- best-of-reps ns per leaf
-timeStrategy :: Evaluator -> [String] -> Int -> IO Double
-timeStrategy ev corpus n = do
-  ts <- mapM oneRep [1 .. reps n]
-  let best = minimum ts
-  pure (best / fromIntegral (length corpus) / fromIntegral n)
-  where
-    -- Seed the fold with the rep index so GHC -O2 can't share the result as a
-    -- CAF across reps (which would make every rep but the first measure 0).
-    oneRep r = do
-      t0 <- getCurrentTime
-      s  <- evaluate (foldl' (\acc e -> acc + evRun ev constEnv e) (fromIntegral r) corpus)
-      t1 <- s `seq` getCurrentTime
-      pure (realToFrac (diffUTCTime t1 t0) * 1e9)   -- seconds -> nanoseconds
+-- one timed pass over the corpus, in ns. Seed the fold with the rep index so
+-- GHC -O2 can't share the result as a CAF across reps (which would make every
+-- rep but the first measure 0).
+timeNs :: Evaluator -> [String] -> Int -> IO Double
+timeNs ev corpus r = do
+  t0 <- getCurrentTime
+  s  <- evaluate (foldl' (\acc e -> acc + evRun ev constEnv e) (fromIntegral r) corpus)
+  t1 <- s `seq` getCurrentTime
+  pure (realToFrac (diffUTCTime t1 t0) * 1e9)   -- seconds -> nanoseconds

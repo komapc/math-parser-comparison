@@ -29,15 +29,10 @@ std::vector<std::string> load(const std::string& dir, int n) {
     return out;
 }
 
-double bestNs(int reps, auto f) {
-    double best = std::numeric_limits<double>::infinity();
-    for (int r = 0; r < reps; ++r) {
-        const auto t0 = Clock::now();
-        f();
-        best = std::min(best, std::chrono::duration<double, std::nano>(
-                                  Clock::now() - t0).count());
-    }
-    return best;
+double timeNs(auto f) {
+    const auto t0 = Clock::now();
+    f();
+    return std::chrono::duration<double, std::nano>(Clock::now() - t0).count();
 }
 }  // namespace
 
@@ -59,18 +54,32 @@ int main(int argc, char** argv) {
                  "strategy", "n=10", "n=100", "n=1000", "n=10000");
     std::println("{}", std::string(26 + 48, '-'));
 
-    for (auto& ev : all_evaluators()) {
-        std::print("{:<26}", ev->name());
-        for (std::size_t i = 0; i < kSizes.size(); ++i) {
-            const auto& corpus = corpora[i];
-            const int reps = (kSizes[i] <= 1000) ? 5 : 3;
-            const double ns = bestNs(reps, [&] {
-                double acc = 0;
-                for (const auto& e : corpus) acc += ev->eval(e);
-                g_sink = acc;  // a double sink: acc is often inf/NaN, so no int cast
-            });
-            std::print("{:>12.1f}", ns / corpus.size() / kSizes[i]);
+    // Interleaved: each rep times every strategy once, round-robin, so slow
+    // drift on the runner (clock, thermals, noisy neighbours) lands on all
+    // strategies alike instead of on whichever ran late. Best-of-reps per cell.
+    auto evs = all_evaluators();
+    const double inf = std::numeric_limits<double>::infinity();
+    std::vector<std::vector<double>> best(
+        evs.size(), std::vector<double>(kSizes.size(), inf));
+    for (std::size_t i = 0; i < kSizes.size(); ++i) {
+        const auto& corpus = corpora[i];
+        const int reps = (kSizes[i] <= 1000) ? 5 : 3;
+        for (int r = 0; r < reps; ++r) {
+            for (std::size_t k = 0; k < evs.size(); ++k) {
+                const double ns = timeNs([&] {
+                    double acc = 0;
+                    for (const auto& e : corpus) acc += evs[k]->eval(e);
+                    g_sink = acc;  // a double sink: acc is often inf/NaN, so no int cast
+                });
+                best[k][i] = std::min(best[k][i], ns);
+            }
         }
+    }
+
+    for (std::size_t k = 0; k < evs.size(); ++k) {
+        std::print("{:<26}", evs[k]->name());
+        for (std::size_t i = 0; i < kSizes.size(); ++i)
+            std::print("{:>12.1f}", best[k][i] / corpora[i].size() / kSizes[i]);
         std::println("");
     }
     return 0;

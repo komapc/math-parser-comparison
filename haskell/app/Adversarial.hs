@@ -27,6 +27,7 @@
 module Main (main) where
 
 import Control.Monad (forM, forM_)
+import Data.List (transpose)
 import Data.Time.Clock (getCurrentTime, diffUTCTime)
 import Text.Printf (printf)
 
@@ -67,14 +68,14 @@ sumChain m = concat $ "1" :
 nestChain :: Int -> String
 nestChain m = replicate m '(' ++ "1" ++ concat (replicate m " + 1)")
 
-bestNs :: Evaluator -> String -> Int -> IO Double
-bestNs ev expr salt = do
-  ts <- forM [1 .. reps] $ \r -> do
-    t0 <- getCurrentTime
-    let !v = evRun ev (const (fromIntegral (salt * r))) expr
-    t1 <- v `seq` getCurrentTime
-    pure (realToFrac (diffUTCTime t1 t0) :: Double)
-  pure (minimum ts * 1e9)
+-- one timed evaluation; the salt feeds the env so GHC can't share the result
+-- across reps or strategies
+timeNs :: Evaluator -> String -> Int -> IO Double
+timeNs ev expr salt = do
+  t0 <- getCurrentTime
+  let !v = evRun ev (const (fromIntegral salt)) expr
+  t1 <- v `seq` getCurrentTime
+  pure (realToFrac (diffUTCTime t1 t0) * 1e9)
 
 runShape :: String -> (Int -> String) -> (Int -> Int) -> IO ()
 runShape title gen leaves = do
@@ -89,10 +90,14 @@ runShape title gen leaves = do
     if got /= ref
       then printf "MISMATCH [%s]: %g != %g\n" (evName ev) got ref
       else pure ()
-  forM_ (zip [1 ..] allEvaluators) $ \(salt, ev) -> do
+  -- Interleaved round-robin, best of `reps` per cell — see Bench.hs.
+  cells <- forM exprs $ \expr -> do
+    rounds <- forM [1 .. reps] $ \r ->
+      forM (zip [1 ..] allEvaluators) $ \(salt, ev) -> timeNs ev expr (salt * r)
+    pure (map minimum (transpose rounds))
+  forM_ (zip allEvaluators (transpose cells)) $ \(ev, row) -> do
     printf "%-26s" (evName ev)
-    forM_ (zip sizes exprs) $ \(m, expr) -> do
-      ns <- bestNs ev expr salt
+    forM_ (zip sizes row) $ \(m, ns) ->
       printf "%12.0f" (ns / fromIntegral (leaves m))
     printf "\n"
   printf "\n"
