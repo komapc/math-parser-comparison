@@ -103,6 +103,7 @@ impl Evaluator for AstArena {
     fn name(&self) -> &'static str { "ast-arena" }
     fn eval(&mut self, src: &str, vars: Vars) -> Result<f64, Error> {
         self.nodes.clear();
+        self.nodes.reserve(src.len() + 1);
         let mut b = Arena { vars, nodes: &mut self.nodes };
         let root = classics::rd_parse(src, &mut b)?;
         Ok(b.result(root))
@@ -125,6 +126,7 @@ impl Evaluator for MultipassArena {
     fn eval(&mut self, src: &str, vars: Vars) -> Result<f64, Error> {
         let toks = lexer::tokenize(src)?;
         self.nodes.clear();
+        self.nodes.reserve(src.len() + 1);
         let mut b = Arena { vars, nodes: &mut self.nodes };
         let root = multipass::mp_parse(&toks, &mut b, &mut self.st, false)?;
         Ok(b.result(root))
@@ -146,6 +148,7 @@ impl Evaluator for MultipassBfs {
     fn eval(&mut self, src: &str, vars: Vars) -> Result<f64, Error> {
         let toks = lexer::tokenize(src)?;
         self.nodes.clear();
+        self.nodes.reserve(src.len() + 1);
         let mut b = Arena { vars, nodes: &mut self.nodes };
         let root = multipass::mp_parse(&toks, &mut b, &mut self.st, true)?;
         Ok(b.result(root))
@@ -158,6 +161,7 @@ impl Evaluator for MultipassReverse {
     fn eval(&mut self, src: &str, vars: Vars) -> Result<f64, Error> {
         let toks = lexer::tokenize(src)?;
         self.nodes.clear();
+        self.nodes.reserve(src.len() + 1);
         let mut b = Arena { vars, nodes: &mut self.nodes };
         let root = reverse::reverse_parse(&toks, &mut b, &mut self.st)?;
         Ok(b.result(root))

@@ -12,6 +12,7 @@ namespace mp::test {
 inline bool nearly(double a, double b) {
     if (std::isnan(b)) return std::isnan(a);
     if (a == b) return true;
+    if (std::isinf(a) || std::isinf(b)) return false;  // else inf <= tol*inf passes
     return std::fabs(a - b) <= 1e-9 * std::max(1.0, std::max(std::fabs(a), std::fabs(b)));
 }
 

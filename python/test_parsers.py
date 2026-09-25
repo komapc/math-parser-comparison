@@ -58,6 +58,8 @@ def nearly(a, b):
         return math.isnan(a)
     if a == b:  # covers ±inf
         return True
+    if math.isinf(a) or math.isinf(b):  # else inf - x <= tol*inf passes
+        return False
     return abs(a - b) <= 1e-9 * max(1.0, abs(a), abs(b))
 
 

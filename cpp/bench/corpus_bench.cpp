@@ -7,7 +7,6 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cstdint>
 #include <fstream>
 #include <limits>
 #include <print>
@@ -18,7 +17,7 @@ using namespace mp;
 using Clock = std::chrono::steady_clock;
 
 namespace {
-volatile std::uint64_t g_sink = 0;
+volatile double g_sink = 0;
 const std::vector<int> kSizes = {10, 100, 1000, 10000};
 
 std::vector<std::string> load(const std::string& dir, int n) {
@@ -68,11 +67,11 @@ int main(int argc, char** argv) {
             const double ns = bestNs(reps, [&] {
                 double acc = 0;
                 for (const auto& e : corpus) acc += ev->eval(e);
-                g_sink += static_cast<std::uint64_t>(acc);
+                g_sink = acc;  // a double sink: acc is often inf/NaN, so no int cast
             });
             std::print("{:>12.1f}", ns / corpus.size() / kSizes[i]);
         }
         std::println("");
     }
-    return (g_sink == 0x1234567u) ? 1 : 0;
+    return 0;
 }

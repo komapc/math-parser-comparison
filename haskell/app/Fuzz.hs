@@ -35,6 +35,7 @@ nearly :: Double -> Double -> Bool
 nearly a b
   | isNaN b   = isNaN a
   | a == b    = True            -- covers ±inf
+  | isInfinite a || isInfinite b = False
   | otherwise = abs (a - b) <= 1e-9 * maximum [1, abs a, abs b]
 
 fuzzDir :: String

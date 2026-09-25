@@ -118,6 +118,7 @@ fn load_shared_fuzz() -> Option<(Vec<String>, Vec<String>)> {
 fn same(a: f64, b: f64) -> bool {
     if a.is_nan() || b.is_nan() { return a.is_nan() && b.is_nan(); }
     if a == b { return true; }
+    if a.is_infinite() || b.is_infinite() { return false; }
     (a - b).abs() <= 1e-6 * a.abs().max(b.abs()).max(1.0)
 }
 
