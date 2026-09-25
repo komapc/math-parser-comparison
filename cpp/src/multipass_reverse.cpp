@@ -58,7 +58,7 @@ public:
     const char* name() const override { return "multipass-reverse"; }
 
     double eval(std::string_view src, const double* vars = nullptr) override {
-        tokens_ = tokenize(src);
+        tokenize(src, tokens_);
         vars_ = vars;
         nodes_.clear();
         nodes_.reserve(tokens_.size());
@@ -73,6 +73,7 @@ private:
     std::vector<ArenaAst::Node> nodes_;
     std::vector<Item>           items_;  // shared item stack (see notes above)
     std::vector<std::size_t>    parenMatch_;
+    std::vector<std::size_t>    parenStack_;  // reused across eval() calls
     const double*               vars_ = nullptr;
 
     int emit(ArenaAst::Node nd) {
@@ -83,7 +84,8 @@ private:
     void buildParenMatch() {
         const std::size_t n = tokens_.size();
         parenMatch_.assign(n, 0);
-        std::vector<std::size_t> stack;
+        auto& stack = parenStack_;
+        stack.clear();
         for (std::size_t i = 0; i + 1 < n; ++i) {
             if (tokens_[i].type == TokenType::LParen) {
                 stack.push_back(i);

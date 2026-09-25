@@ -195,10 +195,11 @@ private:
     std::vector<std::vector<int8_t>>    precByDepth_;  // mirrors candsByDepth_
 #endif
     std::vector<std::size_t>            parenMatch_;
+    std::vector<std::size_t>            parenStack_;  // reused across eval() calls
     const double*                       vars_ = nullptr;
 
     void build(std::string_view src) {
-        tokens_ = tokenize(src);
+        tokenize(src, tokens_);
         nodes_.clear();
         nodes_.reserve(tokens_.size());
         buildCandidates();
@@ -219,7 +220,8 @@ private:
         parenMatch_.assign(n, 0);
         int  depth = 0;
         bool expectOperand = true;
-        std::vector<std::size_t> stack;
+        auto& stack = parenStack_;
+        stack.clear();
         for (std::size_t i = 0; i < n - 1; ++i) {
             switch (tokens_[i].type) {
                 case TokenType::LParen:

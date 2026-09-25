@@ -260,7 +260,7 @@ class MultipassBfs final : public MultipassBase, public IEvaluator {
 public:
     const char* name() const override { return "multipass-bfs"; }
     double eval(std::string_view src, const double* vars = nullptr) override {
-        tokens_ = tokenize(src);
+        tokenize(src, tokens_);
         vars_ = vars;
         nodes_.clear(); nodes_.reserve(tokens_.size());
         buildAll();

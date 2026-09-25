@@ -8,13 +8,19 @@ namespace mp {
 
 std::vector<Token> tokenize(std::string_view src) {
     std::vector<Token> out;
+    tokenize(src, out);
+    return out;
+}
+
+void tokenize(std::string_view src, std::vector<Token>& out) {
+    out.clear();
     out.reserve(src.size() / 2 + 1);  // heuristic (spaced input); unspaced
                                       // input like "1+1" can exceed it and
                                       // grow the vector once more
     Lexer lx(src);
     for (;;) {
         out.push_back(lx.next());
-        if (out.back().type == TokenType::End) return out;
+        if (out.back().type == TokenType::End) return;
     }
 }
 
