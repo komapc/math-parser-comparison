@@ -1,6 +1,6 @@
-//! Shared spec suite — the same 22 value cases and 10 error cases as
+//! Shared spec suite — the same 22 value cases and 14 error cases as
 //! python/test_parsers.py, cpp/tests/test_parsers.cpp and the Haskell suite,
-//! run against every strategy: 32 × 15 = 480 checks.
+//! run against every strategy: 36 × 15 = 540 checks.
 
 use mathparser::all_evaluators;
 
