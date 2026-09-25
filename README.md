@@ -29,59 +29,57 @@ no recursion, no prepass, every token touched once.
 [Haskell](haskell/src/MathParser/Strategies.hs) ·
 **[full walk-through](docs/multipass-reverse.md)**)
 
-## Result 1 — vs the classics: narrowly ahead in C++ and Python, a tie in Rust
+## Result 1 — vs the classics: narrowly ahead in C++, a tie in Python, narrowly behind in Rust
 
 Tree builders and direct evaluators are compared separately: the table below
 builds a tree, the paragraph after it covers the no-tree forms.
 
 Random corpus, ns/leaf at n=1000, neutral 4-vCPU CI runner, median of three
-independent runs, normalised to the fastest tree builder per language
-(**bold** = fastest). The Rust column comes from three fresh runs after the
-fold was moved to safe Rust; the other columns are unchanged:
+independent runs of one commit (2026-09-25), normalised to the fastest tree
+builder per language (**bold** = fastest):
 
 | tree builder | representation | C++ | Rust | Python | Haskell |
 |---|---|--:|--:|--:|--:|
-| `ast-recursive-descent` | pointer AST | 1.90 | 1.71 | **1.00** | **1.00** |
-| `ast-shunting-yard` | pointer AST | 1.96 | 1.78 | 1.03 | 1.16 |
-| `ast-pratt` | pointer AST | 1.99 | 1.72 | 1.04 | 1.11 |
-| `ast-arena` | arena AST | 1.04 | **1.00** | 1.17 | 1.29 |
-| `multipass` | pointer AST | 3.38 | 3.95 | 2.29 | 1.67 |
-| `multipass-arena` | arena AST | 1.88 | 2.70 | 2.43 | 2.03 |
-| `multipass-bfs` | arena AST | 2.06 | 2.96 | 2.83 | 2.39 |
-| `multipass-reverse` | arena AST | 1.39 | 1.38 | 1.39 | 1.46 |
-| `multipass-reverse-fold` | arena AST | **1.00** | 1.05 | **1.00** | 1.20 |
+| `ast-recursive-descent` | pointer AST | 1.83 | 1.76 | **1.00** | **1.00** |
+| `ast-shunting-yard` | pointer AST | 1.89 | 1.83 | 1.04 | 1.39 |
+| `ast-pratt` | pointer AST | 1.97 | 1.79 | 1.04 | 1.00 |
+| `ast-arena` | arena AST | 1.03 | **1.00** | 1.18 | 1.27 |
+| `multipass` | pointer AST | 3.36 | 4.02 | 2.28 | 2.06 |
+| `multipass-arena` | arena AST | 1.89 | 2.73 | 2.45 | 2.58 |
+| `multipass-bfs` | arena AST | 2.07 | 3.04 | 2.80 | 3.37 |
+| `multipass-reverse` | arena AST | 1.39 | 1.36 | 1.41 | 1.77 |
+| `multipass-reverse-fold` | arena AST | **1.00** | 1.04 | 1.02 | 1.31 |
 
 **On the random corpus the fused form is the fastest tree builder of nine in
-C++ and in Python** — ~1–5 % ahead of `ast-arena` in C++, +2…+7 % against
-the best pointer classic in Python (at n=1000 the Python range starts at
-0 %, a tie by the one-pager's rule). Positive in all 12 size×run
-measurements in both languages, so read it as a consistent sliver, not a
-margin. On the structured shapes it ties or leads in C++, Rust and Python
-everywhere except Python powchain, ~4 % behind `ast-rd`. **In Rust it's a genuine
-tie**: the same algorithm under LLVM lands anywhere from ~5 % ahead to ~5 %
-behind `ast-arena` depending on the run and size, with the sign flipping run
-to run rather than settling one way — noisier than the C++/Python sliver,
-and a hint that the C++ edge is partly a GCC story. The buffered
-`multipass-reverse` sits ~1.4× behind in all three. Haskell is the
-exception: the pointer classics lead every arena form, from ~1.3× at the
-tight end (`ast-arena`) to ~2.4× at the wide end (`multipass-bfs`); the fold
-itself trails by ~1.1–1.5× depending on corpus size. The pattern fits
-memory layout being the main factor: contiguous forms win in C++ and Rust,
-and the advantage disappears in a runtime that boxes every node.
+C++** — ~1–5 % ahead of `ast-arena`, positive in all 12 size×run
+measurements, so read it as a consistent sliver, not a margin. **In Python
+it is a tie at n=1000** (−2…+1 % against `ast-rd`) and narrowly ahead at
+n=10000 (+1…+6 % against `ast-sy`). On the structured shapes it ties or
+leads in C++, Rust and Python everywhere except Python powchain, ~5–7 %
+behind `ast-rd`. **In Rust it is a tie at n=1000 and narrowly behind at
+n=10000**: the same algorithm under LLVM lands from ~6 % ahead (n=10) to
+~3–5 % behind (n=10000) `ast-arena`, a hint that the C++ edge is partly a
+GCC story. The buffered `multipass-reverse` sits ~1.4× behind in all three.
+Haskell is the exception: the pointer classics lead every arena form, from
+~1.3× at the tight end (`ast-arena`) to ~3.4× at the wide end
+(`multipass-bfs`); the fold itself trails by ~1.3–1.9× depending on corpus
+size. The pattern fits memory layout being the main factor: contiguous
+forms win in C++ and Rust, and the advantage disappears in a runtime that
+boxes every node.
 
 Its no-tree twin `direct-reverse` is a **three-way tie** with
 `direct-recursive-descent` and `direct-shunting-yard` in C++, all at ~50
-ns/leaf (0…+2 % vs `direct-rd`, −2…+1 % vs `direct-sy` across runs — this
-shape's classics are much closer than the wider sumchain range below).
-Rust repeats the C++ tier at ~54–58 ns/leaf: a tie with `direct-rd`
-(−8…0 %) and ~4 % ahead of `direct-sy`. In Python it wins outright: ahead of both
-`direct-shunting-yard` and `direct-rd` at every size, in every run. On the
-structured shapes it ties or beats both, except C++ nestchain against
-`direct-sy` (~14–24 % behind). Haskell is mixed: it wins the random corpus,
-powchain and towerchain, but loses sumchain and nestchain to recursive
-descent — the same boxed-node effect that erases the tree-building form's
-edge. The lexer-free control `direct-scannerless` sits roughly 16–44 %
-below the field in C++, Rust and Python; that gap is the shared lexer,
+ns/leaf (−5…+2 % vs `direct-rd`, −7…+1 % vs `direct-sy` across runs at
+n=1000). In Rust it loses to `direct-rd` by 5–9 % at n=1000 (4–12 %
+across all sizes) while staying ~2–5 % ahead of `direct-sy`. In Python it
+wins outright: ahead of both `direct-shunting-yard` and `direct-rd` at every
+size, in every run. On the structured shapes it ties or beats both in C++,
+Rust and Python, except C++ nestchain against `direct-sy` (~11–30 % behind).
+Haskell is mixed: it wins powchain and towerchain and edges ahead at
+n=10000, but loses the n=1000 random corpus (−17…−6 %), sumchain and
+nestchain to recursive descent. The lexer-free control `direct-scannerless`
+sits roughly 25–36 % below the fastest real strategy in C++, Rust and
+Python, and level with it in Haskell; that gap is the shared lexer,
 measured — see "Same rules" below.
 
 ## Result 2 — vs its family: ahead on every tested input
@@ -105,7 +103,7 @@ whose worst case is their average case**. The others needed bounded scans,
 precedence buckets and AVX2 to go linear — and still trail the buffered form
 by 1.5–3.6× and the fused form by 2.1–5.2×. Bottom-up's own worst case, deep
 parenthesis nesting, is benchmarked too: flat, and the fused form is the
-fastest tree builder there (32 vs `ast-arena` 42 ns/leaf at m=8192).
+fastest tree builder there (32 vs `ast-arena` 38 ns/leaf at m=8192, 2026-09-25 runs).
 († `multipass-bfs`'s O(1) splits dodge the powchain but a `^`-tower catches
 it the same way; the "before" column is the last pre-fix CI run.
 [Details.](FINDINGS.md#result-2--vs-its-family-ahead-on-every-tested-input))
@@ -131,8 +129,8 @@ then applied wherever it applies:
 3. **Measure the lexer, don't guess it.** `direct-scannerless` is
    `direct-recursive-descent` with the lexer fused into the grammar, so the
    gap between the two *is* the lexer's cost: roughly a quarter of the time
-   in C++ and Python, a third in Rust, and noisy — sometimes negative — in
-   Haskell. It is included as a control, not as a parser using the
+   in C++, a third in Rust and Python, and noise-level — sometimes
+   negative — in Haskell. It is included as a control, not as a parser using the
    common lexer, so it is left out of the rankings.
 
 Details and per-strategy effects: [FINDINGS.md](FINDINGS.md#lexing-rules--applied-to-every-parser).
