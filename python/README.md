@@ -10,7 +10,7 @@ python3 python/bench.py            # cross-check + timing on shared corpora
 python3 python/adversarial.py      # 4 structured shapes: top-down worst cases (now O(n log n)), nestchain, vs reverse Θ(n)
 ```
 
-Requires Python 3.10+ (uses `bisect(..., key=...)`).
+Requires Python 3.10+.
 
 ## Design
 
