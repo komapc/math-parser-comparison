@@ -57,25 +57,37 @@ public:
     const char* name() const override { return "bytecode-vm"; }
 
     double eval(std::string_view src, const double* vars = nullptr) override {
-        code_.clear();
-        consts_.clear();
-        ops_.clear();
-        compile(src);
+        // Each token emits at most one opcode / constant / op-stack entry and
+        // the VM pushes at most one value per constant; there is at most one
+        // token per source byte, so the source length bounds all four buffers.
+        // Pre-sized raw buffers indexed by locals — the same treatment as
+        // ReverseFold (multipass_reverse_fold.cpp).
+        const std::size_t bound = src.size() + 1;
+        if (st_.size() < bound) {
+            code_.resize(bound);
+            consts_.resize(bound);
+            ops_.resize(bound);
+            st_.resize(bound);
+        }
+        const std::uint32_t codeLen = compile(src);
 
-        st_.clear();
-        std::size_t ci = 0;
-        for (const std::uint8_t opc : code_) {
+        const std::uint8_t* const code   = code_.data();
+        const double*       const consts = consts_.data();
+        double*             const st     = st_.data();
+        std::uint32_t sTop = 0, ci = 0;
+        for (std::uint32_t pc = 0; pc < codeLen; ++pc) {
+            const std::uint8_t opc = code[pc];
             switch (static_cast<Bc>(opc)) {
-                case Bc::Push:    st_.push_back(consts_[ci++]); break;
+                case Bc::Push:    st[sTop++] = consts[ci++]; break;
                 case Bc::LoadVar: {
-                    const auto idx = static_cast<std::size_t>(consts_[ci++]);
-                    st_.push_back(vars ? vars[idx] : 0.0);
+                    const auto idx = static_cast<std::size_t>(consts[ci++]);
+                    st[sTop++] = vars ? vars[idx] : 0.0;
                     break;
                 }
-                case Bc::Neg:  st_.back() = -st_.back(); break;
+                case Bc::Neg:  st[sTop - 1] = -st[sTop - 1]; break;
                 default: {
-                    const double r = st_.back(); st_.pop_back();
-                    double& l = st_.back();
+                    const double r = st[--sTop];
+                    double& l = st[sTop - 1];
                     switch (static_cast<Bc>(opc)) {
                         case Bc::Add: l = l + r; break;
                         case Bc::Sub: l = l - r; break;
@@ -87,7 +99,7 @@ public:
                 }
             }
         }
-        return st_.back();
+        return st[sTop - 1];
     }
 
 private:
@@ -97,14 +109,20 @@ private:
     std::vector<double>       st_;
 
     // Streaming lexer: the shunting-yard compile reads its input once.
-    void compile(std::string_view src) {
+    // Returns the opcode count; buffers are pre-sized by eval().
+    std::uint32_t compile(std::string_view src) {
+        std::uint8_t* const code   = code_.data();
+        double*       const consts = consts_.data();
+        Op*           const ops    = ops_.data();
+        std::uint32_t cTop = 0, kTop = 0, oTop = 0;
+
         auto emit = [&](const Op& op) {
             if (op.lparen) throw std::runtime_error("mismatched parenthesis");
             if (op.unary) {
                 if (op.type == TokenType::Minus)
-                    code_.push_back(static_cast<std::uint8_t>(Bc::Neg));
+                    code[cTop++] = static_cast<std::uint8_t>(Bc::Neg);
             } else {
-                code_.push_back(static_cast<std::uint8_t>(binOpcode(op.type)));
+                code[cTop++] = static_cast<std::uint8_t>(binOpcode(op.type));
             }
         };
 
@@ -115,26 +133,26 @@ private:
             switch (tok.type) {
                 case TokenType::Number:
                     if (!expectOperand) throw std::runtime_error("unexpected number");
-                    code_.push_back(static_cast<std::uint8_t>(Bc::Push));
-                    consts_.push_back(tok.value);
+                    code[cTop++] = static_cast<std::uint8_t>(Bc::Push);
+                    consts[kTop++] = tok.value;
                     expectOperand = false;
                     break;
                 case TokenType::Ident:
                     if (!expectOperand) throw std::runtime_error("unexpected variable");
-                    code_.push_back(static_cast<std::uint8_t>(Bc::LoadVar));
-                    consts_.push_back(tok.value);
+                    code[cTop++] = static_cast<std::uint8_t>(Bc::LoadVar);
+                    consts[kTop++] = tok.value;
                     expectOperand = false;
                     break;
                 case TokenType::LParen:
                     if (!expectOperand) throw std::runtime_error("unexpected '('");
-                    ops_.push_back(Op{tok.type, 0, false, false, true});
+                    ops[oTop++] = Op{tok.type, 0, false, false, true};
                     expectOperand = true;
                     break;
                 case TokenType::RParen:
                     if (expectOperand) throw std::runtime_error("empty parentheses");
-                    while (!ops_.empty() && !ops_.back().lparen) { Op o = ops_.back(); ops_.pop_back(); emit(o); }
-                    if (ops_.empty()) throw std::runtime_error("mismatched parenthesis");
-                    ops_.pop_back();
+                    while (oTop != 0 && !ops[oTop - 1].lparen) emit(ops[--oTop]);
+                    if (oTop == 0) throw std::runtime_error("mismatched parenthesis");
+                    --oTop;
                     expectOperand = false;
                     break;
                 case TokenType::Plus:
@@ -145,15 +163,15 @@ private:
                     if (expectOperand) {
                         if (tok.type != TokenType::Plus && tok.type != TokenType::Minus)
                             throw std::runtime_error("unexpected operator");
-                        ops_.push_back(Op{tok.type, 3, true, true, false});
+                        ops[oTop++] = Op{tok.type, 3, true, true, false};
                     } else {
                         const int prec = binPrec(tok.type);
                         const bool ra = (tok.type == TokenType::Caret);
-                        while (!ops_.empty() && !ops_.back().lparen &&
-                               (ops_.back().prec > prec || (ops_.back().prec == prec && !ra))) {
-                            Op o = ops_.back(); ops_.pop_back(); emit(o);
+                        while (oTop != 0 && !ops[oTop - 1].lparen &&
+                               (ops[oTop - 1].prec > prec || (ops[oTop - 1].prec == prec && !ra))) {
+                            emit(ops[--oTop]);
                         }
-                        ops_.push_back(Op{tok.type, prec, ra, false, false});
+                        ops[oTop++] = Op{tok.type, prec, ra, false, false};
                         expectOperand = true;
                     }
                     break;
@@ -163,8 +181,9 @@ private:
             }
             if (tok.type == TokenType::End) break;
         }
-        while (!ops_.empty()) { Op o = ops_.back(); ops_.pop_back(); emit(o); }
-        if (code_.empty()) throw std::runtime_error("invalid expression");
+        while (oTop != 0) emit(ops[--oTop]);
+        if (cTop == 0) throw std::runtime_error("invalid expression");
+        return cTop;
     }
 };
 
