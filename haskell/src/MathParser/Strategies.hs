@@ -752,18 +752,25 @@ bcEval :: Env -> [Tok] -> Double
 bcEval env toks = bcRun env (bcCompile toks)
 
 -- ---- registry --------------------------------------------------------------
+-- Every mk* is INLINE so each registry entry gets its parser specialised to
+-- the concrete Sym instance; without it GHC inlined mkDirect on its own but
+-- left mkAst/mkArena as workers passing the Sym dictionary at runtime.
 data Evaluator = Evaluator { evName :: String, evRun :: Env -> String -> Double }
 
+{-# INLINE mkAst #-}
 mkAst :: String -> (forall r. Sym r => [Tok] -> r) -> Evaluator
 mkAst name parse = Evaluator name (\env src -> evalExpr env (parse (tokenize src)))
 
+{-# INLINE mkArena #-}
 mkArena :: String -> (forall r. Sym r => [Tok] -> r) -> Evaluator
 mkArena name parse = Evaluator name (\env src -> evalArena env (parse (tokenize src)))
 
+{-# INLINE mkDirect #-}
 mkDirect :: String -> (forall r. Sym r => [Tok] -> r) -> Evaluator
 mkDirect name parse = Evaluator name (\env src -> runDirect (parse (tokenize src)) env)
 
 -- a strategy that reads the source itself (no shared tokenize call)
+{-# INLINE mkDirectRaw #-}
 mkDirectRaw :: String -> (forall r. Sym r => String -> r) -> Evaluator
 mkDirectRaw name parse = Evaluator name (\env src -> runDirect (parse src) env)
 
