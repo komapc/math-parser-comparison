@@ -5,7 +5,7 @@ Idiomatic Haskell port of all fifteen strategies (GHC, `base`/`array`/`container
 ```sh
 python3 bench/gen_corpus.py        # from repo root: generate shared corpora (once)
 cd haskell
-cabal test                         # correctness (540 checks)
+cabal test                         # correctness (540 checks) + differential fuzz
 cabal run bench                    # cross-check + timing on shared corpora
 cabal run adversarial              # 4 structured shapes: top-down worst cases (now O(n log n)), nestchain, vs reverse Θ(n)
 ```

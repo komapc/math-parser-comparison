@@ -57,10 +57,10 @@ cd haskell && cabal test && cabal run bench
 
 Correctness is enforced two ways: curated spec suites in each language (the
 same cases, including IEEE corners and literal overflow → `inf`/`0`), plus
-differential fuzzing in C++, Rust and Python ([C++](cpp/tests/fuzz_differential.cpp)
-· [Rust](rust/tests/fuzz.rs) · [Python](python/test_fuzz.py)) — all fifteen strategies must agree, value or
-rejection, on 3 000 random + 3 000 mutated inputs per run. Haskell has the
-spec suite only.
+differential fuzzing in all four languages ([C++](cpp/tests/fuzz_differential.cpp)
+· [Rust](rust/tests/fuzz.rs) · [Python](python/test_fuzz.py) ·
+[Haskell](haskell/app/Fuzz.hs)) — all fifteen strategies must agree, value
+or rejection, on the same 3 000 random + 3 000 mutated inputs per run.
 
 ## Cross-language results
 

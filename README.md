@@ -132,8 +132,8 @@ benchmarked too: flat, and the fused form is the fastest tree builder there
 it the same way; the "before" column is the last pre-fix CI run.
 [Details.](FINDINGS.md#result-2--vs-its-family-ahead-on-every-tested-input))
 
-Correctness: curated spec suites in all four languages plus differential
-fuzzing in C++, Rust and Python — all fifteen strategies must agree, value or
+Correctness: curated spec suites and differential fuzzing in all four
+languages — all fifteen strategies must agree, value or
 rejection, on 6 000 random and mutated inputs per run.
 
 ## Same rules for every parser
