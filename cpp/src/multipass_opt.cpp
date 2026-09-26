@@ -94,6 +94,7 @@ protected:
     // that covers direct-children operators inside the paren.
     std::vector<std::size_t>            parenCandStart_;
     std::vector<std::size_t>            parenCandEnd_;
+    std::vector<std::size_t>            parenStk_;  // reused across eval() calls
     // Sparse table: st_[d][k][i] = index of minimum candidate in
     // candsByDepth_[d][i .. i+2^k-1]. Key = (prec asc, pos desc).
     std::vector<std::vector<std::vector<int>>> st_;
@@ -105,19 +106,19 @@ protected:
         parenCandEnd_.assign(n, 0);
         // candsByDepth_ / bucketsByDepth_: clear() only empties the inner
         // vectors, so their capacities survive across calls (no realloc
-        // churn on repeated parses of similarly-shaped input). st_ does NOT
-        // get this treatment: it is fully cleared here and rebuilt from
-        // scratch below (buildSt() reassigns each st_[d]), so every call
-        // reallocates the sparse tables.
+        // churn on repeated parses of similarly-shaped input). st_ gets the
+        // same treatment: buildSt() resizes each table in place, so the
+        // sparse tables keep their capacity too (they were reallocated on
+        // every call until 2026-09, a cost no other strategy paid).
         for (auto& v : candsByDepth_) v.clear();
         for (auto& b : bucketsByDepth_) {
             b.p1.clear(); b.p2.clear(); b.caret.clear(); b.un.clear();
         }
-        st_.clear();
 
         int  depth = 0;
         bool expectOperand = true;
-        std::vector<std::size_t> parenStk;
+        auto& parenStk = parenStk_;
+        parenStk.clear();
 
         for (std::size_t i = 0; i < n - 1; ++i) {
             switch (tokens_[i].type) {
@@ -198,7 +199,10 @@ protected:
         const int n = (int)v.size();
         if (n == 0) { st_[d].clear(); return; }
         const int logn = 32 - std::countl_zero((unsigned)n);
-        st_[d].assign(logn, std::vector<int>(n));
+        // resize, not assign: rows keep their capacity across calls. Stale
+        // entries past a row's valid prefix are never read by stQuery().
+        st_[d].resize(logn);
+        for (auto& row : st_[d]) row.resize(n);
         for (int i = 0; i < n; ++i) st_[d][0][i] = i;
         for (int k = 1; k < logn; ++k)
             for (int i = 0; i + (1<<k) <= n; ++i) {
