@@ -203,7 +203,8 @@ def scoreboard(D, rule="median"):
                     rv = [{s: r[name][s][-1] for s in r[name]} for r in D[l]["adv"]]
                 rival, lo, hi, fac = compare(rv, me, pool, rule)
                 if title == "tree" and l == "haskell" and hi <= -0.5:
-                    c = f"loses ({fac[0]:.1f}–{fac[-1]:.1f}× slower than `{SHORT[rival]}`)"
+                    a, b = f"{fac[0]:.1f}", f"{fac[-1]:.1f}"
+                    c = f"loses ({a if a == b else a + '–' + b}× slower than `{SHORT[rival]}`)"
                 else:
                     c = cellstr(rival, lo, hi)
                 cells.append(c)
