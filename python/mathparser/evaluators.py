@@ -236,17 +236,13 @@ def rd_parse(tokens, B):
 def pratt_parse(tokens, B):
     i = 0
 
-    def lbp(kind):
-        p = bin_prec(kind)
-        return p if p > 0 else 0
-
     def parse(rbp):
         nonlocal i
         tok = tokens[i]; i += 1
         left = nud(tok)
         while True:
             k = tokens[i].kind
-            lb = lbp(k)
+            lb = bin_prec(k)  # -1 for a non-operator, and rbp >= 0: stops
             if lb <= rbp:
                 break
             i += 1
@@ -394,6 +390,8 @@ class _MP:
     def __init__(self, tokens, with_sparse):
         self.t = tokens
         self.cbd, self.pm = _build_candidates(tokens)
+        # candidate token positions per depth, for a key-free bisect
+        self.cpos = [[c[0] for c in vd] for vd in self.cbd]
         self.st = self._build_sparse() if with_sparse else None
         self.bks = None  # per-depth precedence buckets, built on first need
         # nd[d][i]: first index after i whose candidate has a different
@@ -485,9 +483,11 @@ class _MP:
         return a if _better(v[a], v[b]) else b
 
     def _cand_range(self, lo, hi, depth):
-        v = self.cbd[depth] if 0 <= depth < len(self.cbd) else []
-        b = bisect_left(v, lo, key=lambda c: c[0])
-        e = bisect_left(v, hi, key=lambda c: c[0], lo=b)
+        if not 0 <= depth < len(self.cbd):
+            return [], 0, 0
+        v, pos = self.cbd[depth], self.cpos[depth]
+        b = bisect_left(pos, lo)
+        e = bisect_left(pos, hi, lo=b)
         return v, b, e
 
     def _split(self, v, b, e, lo, depth):

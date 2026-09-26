@@ -152,6 +152,7 @@ protected:
     std::vector<std::vector<int8_t>> prec_;   // mirrors cands_: prec byte per candidate
 #endif
     std::vector<uint32_t>            parenMatch_;
+    std::vector<uint32_t>            parenStack_;  // reused across eval() calls
     std::vector<uint32_t>            pcStart_;
     std::vector<uint32_t>            pcEnd_;
     const double*                    vars_ = nullptr;
@@ -170,7 +171,8 @@ protected:
 #endif
         int depth = 0;
         bool expectOperand = true;
-        std::vector<uint32_t> stk;
+        auto& stk = parenStack_;
+        stk.clear();
         for (uint32_t i = 0; i < n - 1; ++i) {
             switch (tokens_[i].type) {
                 case TokenType::LParen:
@@ -259,7 +261,7 @@ class DirectMp final : public LeanBase, public IEvaluator {
 public:
     const char* name() const override { return "direct-mp"; }
     double eval(std::string_view src, const double* vars = nullptr) override {
-        tokens_ = tokenize(src);
+        tokenize(src, tokens_);
         vars_ = vars;
         buildAll_full();
         const uint32_t n = (uint32_t)(tokens_.size() - 1);

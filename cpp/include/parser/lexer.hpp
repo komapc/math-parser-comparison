@@ -108,5 +108,9 @@ private:
 
 // The whole token array. Always ends with a TokenType::End token.
 std::vector<Token> tokenize(std::string_view src);
+// Same, refilling `out` in place: the array-bound strategies keep one token
+// buffer across eval() calls, as the fold keeps its node/item buffers, so no
+// strategy pays a fresh allocation per expression that another does not.
+void tokenize(std::string_view src, std::vector<Token>& out);
 
 }  // namespace mp

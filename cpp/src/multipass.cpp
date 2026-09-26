@@ -126,7 +126,7 @@ public:
     const char* name() const override { return "multipass"; }
 
     ExprPtr parse(std::string_view src) override {
-        tokens_ = tokenize(src);
+        tokenize(src, tokens_);
         buildCandidates();
         const std::size_t n = tokens_.size() - 1;
         auto [cbeg, cend] = candRange(0, n, 0);
@@ -141,6 +141,7 @@ private:
     std::vector<std::vector<int8_t>>    precByDepth_;
 #endif
     std::vector<std::size_t>            parenMatch_;
+    std::vector<std::size_t>            parenStack_;  // reused across eval() calls
 
     void buildCandidates() {
         for (auto& v : candsByDepth_) v.clear();
@@ -154,7 +155,8 @@ private:
         parenMatch_.assign(n, 0);
         int  depth = 0;
         bool expectOperand = true;
-        std::vector<std::size_t> stack;
+        auto& stack = parenStack_;
+        stack.clear();
 
         for (std::size_t i = 0; i < n - 1; ++i) {
             switch (tokens_[i].type) {

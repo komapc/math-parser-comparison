@@ -521,7 +521,10 @@ buildCandidates arr n =
       pm = accumArray (\_ v -> v) 0 (0, n - 1) matches :: Array Int Int
   in (pm, candArr, dCount)
   where
-    step (depth, expect, stack, cmap, matches) i = case tKind (arr ! i) of
+    -- Bangs on the counters and the map: foldl' only forces the tuple to
+    -- WHNF, so without them depth/expect/cmap built a thunk chain across the
+    -- whole scan (the fold's own accumulators are banged the same way).
+    step (!depth, !expect, stack, !cmap, matches) i = case tKind (arr ! i) of
       KLParen -> (depth + 1, True, i : stack, cmap, matches)
       KRParen -> case stack of
                    (o : st') -> (depth - 1, False, st', cmap, (o, i) : (i, o) : matches)
@@ -688,7 +691,7 @@ parenMatchArr :: Array Int Tok -> Int -> Array Int Int
 parenMatchArr arr n = accumArray (\_ v -> v) 0 (0, n - 1) matches
   where
     (_, matches) = foldl' step ([], []) [0 .. n - 2]
-    step (stack, ms) i = case tKind (arr ! i) of
+    step (!stack, !ms) i = case tKind (arr ! i) of   -- strict, as in buildCandidates
       KLParen -> (i : stack, ms)
       KRParen -> case stack of
                    (o : s') -> (s', (o, i) : (i, o) : ms)
