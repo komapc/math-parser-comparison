@@ -27,14 +27,19 @@ covers a sign flip across runs, but also a range that sits entirely within
 ±0.5 %, ahead or behind, since that is noise on this runner. The range
 measures run-to-run spread on *one* CPU model. GitHub hands out several
 models, and across them the ratios move by more than that. Three runs of
-this same commit on AMD EPYC 7763 flip several cells: there Rust's tree form
-*loses* to `ast-arena` on the random corpus (−7…−3 %) and on powchain
-(−4…−1 %), and its no-tree form loses to `direct-rd` on the random corpus
-(−7…−5 %); C++'s no-tree form turns narrowly ahead on towerchain and
-sumchain and trails by less on nestchain (−15…−14 %); C++ sumchain in the
-family table becomes *best* (+20…+28 %). The 9V74 is the model this repo
-publishes, fixed before these runs were looked at. Treat any cell within ~5 %
-of the line as hardware-dependent.
+this same commit on AMD EPYC 7763 change 13 of the 72 labels. Against the
+fused form: Rust's tree form *loses* to `ast-arena` on the random corpus at
+both sizes (−7…−3 %) and on powchain (−4…−1 %) and only ties on sumchain;
+Rust's no-tree form loses to `direct-rd` on the random corpus at both sizes
+(−7…−5 %); C++'s no-tree form loses at n=1000 (−1 %) and is only narrowly
+ahead on powchain (+2…+3 %). For it: C++'s no-tree form turns narrowly
+ahead on towerchain and sumchain, Rust's is *best* on powchain (+5…+6 %),
+Haskell's is narrowly ahead on towerchain, and C++ sumchain in the family
+table is *best* (+20…+28 %). The tables here use EPYC 9V74 because the
+previously published batch ran on it, and they keep that model for
+continuity rather than mixing models; the 7763 results are reported here
+instead of being averaged in. Treat any cell within ~5 % of the line as
+hardware-dependent.
 
 ## Verdict
 

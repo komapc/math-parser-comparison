@@ -79,7 +79,7 @@ Two questions the C++ numbers left open:
    `direct-reverse` about 7 %, with no measurable change in cycles or branch
    misses on the laptop. So `fold.rs` now uses the safe `Vec` form, like
    the buffered `reverse.rs`. On the CI runner the switch is visible after
-   all: the fold went from 1.02× to 1.05× `ast-arena` at n=1000, and on
+   all: in that batch the fold went from 1.02× to 1.05× `ast-arena` at n=1000, and on
    powchain from narrowly ahead to a tie. The random-corpus verdict does not
    move — a tie either way — so the safe form stays: a ~3 % sliver is not
    worth `unsafe`. It survives, at the cost of that sliver.
