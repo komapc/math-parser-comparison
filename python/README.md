@@ -47,31 +47,33 @@ Reproduce locally with `python3 python/bench.py`.
 
 | strategy | n=10 | n=100 | n=1000 | n=10000 |
 |---|--:|--:|--:|--:|
-| ast-recursive-descent | 2854 | 2651 | 2593 | 3286 |
-| ast-shunting-yard | 2535 | 2551 | 2689 | 3198 |
-| ast-pratt | 2873 | 2758 | 2691 | 3402 |
-| ast-arena | 3215 | 2955 | 3059 | 3411 |
-| multipass | 4814 | 5024 | 5903 | 7489 |
-| multipass-arena | 5066 | 5258 | 6355 | 7689 |
-| direct-mp | 4605 | 4887 | 5759 | 6964 |
-| multipass-bfs | 5780 | 5761 | 7251 | 9416 |
-| multipass-reverse | 3829 | 3540 | 3660 | 4106 |
-| multipass-reverse-fold | 2455 | 2379 | 2657 | 3018 |
-| direct-recursive-descent | 2641 | 2462 | 2419 | 2481 |
-| direct-shunting-yard | 2363 | 2362 | 2484 | 2582 |
-| direct-reverse | **2087** | **2044** | **2196** | **2303** |
-| bytecode-vm | 2422 | 2399 | 2554 | 2818 |
-| *direct-scannerless* (control) | *1734* | *1612* | *1612* | *1608* |
+| ast-recursive-descent | 3 368 | 3 203 | 3 179 | 3 796 |
+| ast-shunting-yard | 3 014 | 3 042 | 3 232 | 3 790 |
+| ast-pratt | 3 262 | 3 200 | 3 171 | 3 845 |
+| ast-arena | 3 722 | 3 541 | 3 596 | 4 001 |
+| multipass | 4 629 | 4 787 | 5 518 | 6 873 |
+| multipass-arena | 4 804 | 4 943 | 5 967 | 6 980 |
+| direct-mp | 4 397 | 4 560 | 5 321 | 6 206 |
+| multipass-bfs | 5 367 | 5 650 | 7 348 | 9 349 |
+| multipass-reverse | 4 333 | 4 227 | 4 311 | 4 799 |
+| multipass-reverse-fold | 2 897 | 2 880 | 3 174 | 3 599 |
+| direct-recursive-descent | 3 157 | 2 990 | 2 924 | 2 985 |
+| direct-shunting-yard | 2 814 | 2 834 | 3 008 | 3 092 |
+| direct-reverse | **2 519** | **2 497** | **2 704** | **2 779** |
+| bytecode-vm | 2 902 | 2 948 | 3 135 | 3 346 |
+| *direct-scannerless* (control) | *2 339* | *2 191* | *2 191* | *2 184* |
 
 `multipass-reverse` is the only buffered multipass variant that stays flat as n
 grows (the others recurse and rescan per split). Its fused form
 `multipass-reverse-fold` is the fastest tree builder at n=10, 100 and 10000
-and a tie with `ast-recursive-descent` at n=1000 (−2…+1 % across runs), and
+and a three-way tie with `ast-recursive-descent` and `ast-pratt` at n=1000
+(−0.1…+0.5 % across runs), and
 `direct-reverse` is the fastest strategy overall at every size: recursive
 descent pays a Python call per grammar level per leaf, the fold pays none.
-Median of three CI runs (36163486136 / 36163570591 / 36163577544).
+Median of three CI runs on one CPU model, AMD EPYC 9V74 (36204789075 /
+36204787013 / 36204784693, 2026-09-26).
 `direct-scannerless` (recursive descent with the lexer fused in — no `Token`
-objects at all) is included as a control, not ranked: ~25–35 % faster than
+objects at all) is included as a control, not ranked: ~25 % less time than
 `direct-rd`, and that gap is what the shared token list costs here (a
 generator-based token stream was measured too and is a wash, 0.93–1.05×).
 Correctness: a capped subset (500 per size) of the shared corpus agrees
@@ -82,13 +84,13 @@ across all 15 strategies — see `bench.py`'s `correctness()`.
 - **The arena trick disappears.** In C++ a flat node vector beats per-node
   allocation ~2×. In Python every node is a boxed object regardless, so
   `ast-arena` is no faster — in fact slightly *slower* than the pointer-AST builders
-  (3059 vs 2593–2691 @ n=1000) — the win was about memory *layout*, which Python
+  (3 596 vs 3 171–3 232 @ n=1000) — the win was about memory *layout*, which Python
   doesn't expose.
 - **"No allocation" still leads, but by less than it looks.** `direct-*` and
   `bytecode-vm` (which never build a tree) are the fastest tier, roughly
-  10–22 % ahead of the pointer-AST builders — when every operation is
+  1–16 % ahead of the pointer-AST builders at n=1000 — when every operation is
   already boxed, skipping the tree saves some, not most. What clearly loses
-  is the **top-down multipass family** (~2.5–3.0×): the repeated split-scans
+  is the **top-down multipass family** (~1.9–2.5×): the repeated split-scans
   are real extra work no runtime hides. Bottom-up `multipass-reverse`
   (~1.7×) escapes most of that by never scanning for a split.
 

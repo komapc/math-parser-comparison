@@ -50,61 +50,67 @@ tiers, not the digits.** Reproduce locally with `cabal run bench`.
 
 | strategy | n=10 | n=100 | n=1000 | n=10000 |
 |---|--:|--:|--:|--:|
-| ast-recursive-descent | **398** | **401** | 432 | **424** |
-| ast-shunting-yard | 489 | 490 | 601 | 798 |
-| ast-pratt | 424 | 474 | 433 | 486 |
-| ast-arena | 489 | 516 | 549 | 885 |
-| multipass | 759 | 773 | 891 | 1515 |
-| multipass-arena | 885 | 886 | 1112 | 1944 |
-| direct-mp | 764 | 807 | 898 | 1528 |
-| multipass-bfs | 1124 | 1123 | 1455 | 2945 |
-| multipass-reverse | 676 | 696 | 764 | 1495 |
-| multipass-reverse-fold | 521 | 535 | 566 | 783 |
-| direct-recursive-descent | 414 | 449 | **405** | 592 |
-| direct-shunting-yard | 494 | 527 | 516 | 888 |
-| direct-reverse | 469 | 446 | 474 | 579 |
-| bytecode-vm | 514 | 573 | 646 | 834 |
-| *direct-scannerless* (control) | *388* | *385* | *444* | *619* |
+| ast-recursive-descent | 612 | 578 | **708** | **634** |
+| ast-shunting-yard | 703 | 680 | 836 | 867 |
+| ast-pratt | **604** | 588 | 724 | 644 |
+| ast-arena | 700 | 681 | 858 | 840 |
+| multipass | 945 | 955 | 1 152 | 1 272 |
+| multipass-arena | 1 103 | 1 106 | 1 329 | 1 545 |
+| direct-mp | 1 014 | 1 014 | 1 193 | 1 328 |
+| multipass-bfs | 1 298 | 1 325 | 1 572 | 1 936 |
+| multipass-reverse | 934 | 900 | 1 090 | 1 226 |
+| multipass-reverse-fold | 740 | 698 | 858 | 885 |
+| direct-recursive-descent | 616 | **569** | 712 | 654 |
+| direct-shunting-yard | 710 | 687 | 829 | 871 |
+| direct-reverse | 642 | 594 | 729 | 664 |
+| bytecode-vm | 726 | 694 | 852 | 888 |
+| *direct-scannerless* (control) | *546* | *512* | *646* | *570* |
 
-Median of three CI runs (36163486136 / 36163570591 / 36163577544). Correctness:
-all corpus expressions agree across all 15 strategies. The pointer classic
-`ast-recursive-descent` is the fastest strategy at n=10, 100 and 10000, with
-`direct-recursive-descent` fastest at n=1000 and `direct-reverse` close
-behind both (noisy across runs, see the one-pager). Before 2026-09-25 the
-`direct-*` forms led here. The registry helpers that build the tree
-strategies were then marked `INLINE`, and GHC Core shows their
-dictionary-passing workers gone (`$wmkAst`/`$wmkArena`: 11 → 0); in the
-next CI batch the pointer classics moved from behind `direct-rd` to level
-with or ahead of it. The Core change is certain, but with this runner's
-noise the size of the effect is not. The spread is ~3.1×
-fastest-to-slowest on the median (vs C++'s ~4.7×), about Python's ~3.0×;
-the pointer classics lead every arena form, from ~1.3× at the tight end
-(`ast-arena`) to ~3.1× at the wide end (`multipass-bfs`), and "no tree"
-buys nothing here. `multipass-reverse` beats `multipass-arena`/`-bfs`
-at every size; the `multipass-bfs` blow-up at n=10000 is the sparse-table
-build cost. The lexer-free `direct-scannerless` is a control, not a
-contender: it lands within a few percent of `direct-rd`/`direct-reverse`,
-noisily — the lazy token list already fuses with its consumer.
+Median of three CI runs on one CPU model, AMD EPYC 9V74 (36204789075 /
+36204787013 / 36204784693, 2026-09-26). Correctness: all corpus
+expressions agree across all 15 strategies. The leaders are a cluster: the
+pointer classics `ast-recursive-descent` and `ast-pratt` and the no-tree
+`direct-recursive-descent` take the four sizes between them, within ~2 % of
+each other, with `direct-reverse` 2–6 % behind `direct-rd` in every run.
+Before 2026-09-25 the `direct-*` forms led here. The registry helpers that
+build the tree strategies were then marked `INLINE`, and GHC Core shows
+their dictionary-passing workers gone (`$wmkAst`/`$wmkArena`: 11 → 0); in
+the next CI batch the pointer classics moved from behind `direct-rd` to
+level with or ahead of it, and this batch agrees.
+
+The absolute numbers are ~1.5× the 2026-09-25 batch's. Part of that is the
+CPU model (the other languages' fastest strategies moved ~1.05–1.2× the same
+way); the rest arrived with the 64 MB nursery (`-with-rtsopts=-A64m`) and
+round-robin timing, which landed together and were not measured apart. In
+exchange the run-to-run spread fell 5–10×, so the ranking above is the first
+one that holds across all three runs. The spread is ~2.3× fastest-to-slowest
+on the median (vs C++'s ~4.0×, Python's ~2.5×); the pointer classics lead
+every arena form, from ~1.2× at the tight end (`ast-arena`) to ~2.2–3.1× at
+the wide end (`multipass-bfs`), and "no tree" buys nothing here.
+`multipass-reverse` beats `multipass-arena`/`-bfs` at every size; the
+`multipass-bfs` growth at n=10000 is the sparse-table build cost. The
+lexer-free `direct-scannerless` is a control, not a contender: it sits
+~9–13 % below `direct-rd` at every size — the lazy token list already fuses
+with its consumer, so the lexer is a smaller share here than in the other
+three languages.
 
 ## What changes versus C++
 
-- **The arena trick disappears** — `ast-arena` (549 @ n=1000) is *slower* than
-  the pointer-AST `Expr` builders (`ast-pratt` 433, `ast-recursive-descent`
-  432). A flat `Array` of boxed, GC'd nodes is no cheaper than the tree; the C++
+- **The arena trick disappears** — `ast-arena` (858 @ n=1000) is *slower* than
+  the pointer-AST `Expr` builders (`ast-pratt` 724, `ast-recursive-descent`
+  708). A flat `Array` of boxed, GC'd nodes is no cheaper than the tree; the C++
   win was about contiguous memory *layout*, which a managed runtime hides.
 - **"No tree" does not win here.** In C++ the `direct-*` forms are fastest;
-  in Haskell `ast-recursive-descent` builds a tree and still leads at three
-  of four sizes, with `direct-rd` and `direct-reverse` ~5–15 % behind it on
-  the median over sizes (and ~40 % behind at n=10000, where GC dominates).
-  With every node boxed and GC'd, *not* allocating the tree buys little of
-  the layout advantage it has in the unmanaged languages, and the ranking
-  among the leaders is close enough on this runner to be sensitive to which
-  run you read.
+  in Haskell `ast-recursive-descent` builds a tree and still leads at two
+  of four sizes (`ast-pratt` and `direct-rd` take one each), with `direct-rd`
+  ~2 % and `direct-reverse` ~5 % behind it on the median over sizes. With
+  every node boxed and GC'd, *not* allocating the tree buys little of the
+  layout advantage it has in the unmanaged languages.
 - **The sparse-table `multipass-bfs` is the slowest at scale** — building the
   `Array`-based RMQ costs more than the linear split scan it replaces, exactly as
   in C++. The precompute loses to a plain linear scan in every runtime.
-- **The spread is ~3.1× on the median** (vs C++'s ~4.7×), about
-  Python's ~3.0×. It read ~1.7× until 2026-09-02, when the lexer's
+- **The spread is ~2.3× on the median** (vs C++'s ~4.0×), about
+  Python's ~2.5×. It read ~1.7× until 2026-09-02, when the lexer's
   `reads`-based number parsing was replaced: a shared constant cost had been
   compressing every gap.
 
