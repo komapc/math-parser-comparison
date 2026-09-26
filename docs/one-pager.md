@@ -132,6 +132,6 @@ walk-through of the algorithm is in [multipass-reverse.md](multipass-reverse.md)
   on purpose: single-run numbers at that scale flip sign on the same runner.
 
 *Data: CI bench runs 36226353574, 36226831278, 36227295521 (2026-09-26,
-commit 921ec7f, all on AMD EPYC 9V74 — the first three of 18 dispatched that
+commit 921ec7f, all on AMD EPYC 9V74 — the first three of 24 dispatched that
 landed on it; regenerated with
 [`bench/tables.py`](../bench/tables.py)).*

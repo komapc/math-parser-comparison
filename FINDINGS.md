@@ -71,7 +71,7 @@ the baseline, shown in italics against it instead) — the column shows
 of three independent CI runs of one commit (36226353574, 36226831278,
 36227295521, 2026-09-26, commit 921ec7f), all three on one CPU model (AMD
 EPYC 9V74, read from each run's `env.txt`). EPYC 9V74 is the model this
-repo publishes; 18 runs of the commit were dispatched and these are the
+repo publishes; 24 runs of the commit were dispatched and these are the
 first three, in dispatch order, that landed on it — the rest (EPYC 7763
 and 9V45, Xeon 8370C and 8573C, one later 9V74) are not mixed in. Ratios
 do shift between models: on three EPYC 7763 runs of the same commit Rust's
