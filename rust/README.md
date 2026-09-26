@@ -36,26 +36,25 @@ way the C++ policy templates are; the builder calls inline away.
 
 | tier | C++ | Rust |
 |---|--:|--:|
-| no tree (`direct-rd` / `direct-sy` / `direct-reverse`) | 51 / 50 / 50 | 54 / 61 / 58 |
-| contiguous tree (`ast-arena` / `multipass-reverse-fold`) | 71 / 69 | 76 / 79 |
-| pointer tree (`ast-rd` / `ast-pratt`) | 130 / 137 | 130 / 131 |
-| buffered bottom-up (`multipass-reverse`) | 96 | 104 |
-| bytecode-vm | 61 | 72 |
-| lexer-free control (`direct-scannerless`) | 37 | 34 |
+| no tree (`direct-rd` / `direct-sy` / `direct-reverse`) | 50 / 50 / 50 | 53 / 60 / 57 |
+| contiguous tree (`ast-arena` / `multipass-reverse-fold`) | 71 / 69 | 74 / 77 |
+| pointer tree (`ast-rd` / `ast-pratt`) | 127 / 136 | 130 / 132 |
+| buffered bottom-up (`multipass-reverse`) | 96 | 100 |
+| bytecode-vm | 59 | 73 |
+| lexer-free control (`direct-scannerless`) | 38 | 34 |
 
-Same tiers to within a few percent (n=1000; C++ runs 34136843367,
-34137622680, 34138407724; Rust runs 35906739767, 35906748758, 35906757643,
-after the fold moved to safe Rust; rustc 1.98.1). Two
+Same tiers to within a few percent (n=1000; runs 36163486136, 36163570591,
+36163577544, both languages from commit 3064d0f; rustc 1.98.1). Two
 differences worth naming: the fold's small edge over `ast-arena` in C++
-does not reproduce here — Rust is a genuine tie, sign flipping run to run
-rather than settling one way — and the top-down family that lost its AVX2
-candidate scan in the port is slower in Rust, unevenly: pointer `multipass`
-itself is closest at ~1.3×, while the arena/direct forms that actually used
-the scan (`multipass-arena`, `direct-mp`, `multipass-bfs`) are 1.6–1.8×
-behind C++. On the structured shapes the fold beats `ast-arena` on
-nestchain by 19–30 % in every run, is ahead, narrowly, on towerchain and
-sumchain, and ties on powchain; `direct-reverse` ties `direct-rd` on the
-random corpus and is ahead on every structured shape. Full cross-language tables:
+does not reproduce here — Rust is a tie at n=1000 (sign flipping run to
+run) and 3–5 % behind at n=10000 — and the top-down family that lost its
+AVX2 candidate scan in the port is slower in Rust, unevenly: pointer
+`multipass` itself is closest at ~1.3×, while the arena/direct forms that
+actually used the scan (`multipass-arena`, `direct-mp`, `multipass-bfs`) are
+1.5–1.8× behind C++. On the structured shapes the fold beats `ast-arena` on
+nestchain by 18–21 % in every run, is ahead, narrowly, on towerchain, and
+ties on powchain and sumchain; `direct-reverse` trails `direct-rd` by 4–12 %
+on the random corpus but is ahead of it on every structured shape. Full cross-language tables:
 [FINDINGS.md](../FINDINGS.md), [docs/one-pager.md](../docs/one-pager.md).
 
 ## What the port was for
@@ -66,8 +65,8 @@ Two questions the C++ numbers left open:
    answer is mixed. The overall tiers are not a GCC story: the `direct-*`
    tier matches within a few percent of C++ in instructions, cycles and
    branch misses on the same laptop (`perf stat`, n=1000 corpus). But the
-   fold's specific 2–5 % edge over `ast-arena` does not reproduce — LLVM
-   ties the two instead — so that one sliver looks compiler-sensitive even
+   fold's specific 1–5 % edge over `ast-arena` does not reproduce — LLVM
+   ties the two at n=1000 and puts the fold slightly behind at n=10000 — so that one sliver looks compiler-sensitive even
    though the tier ordering around it is real. The CI tables in the
    top-level README carry the neutral-runner numbers.
 2. **Does the fold survive safe Rust?** The C++ fold's last 10 % came from
