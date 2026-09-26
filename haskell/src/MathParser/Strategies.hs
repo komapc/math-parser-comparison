@@ -100,28 +100,32 @@ instance Sym Direct where
   sNeg (Direct f) = Direct (negate . f)
   sBin op (Direct a) (Direct b) = Direct (\e -> applyOp op (a e) (b e))
 
--- arena carrier: thread (next-index, nodes-in-reverse); a node refs children by index
+-- arena carrier: thread (next-index, nodes-in-reverse); a node refs children
+-- by index. State and result are strict constructors, not lazy tuples: a lazy
+-- pair here left a thunk per node for evalArena to force.
 data Node = NNum !Double | NVar !Int | NNeg !Int | NBin !Op !Int !Int
-type ArenaSt = (Int, [Node])
-newtype Arena = Arena (ArenaSt -> (Int, ArenaSt))
+data ArenaSt = ArenaSt !Int [Node]
+data Emitted = Emitted !Int !ArenaSt
+newtype Arena = Arena (ArenaSt -> Emitted)
 
-emitNode :: Node -> ArenaSt -> (Int, ArenaSt)
-emitNode nd (n, xs) = let !n' = n + 1 in (n, (n', nd : xs))
+emitNode :: Node -> ArenaSt -> Emitted
+emitNode !nd (ArenaSt n xs) = Emitted n (ArenaSt (n + 1) (nd : xs))
 
 instance Sym Arena where
   sNum x = Arena (emitNode (NNum x))
   sVar i = Arena (emitNode (NVar i))
-  sNeg (Arena a) = Arena $ \st -> let (ai, st1) = a st in emitNode (NNeg ai) st1
+  sNeg (Arena a) = Arena $ \st -> case a st of Emitted ai st1 -> emitNode (NNeg ai) st1
   sBin op (Arena l) (Arena r) = Arena $ \st ->
-    let (li, st1) = l st
-        (ri, st2) = r st1
-    in emitNode (NBin op li ri) st2
+    case l st of
+      Emitted li st1 -> case r st1 of
+        Emitted ri st2 -> emitNode (NBin op li ri) st2
 
 evalArena :: Env -> Arena -> Double
 evalArena env (Arena f) =
-  let (root, (cnt, xs)) = f (0, [])
-      arr = listArray (0, cnt - 1) (reverse xs) :: Array Int Node
-      go i = case arr ! i of
+  let Emitted root (ArenaSt cnt xs) = f (ArenaSt 0 [])
+      -- xs is newest-first, so node i sits at position cnt-1-i: no reverse
+      arr = listArray (0, cnt - 1) xs :: Array Int Node
+      go i = case arr ! (cnt - 1 - i) of
         NNum x      -> x
         NVar v      -> env v
         NNeg c      -> negate (go c)
