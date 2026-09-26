@@ -23,32 +23,32 @@ A dependency-free C++26 project implementing classic (and not-so-classic) algori
 ## ⚡ Results at a glance
 
 > One-shot, ns per leaf at n=1000 — **shorter is faster**.
-> Neutral 4-vCPU GitHub runner, median of three [CI bench](../.github/workflows/bench.yml) runs on one CPU model, AMD EPYC 9V74 (36204789075 / 36204787013 / 36204784693, 2026-09-26); `×` is relative to the fastest strategy that uses the shared lexer. **Trust the tiers, not the digits.**
+> Neutral 4-vCPU GitHub runner, median of three [CI bench](../.github/workflows/bench.yml) runs on one CPU model, AMD EPYC 9V74 (36226353574 / 36226831278 / 36227295521, 2026-09-26); `×` is relative to the fastest strategy that uses the shared lexer. **Trust the tiers, not the digits.**
 
 ```
-direct-scannerless        ██                           41 ns   ×0.79  ← lexer-free control (not ranked)
-direct-shunting-yard      ██                           52 ns   ×1.0
-direct-reverse            ██                           52 ns   ×1.0
-direct-recursive-descent  ██                           53 ns   ×1.0   ← three-way tie at the top
-bytecode-vm               ███                          67 ns   ×1.3
+direct-scannerless        █                            32 ns   ×0.79  ← lexer-free control (not ranked)
+direct-shunting-yard      ██                           41 ns   ×1.0
+direct-reverse            ██                           41 ns   ×1.0
+direct-recursive-descent  ██                           41 ns   ×1.0   ← three-way tie at the top
+bytecode-vm               ██                           53 ns   ×1.3
 ──────────────────────────────── tier break: builds a tree ────────────────
-multipass-reverse-fold    ███                          72 ns   ×1.4   ← fastest tree builder (bottom-up, fused)
-ast-arena                 ███                          75 ns   ×1.4   ← fastest classic tree builder
+multipass-reverse-fold    ██                           56 ns   ×1.4   ← fastest tree builder (bottom-up, fused)
+ast-arena                 ██                           58 ns   ×1.4   ← fastest classic tree builder
 ──────────────────────────────── tier break: token array / N allocations ──
-multipass-reverse         ████                        104 ns   ×2.0   ← bottom-up, buffered
-direct-mp                 ████                        107 ns   ×2.1   ← D&C, no AST
-multipass-arena           ██████                      138 ns   ×2.6
-ast-pratt                 ██████                      139 ns   ×2.7
-ast-shunting-yard         ██████                      139 ns   ×2.7
-ast-recursive-descent     ██████                      140 ns   ×2.7
-multipass-bfs             ██████                      147 ns   ×2.8
+multipass-reverse         ███                          81 ns   ×2.0   ← bottom-up, buffered
+direct-mp                 ███                          83 ns   ×2.1   ← D&C, no AST
+ast-pratt                 ████                        107 ns   ×2.6
+ast-shunting-yard         ████                        107 ns   ×2.6
+ast-recursive-descent     ████                        108 ns   ×2.7
+multipass-arena           ████                        108 ns   ×2.7
+multipass-bfs             █████                       115 ns   ×2.8
 ──────────────────────────────── tier break: super-linear ─────────────────
-multipass                 █████████                   215 ns   ×4.1   ← O(n log n) + N allocs
+multipass                 ███████                     168 ns   ×4.1   ← O(n log n) + N allocs
 ```
 
 - **Control (×0.79):** `direct-scannerless` is `direct-rd` with the lexer fused into the grammar — no token stream at all. It exists to measure the shared lexer's cost (about a fifth to a quarter of `direct-rd`'s time), not to compete.
-- **Tier 1 (×1.0–1.3):** no tree, O(n), streaming tokens, ≤1 allocation. `direct-sy`, `direct-rd` and `direct-reverse` are a **three-way tie** at ~52 ns/leaf (1.5–2.0 % apart within each run at n=1000, 1–4 % across sizes); `bytecode-vm` sits ~30 % behind in every run.
-- **Tier 2 (×1.4):** the two contiguous tree builders. `multipass-reverse-fold` (bottom-up, fused — see [docs/multipass-reverse.md](../docs/multipass-reverse.md)) is the **fastest tree builder**, ~2–5 % ahead of `ast-arena` (positive in all 12 size×run measurements, 2026-09-26 runs); both stream their tokens into one node vector.
+- **Tier 1 (×1.0–1.3):** no tree, O(n), streaming tokens, ≤1 allocation. `direct-sy`, `direct-rd` and `direct-reverse` are a **three-way tie** at ~41 ns/leaf (1.7–2.0 % apart within each run at n=1000, 2–4 % across sizes); `bytecode-vm` sits ~30 % behind in every run.
+- **Tier 2 (×1.4):** the two contiguous tree builders. `multipass-reverse-fold` (bottom-up, fused — see [docs/multipass-reverse.md](../docs/multipass-reverse.md)) is the **fastest tree builder**, ~2–4 % ahead of `ast-arena` (positive in all 12 size×run measurements, 2026-09-26 runs); both stream their tokens into one node vector.
 - **Tier 3 (×2.0–2.8):** everything that either indexes a token array (`multipass-reverse`, `direct-mp`, `multipass-arena`, `multipass-bfs`) or pays one `make_unique` per node (`ast-rd`, `ast-sy`, `ast-pratt`). For the pointer classics the algorithm barely matters, the allocator dominates. The top-down D&C forms' two former Θ(n²) worst cases (mixed-precedence and `^`-tower chains) are capped at O(n log n) by bounded scans, per-precedence position buckets, iterator passing and an AVX2 window (runtime-dispatched).
 - **Tier 4 (×4.1):** O(n log n) *plus* N allocations *plus* the token array.
 
@@ -81,8 +81,8 @@ The pointer-AST strategies produce numerically identical results (checked by the
 
 ## 🏁 Verdict
 
-> - **Fastest?** `direct-rd` / `direct-sy` / `direct-reverse` — a three-way tie (1.5–2 % apart, within noise of CPU model), `bytecode-vm` ~30 % behind. Fusing the lexer into the grammar (`direct-scannerless`) buys another ~20 %, at the price of having no lexer to share.
-> - **Need a tree?** `multipass-reverse-fold` or `ast-arena` — one allocation, never per-node `unique_ptr`; the fused reducer is ~2–5 % ahead and has no worst case.
+> - **Fastest?** `direct-rd` / `direct-sy` / `direct-reverse` — a three-way tie (1.7–2 % apart, within noise of CPU model), `bytecode-vm` ~30 % behind. Fusing the lexer into the grammar (`direct-scannerless`) buys another ~20 %, at the price of having no lexer to share.
+> - **Need a tree?** `multipass-reverse-fold` or `ast-arena` — one allocation, never per-node `unique_ptr`; the fused reducer is ~2–4 % ahead and has no worst case.
 > - **Structured input?** Bottom-up only. Every top-down D&C form needed rescue machinery to stay O(n log n) on mixed-precedence chains and still trails `multipass-reverse-fold` by 2–5× there ([FINDINGS](../FINDINGS.md#result-2--vs-its-family-ahead-on-every-tested-input)).
 
 See the [one-pager](../docs/one-pager.md) for the cross-language verdict and

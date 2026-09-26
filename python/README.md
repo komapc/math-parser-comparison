@@ -47,33 +47,33 @@ Reproduce locally with `python3 python/bench.py`.
 
 | strategy | n=10 | n=100 | n=1000 | n=10000 |
 |---|--:|--:|--:|--:|
-| ast-recursive-descent | 3 368 | 3 203 | 3 179 | 3 796 |
-| ast-shunting-yard | 3 014 | 3 042 | 3 232 | 3 790 |
-| ast-pratt | 3 262 | 3 200 | 3 171 | 3 845 |
-| ast-arena | 3 722 | 3 541 | 3 596 | 4 001 |
-| multipass | 4 629 | 4 787 | 5 518 | 6 873 |
-| multipass-arena | 4 804 | 4 943 | 5 967 | 6 980 |
-| direct-mp | 4 397 | 4 560 | 5 321 | 6 206 |
-| multipass-bfs | 5 367 | 5 650 | 7 348 | 9 349 |
-| multipass-reverse | 4 333 | 4 227 | 4 311 | 4 799 |
-| multipass-reverse-fold | 2 897 | 2 880 | 3 174 | 3 599 |
-| direct-recursive-descent | 3 157 | 2 990 | 2 924 | 2 985 |
-| direct-shunting-yard | 2 814 | 2 834 | 3 008 | 3 092 |
-| direct-reverse | **2 519** | **2 497** | **2 704** | **2 779** |
-| bytecode-vm | 2 902 | 2 948 | 3 135 | 3 346 |
-| *direct-scannerless* (control) | *2 339* | *2 191* | *2 191* | *2 184* |
+| ast-recursive-descent | 2 615 | 2 479 | 2 466 | 2 947 |
+| ast-shunting-yard | 2 346 | 2 364 | 2 508 | 2 946 |
+| ast-pratt | 2 534 | 2 474 | 2 457 | 3 016 |
+| ast-arena | 2 880 | 2 735 | 2 784 | 3 156 |
+| multipass | 3 588 | 3 708 | 4 284 | 5 378 |
+| multipass-arena | 3 722 | 3 835 | 4 617 | 5 447 |
+| direct-mp | 3 427 | 3 523 | 4 107 | 4 815 |
+| multipass-bfs | 4 161 | 4 379 | 5 693 | 7 298 |
+| multipass-reverse | 3 356 | 3 261 | 3 328 | 3 772 |
+| multipass-reverse-fold | 2 245 | 2 226 | 2 445 | 2 801 |
+| direct-recursive-descent | 2 449 | 2 312 | 2 260 | 2 324 |
+| direct-shunting-yard | 2 173 | 2 185 | 2 316 | 2 394 |
+| direct-reverse | **1 960** | **1 935** | **2 083** | **2 159** |
+| bytecode-vm | 2 250 | 2 277 | 2 420 | 2 600 |
+| *direct-scannerless* (control) | *1 816* | *1 691* | *1 693* | *1 695* |
 
 `multipass-reverse` is the only buffered multipass variant that stays flat as n
 grows (the others recurse and rescan per split). Its fused form
 `multipass-reverse-fold` is the fastest tree builder at n=10, 100 and 10000
-and a three-way tie with `ast-recursive-descent` and `ast-pratt` at n=1000
-(−0.1…+0.5 % across runs), and
+and a tie with `ast-pratt` at n=1000 (+0.3…+0.5 % across runs, ~1 % ahead
+of `ast-recursive-descent`), and
 `direct-reverse` is the fastest strategy overall at every size: recursive
 descent pays a Python call per grammar level per leaf, the fold pays none.
-Median of three CI runs on one CPU model, AMD EPYC 9V74 (36204789075 /
-36204787013 / 36204784693, 2026-09-26).
+Median of three CI runs on one CPU model, AMD EPYC 9V74 (36226353574 /
+36226831278 / 36227295521, 2026-09-26).
 `direct-scannerless` (recursive descent with the lexer fused in — no `Token`
-objects at all) is included as a control, not ranked: ~25 % less time than
+objects at all) is included as a control, not ranked: ~25–27 % less time than
 `direct-rd`, and that gap is what the shared token list costs here (a
 generator-based token stream was measured too and is a wash, 0.93–1.05×).
 Correctness: a capped subset (500 per size) of the shared corpus agrees
@@ -84,15 +84,15 @@ across all 15 strategies — see `bench.py`'s `correctness()`.
 - **The arena trick disappears.** In C++ a flat node vector beats per-node
   allocation ~2×. In Python every node is a boxed object regardless, so
   `ast-arena` is no faster — in fact slightly *slower* than the pointer-AST builders
-  (3 596 vs 3 171–3 232 @ n=1000) — the win was about memory *layout*, which Python
+  (2 784 vs 2 457–2 508 @ n=1000) — the win was about memory *layout*, which Python
   doesn't expose.
 - **"No allocation" still leads, but by less than it looks.** `direct-*` and
   `bytecode-vm` (which never build a tree) are the fastest tier, roughly
-  1–16 % ahead of the pointer-AST builders at n=1000 — when every operation is
+  2–17 % ahead of the pointer-AST builders at n=1000 — when every operation is
   already boxed, skipping the tree saves some, not most. What clearly loses
-  is the **top-down multipass family** (~1.9–2.5×): the repeated split-scans
+  is the **top-down multipass family** (~2.0–2.7×): the repeated split-scans
   are real extra work no runtime hides. Bottom-up `multipass-reverse`
-  (~1.7×) escapes most of that by never scanning for a split.
+  (~1.6×) escapes most of that by never scanning for a split.
 
 See the top-level [README](../README.md) for the cross-language table and the
 [one-pager](../docs/one-pager.md) for the cross-language verdict and

@@ -36,25 +36,28 @@ way the C++ policy templates are; the builder calls inline away.
 
 | tier | C++ | Rust |
 |---|--:|--:|
-| no tree (`direct-rd` / `direct-sy` / `direct-reverse`) | 53 / 52 / 52 | 61 / 65 / 61 |
-| contiguous tree (`ast-arena` / `multipass-reverse-fold`) | 75 / 72 | 84 / 84 |
-| pointer tree (`ast-rd` / `ast-pratt`) | 140 / 139 | 141 / 138 |
-| buffered bottom-up (`multipass-reverse`) | 104 | 115 |
-| bytecode-vm | 67 | 80 |
-| lexer-free control (`direct-scannerless`) | 41 | 38 |
+| no tree (`direct-rd` / `direct-sy` / `direct-reverse`) | 41 / 41 / 41 | 48 / 51 / 48 |
+| contiguous tree (`ast-arena` / `multipass-reverse-fold`) | 58 / 56 | 65 / 65 |
+| pointer tree (`ast-rd` / `ast-pratt`) | 108 / 107 | 110 / 108 |
+| buffered bottom-up (`multipass-reverse`) | 81 | 89 |
+| bytecode-vm | 53 | 62 |
+| lexer-free control (`direct-scannerless`) | 32 | 30 |
 
-Same tiers to within a few percent (n=1000; runs 36204789075, 36204787013,
-36204784693, both languages from commit 183c3d7, all three on one CPU
+Same tiers to within a few percent (n=1000; runs 36226353574, 36226831278,
+36227295521, both languages from commit 921ec7f, all three on one CPU
 model, AMD EPYC 9V74; rustc 1.98.1). Two differences worth naming: the
 fold's small edge over `ast-arena` in C++ does not reproduce here — Rust is
 a tie from n=100 up (within ±1 % in every run) and ahead only at n=10 — and
 the top-down family that lost its AVX2 candidate scan in the port is slower
 in Rust: 1.5–1.9× behind C++, pointer `multipass` closest, `direct-mp`
 furthest. On the structured shapes the fold beats `ast-arena` on nestchain
-by 24–34 % and on towerchain by 6–11 % in every run, is ahead, narrowly, on
-sumchain (+4…+5 %) and ties on powchain; `direct-reverse` is level with
+by 27–29 % and on towerchain by 9 % in every run, is ahead, narrowly, on
+sumchain (+2…+4 %) and ties on powchain; `direct-reverse` is level with
 `direct-rd` on the random corpus (−2…+2 % across sizes and runs) and ahead
-of it on every structured shape. Full cross-language tables:
+of it on every structured shape. Both random-corpus ties are
+hardware-dependent: on three EPYC 7763 runs of the same commit the fold
+trails `ast-arena` by 3–7 % and `direct-reverse` trails `direct-rd` by
+5–7 %. Full cross-language tables:
 [FINDINGS.md](../FINDINGS.md), [docs/one-pager.md](../docs/one-pager.md).
 
 ## What the port was for
@@ -65,7 +68,7 @@ Two questions the C++ numbers left open:
    answer is mixed. The overall tiers are not a GCC story: the `direct-*`
    tier matches within a few percent of C++ in instructions, cycles and
    branch misses on the same laptop (`perf stat`, n=1000 corpus). But the
-   fold's specific 1–5 % edge over `ast-arena` does not reproduce — LLVM
+   fold's specific ~2–4 % edge over `ast-arena` does not reproduce — LLVM
    ties the two at n=1000 and puts the fold slightly behind at n=10000 — so that one sliver looks compiler-sensitive even
    though the tier ordering around it is real. The CI tables in the
    top-level README carry the neutral-runner numbers.
