@@ -70,7 +70,7 @@ Median of three CI runs on one CPU model, AMD EPYC 9V74 (36204789075 /
 36204787013 / 36204784693, 2026-09-26). Correctness: all corpus
 expressions agree across all 15 strategies. The leaders are a cluster: the
 pointer classics `ast-recursive-descent` and `ast-pratt` and the no-tree
-`direct-recursive-descent` take the four sizes between them, within ~2 % of
+`direct-recursive-descent` take the four sizes between them, within ~3 % of
 each other, with `direct-reverse` 2–6 % behind `direct-rd` in every run.
 Before 2026-09-25 the `direct-*` forms led here. The registry helpers that
 build the tree strategies were then marked `INLINE`, and GHC Core shows
@@ -82,8 +82,9 @@ The absolute numbers are ~1.5× the 2026-09-25 batch's. Part of that is the
 CPU model (the other languages' fastest strategies moved ~1.05–1.2× the same
 way); the rest arrived with the 64 MB nursery (`-with-rtsopts=-A64m`) and
 round-robin timing, which landed together and were not measured apart. In
-exchange the run-to-run spread fell 5–10×, so the ranking above is the first
-one that holds across all three runs. The spread is ~2.3× fastest-to-slowest
+exchange the run-to-run spread fell 5–10×: the tiers hold in every run (the
+fold behind `ast-rd`, `direct-reverse` behind `direct-rd`), though the order
+inside the leading cluster is too close to call. The spread is ~2.3× fastest-to-slowest
 on the median (vs C++'s ~4.0×, Python's ~2.5×); the pointer classics lead
 every arena form, from ~1.2× at the tight end (`ast-arena`) to ~2.2–3.1× at
 the wide end (`multipass-bfs`), and "no tree" buys nothing here.

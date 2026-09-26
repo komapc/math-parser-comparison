@@ -30,8 +30,8 @@ direct-scannerless        ██                           41 ns   ×0.79  ← l
 direct-shunting-yard      ██                           52 ns   ×1.0
 direct-reverse            ██                           52 ns   ×1.0
 direct-recursive-descent  ██                           53 ns   ×1.0   ← three-way tie at the top
-──────────────────────────────── tier break: builds a tree / bytecode ─────
 bytecode-vm               ███                          67 ns   ×1.3
+──────────────────────────────── tier break: builds a tree ────────────────
 multipass-reverse-fold    ███                          72 ns   ×1.4   ← fastest tree builder (bottom-up, fused)
 ast-arena                 ███                          75 ns   ×1.4   ← fastest classic tree builder
 ──────────────────────────────── tier break: token array / N allocations ──
@@ -47,8 +47,8 @@ multipass                 █████████                   215 ns  
 ```
 
 - **Control (×0.79):** `direct-scannerless` is `direct-rd` with the lexer fused into the grammar — no token stream at all. It exists to measure the shared lexer's cost (about a fifth to a quarter of `direct-rd`'s time), not to compete.
-- **Tier 1 (×1.0):** no tree, O(n), streaming tokens, ≤1 allocation. `direct-sy`, `direct-rd` and `direct-reverse` are a **three-way tie** at ~52 ns/leaf (1.5–2.0 % apart within each run at n=1000, 1–4 % across sizes).
-- **Tier 2 (×1.3–1.4):** `bytecode-vm` (compile to a flat program, then run it; ~30 % behind tier 1 in every run) and the two contiguous tree builders. `multipass-reverse-fold` (bottom-up, fused — see [docs/multipass-reverse.md](../docs/multipass-reverse.md)) is the **fastest tree builder**, ~2–5 % ahead of `ast-arena` (positive in all 12 size×run measurements, 2026-09-26 runs); both stream their tokens into one node vector.
+- **Tier 1 (×1.0–1.3):** no tree, O(n), streaming tokens, ≤1 allocation. `direct-sy`, `direct-rd` and `direct-reverse` are a **three-way tie** at ~52 ns/leaf (1.5–2.0 % apart within each run at n=1000, 1–4 % across sizes); `bytecode-vm` sits ~30 % behind in every run.
+- **Tier 2 (×1.4):** the two contiguous tree builders. `multipass-reverse-fold` (bottom-up, fused — see [docs/multipass-reverse.md](../docs/multipass-reverse.md)) is the **fastest tree builder**, ~2–5 % ahead of `ast-arena` (positive in all 12 size×run measurements, 2026-09-26 runs); both stream their tokens into one node vector.
 - **Tier 3 (×2.0–2.8):** everything that either indexes a token array (`multipass-reverse`, `direct-mp`, `multipass-arena`, `multipass-bfs`) or pays one `make_unique` per node (`ast-rd`, `ast-sy`, `ast-pratt`). For the pointer classics the algorithm barely matters, the allocator dominates. The top-down D&C forms' two former Θ(n²) worst cases (mixed-precedence and `^`-tower chains) are capped at O(n log n) by bounded scans, per-precedence position buckets, iterator passing and an AVX2 window (runtime-dispatched).
 - **Tier 4 (×4.1):** O(n log n) *plus* N allocations *plus* the token array.
 

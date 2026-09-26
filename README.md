@@ -137,7 +137,8 @@ then applied wherever it applies:
    `direct-recursive-descent` with the lexer fused into the grammar, so the
    gap between the two *is* the lexer's cost: roughly a quarter of the time
    in C++ and Python, over a third in Rust, and ~12 % in Haskell. It is
-   included as a control, not as a parser using the common lexer, so it is left out of the rankings.
+   included as a control, not as a parser using the common lexer, so it is
+   left out of the rankings.
 
 Details and per-strategy effects: [FINDINGS.md](FINDINGS.md#lexing-rules--applied-to-every-parser).
 
