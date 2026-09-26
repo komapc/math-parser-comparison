@@ -18,9 +18,9 @@ from mathparser import all_evaluators  # noqa: E402
 
 CORPUS = os.path.normpath(os.path.join(HERE, "..", "bench", "corpus"))
 SIZES = [10, 100, 1000, 10000]
-# every cell is a best-of-N; N>=3 so no published number rests on a single
-# unrepeated measurement
-REPS = {10: 5, 100: 5, 1000: 3, 10000: 3}
+# every cell is a best-of-N; N=5 at every size, like the n<=1000 cells of the
+# compiled languages (n=1000 at N=3 left a tie cell resting on too few draws)
+REPS = {10: 5, 100: 5, 1000: 5, 10000: 5}
 
 
 def load(size):
@@ -61,18 +61,15 @@ def correctness(corpora):
     return bad == 0
 
 
-def best_ns_per_leaf(ev, corpus, size, reps):
-    best = float("inf")
-    for _ in range(reps):
-        t0 = time.perf_counter_ns()
-        acc = 0.0
-        for e in corpus:
-            acc += ev.eval(e)
-        dt = time.perf_counter_ns() - t0
-        if acc == 12345.6789:  # defeat any clever optimizer; never true
-            print(acc)
-        best = min(best, dt)
-    return best / len(corpus) / size
+def time_ns(ev, corpus):
+    t0 = time.perf_counter_ns()
+    acc = 0.0
+    for e in corpus:
+        acc += ev.eval(e)
+    dt = time.perf_counter_ns() - t0
+    if acc == 12345.6789:  # defeat any clever optimizer; never true
+        print(acc)
+    return dt
 
 
 def run():
@@ -85,11 +82,20 @@ def run():
     header = f"{'strategy':<26}" + "".join(f"{'n=' + str(s):>12}" for s in SIZES)
     print(header)
     print("-" * len(header))
-    for ev in all_evaluators():
+    # Interleaved: each rep times every strategy once, round-robin, so slow
+    # drift on the runner (clock, thermals, noisy neighbours) lands on all
+    # strategies alike instead of on whichever ran late. Best-of-reps per cell.
+    evs = all_evaluators()
+    best = [[float("inf")] * len(SIZES) for _ in evs]
+    for i, s in enumerate(SIZES):
+        for _ in range(REPS[s]):
+            for k, ev in enumerate(evs):
+                best[k][i] = min(best[k][i], time_ns(ev, corpora[s]))
+
+    for k, ev in enumerate(evs):
         row = f"{ev.name:<26}"
-        for s in SIZES:
-            ns = best_ns_per_leaf(ev, corpora[s], s, REPS[s])
-            row += f"{ns:>12.1f}"
+        for i, s in enumerate(SIZES):
+            row += f"{best[k][i] / len(corpora[s]) / s:>12.1f}"
         print(row)
     return 0
 

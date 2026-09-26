@@ -80,11 +80,17 @@ def run_shape(title, gen, leaves):
         if got != ref:
             print(f"MISMATCH [{ev.name}]: {got} != {ref}")
 
-    for ev in evs:
+    # Interleaved round-robin, best of REPS per cell — see bench.py.
+    best = [[float("inf")] * len(SIZES) for _ in evs]
+    for i, expr in enumerate(exprs):
+        for _ in range(REPS):
+            for k, ev in enumerate(evs):
+                best[k][i] = min(best[k][i], _time_one(ev, expr))
+
+    for k, ev in enumerate(evs):
         row = f"{ev.name:<26}"
-        for m, expr in zip(SIZES, exprs):
-            best = min(_time_one(ev, expr) for _ in range(REPS))
-            row += f"{best / leaves(m) * 1e9:>12.0f}"
+        for i, m in enumerate(SIZES):
+            row += f"{best[k][i] / leaves(m) * 1e9:>12.0f}"
         print(row)
     print()
 

@@ -18,14 +18,10 @@ fn load(dir: &str, n: usize) -> Vec<String> {
     }
 }
 
-fn best_ns(reps: usize, mut f: impl FnMut()) -> f64 {
-    let mut best = f64::INFINITY;
-    for _ in 0..reps {
-        let t0 = Instant::now();
-        f();
-        best = best.min(t0.elapsed().as_nanos() as f64);
-    }
-    best
+fn time_ns(mut f: impl FnMut()) -> f64 {
+    let t0 = Instant::now();
+    f();
+    t0.elapsed().as_nanos() as f64
 }
 
 fn run(dir: String, only: Vec<String>) -> i32 {
@@ -41,21 +37,33 @@ fn run(dir: String, only: Vec<String>) -> i32 {
     println!("== Rust: shared-corpus benchmark ==\n");
     println!("{:<26}{:>12}{:>12}{:>12}{:>12}", "strategy", "n=10", "n=100", "n=1000", "n=10000");
     println!("{}", "-".repeat(26 + 48));
+    let mut evs = all_evaluators();
+    evs.retain(|ev| only.is_empty() || only.iter().any(|n| n == ev.name()));
+    // Interleaved: each rep times every strategy once, round-robin, so slow
+    // drift on the runner (clock, thermals, noisy neighbours) lands on all
+    // strategies alike instead of on whichever ran late. Best-of-reps per cell.
+    let mut best = vec![[f64::INFINITY; SIZES.len()]; evs.len()];
     let mut sink = 0u64;
-    for ev in all_evaluators().iter_mut() {
-        if !only.is_empty() && !only.iter().any(|n| n == ev.name()) { continue; }
+    for (i, &n) in SIZES.iter().enumerate() {
+        let corpus = &corpora[i];
+        let reps = if n <= 1000 { 5 } else { 3 };
+        for _ in 0..reps {
+            for (k, ev) in evs.iter_mut().enumerate() {
+                let ns = time_ns(|| {
+                    let mut acc = 0.0f64;
+                    for e in corpus {
+                        acc += ev.eval(e, None).unwrap_or(f64::NAN);
+                    }
+                    sink = sink.wrapping_add(acc as u64);
+                });
+                best[k][i] = best[k][i].min(ns);
+            }
+        }
+    }
+    for (k, ev) in evs.iter().enumerate() {
         print!("{:<26}", ev.name());
         for (i, &n) in SIZES.iter().enumerate() {
-            let corpus = &corpora[i];
-            let reps = if n <= 1000 { 5 } else { 3 };
-            let ns = best_ns(reps, || {
-                let mut acc = 0.0f64;
-                for e in corpus {
-                    acc += ev.eval(e, None).unwrap_or(f64::NAN);
-                }
-                sink = sink.wrapping_add(acc as u64);
-            });
-            print!("{:>12.1}", ns / corpus.len() as f64 / n as f64);
+            print!("{:>12.1}", best[k][i] / corpora[i].len() as f64 / n as f64);
         }
         println!();
     }

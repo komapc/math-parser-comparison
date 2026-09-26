@@ -21,6 +21,13 @@ endif()
 
 add_compile_options(-Wall -Wextra -Wpedantic)
 
+# No LTO here, on purpose, although the Rust port uses `lto = "fat"`. It was
+# tried (2026-09, CMAKE_INTERPROCEDURAL_OPTIMIZATION with GCC 14): on the
+# laptop, in both run orders, it made C++ *slower*, by up to ~30 % on the
+# buffer-driven strategies (ast-arena, the fold, direct-sy, bytecode-vm). The
+# per-file build is the faster C++ configuration, so C++ is not being held
+# back by leaving it off.
+
 # Shared infrastructure (tokenizer + AST) and all evaluation strategies.
 
 add_library(parsers
