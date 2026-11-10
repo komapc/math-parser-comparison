@@ -71,54 +71,58 @@ public:
             }
         };
 
-        // Two-mode scan: the grammar alternates operand / operator, so each
-        // mode dispatches over its own small set of token kinds instead of one
-        // switch guarded by an expect-operand flag (the same treatment the
-        // fused bottom-up reducer gets; see multipass_reverse_fold.cpp).
+        bool expectOperand = true;
         for (;;) {
-            // -- operand mode: number, variable, '(' or a prefix sign
-            for (;;) {
-                const Token tok = lx.next();
-                if (tok.type == TokenType::Number) { vals_.push_back(tok.value); break; }
-                if (tok.type == TokenType::LParen) {
-                    ops_.push_back(Op{tok.type, 0, false, false, true});
-                    continue;
-                }
-                if (tok.type == TokenType::Minus || tok.type == TokenType::Plus) {
-                    ops_.push_back(Op{tok.type, 3, true, true, false});
-                    continue;
-                }
-                if (tok.type == TokenType::Ident) { vals_.push_back(vars ? vars[static_cast<int>(tok.value)] : 0.0); break; }
-                if (tok.type == TokenType::End) throw std::runtime_error("unexpected end of input");
-                if (tok.type == TokenType::RParen) throw std::runtime_error("empty parentheses");
-                throw std::runtime_error("unexpected operator");
-            }
-            // -- operator mode: binary op, ')' or end; ')' stays in this mode
-            for (;;) {
-                const Token tok = lx.next();
-                const int p = binPrec(tok.type);
-                if (p > 0) {
-                    const bool ra = (tok.type == TokenType::Caret);
-                    while (!ops_.empty() && !ops_.back().lparen &&
-                           (ops_.back().prec > p || (ops_.back().prec == p && !ra))) {
-                        Op o = ops_.back(); ops_.pop_back(); fold(o);
-                    }
-                    ops_.push_back(Op{tok.type, p, ra, false, false});
+            const Token tok = lx.next();
+            switch (tok.type) {
+                case TokenType::Number:
+                    if (!expectOperand) throw std::runtime_error("unexpected number");
+                    vals_.push_back(tok.value);
+                    expectOperand = false;
                     break;
-                }
-                if (tok.type == TokenType::RParen) {
+                case TokenType::Ident:
+                    if (!expectOperand) throw std::runtime_error("unexpected variable");
+                    vals_.push_back(vars ? vars[static_cast<int>(tok.value)] : 0.0);
+                    expectOperand = false;
+                    break;
+                case TokenType::LParen:
+                    if (!expectOperand) throw std::runtime_error("unexpected '('");
+                    ops_.push_back(Op{tok.type, 0, false, false, true});
+                    expectOperand = true;
+                    break;
+                case TokenType::RParen:
+                    if (expectOperand) throw std::runtime_error("empty parentheses");
                     while (!ops_.empty() && !ops_.back().lparen) { Op o = ops_.back(); ops_.pop_back(); fold(o); }
                     if (ops_.empty()) throw std::runtime_error("mismatched parenthesis");
                     ops_.pop_back();
-                    continue;
-                }
-                if (tok.type == TokenType::End) goto done;
-                if (tok.type == TokenType::Number) throw std::runtime_error("unexpected number");
-                if (tok.type == TokenType::Ident) throw std::runtime_error("unexpected variable");
-                throw std::runtime_error("unexpected '('");
+                    expectOperand = false;
+                    break;
+                case TokenType::Plus:
+                case TokenType::Minus:
+                case TokenType::Star:
+                case TokenType::Slash:
+                case TokenType::Caret:
+                    if (expectOperand) {
+                        if (tok.type != TokenType::Plus && tok.type != TokenType::Minus)
+                            throw std::runtime_error("unexpected operator");
+                        ops_.push_back(Op{tok.type, 3, true, true, false});
+                    } else {
+                        const int p = binPrec(tok.type);
+                        const bool ra = (tok.type == TokenType::Caret);
+                        while (!ops_.empty() && !ops_.back().lparen &&
+                               (ops_.back().prec > p || (ops_.back().prec == p && !ra))) {
+                            Op o = ops_.back(); ops_.pop_back(); fold(o);
+                        }
+                        ops_.push_back(Op{tok.type, p, ra, false, false});
+                        expectOperand = true;
+                    }
+                    break;
+                case TokenType::End:
+                    if (expectOperand) throw std::runtime_error("unexpected end of input");
+                    break;
             }
+            if (tok.type == TokenType::End) break;
         }
-    done:
         while (!ops_.empty()) { Op o = ops_.back(); ops_.pop_back(); fold(o); }
         if (vals_.size() != 1) throw std::runtime_error("invalid expression");
         return vals_.back();
