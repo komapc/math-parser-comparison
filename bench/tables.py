@@ -2,7 +2,9 @@
 
 usage: python3 tables.py RUN1 RUN2 RUN3 [--rust R1 R2 R3] [--allow-mixed-cpu]
        python3 tables.py --cpus RUN...     (print each run's CPU model, grouped)
-Each RUN is a directory holding benchmark-results/ (gh run download).
+Each RUN is a directory: either bench/results/<run-id>/ (the archived copy
+in this repo; CI artifacts expire after 90 days) or a `gh run download`
+target holding benchmark-results/.
 
 GitHub-hosted runners come on several CPU models (four in nine runs on
 2026-09-26), and the ratios between strategies move with the
@@ -10,7 +12,7 @@ microarchitecture. A batch is therefore refused unless every run's env.txt
 names the same CPU; --allow-mixed-cpu overrides that, for runs from before
 env.txt existed.
 """
-import re, statistics as st, sys
+import os, re, statistics as st, sys
 
 LANGS = ["cpp", "rust", "python", "haskell"]
 LNAME = {"cpp": "C++", "rust": "Rust", "python": "Python", "haskell": "Haskell"}
@@ -25,10 +27,16 @@ SHORT = {"ast-recursive-descent": "ast-rd", "ast-shunting-yard": "ast-sy", "ast-
          "multipass-arena": "multipass-arena", "multipass-bfs": "multipass-bfs"}
 
 
+def res(run):
+    """The directory holding a run's result files, for either layout."""
+    sub = os.path.join(run, "benchmark-results")
+    return sub if os.path.isdir(sub) else run
+
+
 def cpu_of(run):
     """CPU model from the run's env.txt, or None for runs that predate it."""
     try:
-        for line in open(f"{run}/benchmark-results/env.txt"):
+        for line in open(f"{res(run)}/env.txt"):
             if line.startswith("Model name:"):
                 return line.split(":", 1)[1].strip()
     except OSError:
@@ -85,8 +93,8 @@ def load(runs):
     for lang in LANGS:
         rs = runs[lang]
         out[lang] = {
-            "bench": [parse_bench(f"{r}/benchmark-results/bench-{lang}.txt") for r in rs],
-            "adv": [parse_adv(f"{r}/benchmark-results/adversarial-{lang}.txt") for r in rs],
+            "bench": [parse_bench(f"{res(r)}/bench-{lang}.txt") for r in rs],
+            "adv": [parse_adv(f"{res(r)}/adversarial-{lang}.txt") for r in rs],
         }
     return out
 

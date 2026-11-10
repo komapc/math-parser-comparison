@@ -357,7 +357,8 @@ is the 2026-09-26 batch):
 pre-fix: ~2 900–11 000 ns/leaf). The Python and Haskell ports close the same
 holes the same way; their adversarial chains are flat on the neutral runner too.
 
-So: the rest of the family is linear now — **because it was rescued**, with
+So: the rest of the family is flat on these shapes now (O(n log n) in the
+worst case) — **because it was rescued**, with
 budgets, buckets and SIMD, and it still trails bottom-up by 1.5–3.5× (1.9–4.9×
 against the fused form, powchain and towerchain). `multipass-reverse` is **the only member of the
 family whose worst case is its average case**: same two columns, same code,
