@@ -5,71 +5,31 @@ parentheses first, then `^`/unary, then `* /`, then `+ -`, one sweep per
 precedence level, no split search — is a competitive way to evaluate
 `-2 ^ 2 + 3 * (4 - 1)`, not just a curiosity.
 
-**How it was tested.** The same algorithm was implemented in C++, Rust, Python
-and Haskell next to fourteen other strategies (recursive descent, shunting-yard,
-Pratt, arena AST, bytecode VM, four top-down divide-and-conquer variants and a
-lexer-free control), all sharing one lexer, one grammar, one spec suite and
-differential fuzzing. Every strategy ran on a shared random corpus at 10, 100,
-1 000 and 10 000 leaves and on four adversarial shapes (mixed-precedence
-chains, `^`-towers, a single-precedence chain, deep nesting), on a neutral
-4-vCPU GitHub runner, **three independent times**, all four languages from
-the same commit in the same runs. All three runs landed on one CPU model
-(AMD EPYC 9V74, read from each run's `env.txt`), toolchains pinned (GCC
-14.2, rustc 1.98.1, GHC 9.6.7, the image's Python 3.12), and within each run
-the strategies are timed round-robin, so drift on the runner falls on all of
-them alike. (In an earlier batch one run ran ~1.3× slower in absolute terms
-on the same model, which is why only within-run ratios are compared.)
-A cell below is labelled
-from the *range across those three runs* (lowest%, highest%): **best** if the
-low end is ≥5 % ahead; *ahead, narrowly* if the low end is ≥0.5 % ahead but
-under 5 %; *loses* if the high end is ≤0.5 % behind; *tie* otherwise — which
-covers a sign flip across runs, but also a range that sits entirely within
-±0.5 %, ahead or behind, since that is noise on this runner. For every
-column whose code did not change (all but Rust's family column), the label
-is taken over the three runs here *and* the six runs of the two earlier
-batches on the same model (2026-09-26 and 2026-11-10, nine runs in all):
-eight labels moved between the 2026-09-26 batch and this one without a
-code change (the runner image and kernel had changed in between), so a
-margin that clears a label boundary in only some batches does not get that
-label. Cells marked † carry a label that this batch's
-three runs alone would not give; the range shown is still this batch's. The
-range measures run-to-run spread on *one* CPU model. GitHub hands out several
-models, and across them the ratios move by more than that. Three runs of
-this same commit on AMD EPYC 7763 change 14 of the 72 labels. Against the
-fused form (9): Rust's tree form *loses* to `ast-arena` on the random corpus
-at both sizes (−5…−3 %) and on powchain (−5…−2 %); C++'s tree form only
-ties on sumchain (−1…+23 %) and is only narrowly ahead on nestchain
-(+3…+20 %); Rust's no-tree form loses to `direct-rd` on the random corpus at
-both sizes (−10…−6 %) and on powchain (−5…−3 %); Python's no-tree form loses
-powchain (−3…−2 %). For it (5): Haskell's no-tree form ties on the random
-corpus at n=1000 and on sumchain and is narrowly ahead on towerchain; C++'s
-ties at n=10000; and C++ sumchain in the family table is *best* (+7…+25 %). The tables here use EPYC 9V74 because the
-previously published batch ran on it, and they keep that model for
-continuity rather than mixing models; the 7763 results are reported here
-instead of being averaged in. Treat any cell within ~7 % of the line as
-environment-dependent.
-
 ## Verdict
 
-- **Against its own family it is ahead on every tested input** — clearly
-  on 23 of the 24 cells, narrowly on C++ sumchain (+5…+39 % here, +4…+39 %
-  over all nine runs; see the note below the scoreboard) — 1.3–1.4× faster than the buffered version of
-  itself, which is in turn 1.5–3.6× faster than
-  the top-down divide-and-conquer variants on the family's own C++
-  worst-case shape (2.0–4.9× for the fused form itself; see the scoreboard
-  below for the other three languages), with no worst-case machinery: its
-  worst case *is* its average case. (`multipass-arena`'s own worst-case
-  shape, sumchain, is a separate story — see the note below the scoreboard.)
-- **Against the classic parsers it is a peer in C++, Rust and Python**
-  — the fastest tree builder on the C++ random corpus (narrowly, +3…+4 %)
-  and on every structured C++ shape; in Rust a tie with the arena classic on
-  the random corpus, clearly ahead on towerchain and nestchain and a tie on
-  powchain and sumchain; in Python a tie with `ast-pratt` at n=1000,
-  narrowly ahead at n=10000, and the fastest evaluator outright there in its
-  no-tree form. Honest losses: C++'s no-tree form trails
-  `direct-shunting-yard` on nestchain by 15–24 % and by 1–2 % at n=10000;
-  Python's tree form trails recursive descent on powchain by 6–9 % and
-  `ast-pratt` on sumchain by 6–7 %.
+- **It is correct.** It agrees with the other fourteen strategies, value or
+  rejection, on every spec case and on 6 000 fuzzed inputs per run, in all
+  four languages.
+- **Against its own top-down family it is ahead on every tested input** — all
+  24 cells of the family scoreboard below (6 inputs × 4 languages): *best*
+  on 23, *ahead, narrowly* on C++ sumchain (+5…+39 % here, +4…+39 % over
+  all nine runs; see the note below that scoreboard). It needs no
+  worst-case machinery: its worst case *is* its average case. On the
+  family's own C++ worst-case shape the top-down variants trail the fused
+  form by 2.0–4.9× (and the buffered version of it, itself 1.3–1.4× slower
+  than the fused form, by 1.5–3.6×).
+- **Against the classic parsers it is a peer in C++, Rust and Python** — not
+  a winner:
+  - C++: the fastest tree builder on the random corpus (narrowly, +3…+4 %)
+    and on every structured shape.
+  - Rust: a tie with the arena classic on the random corpus; clearly ahead
+    on towerchain and nestchain, a tie on powchain and sumchain.
+  - Python: a tie with `ast-pratt` at n=1000, narrowly ahead at n=10000;
+    its no-tree form is the fastest evaluator outright there.
+  - Honest losses: C++'s no-tree form trails `direct-shunting-yard` on
+    nestchain by 15–24 % and by 1–2 % at n=10000; Python's tree form trails
+    recursive descent on powchain by 6–9 % and `ast-pratt` on sumchain by
+    6–7 %.
 - **In Haskell the tree-building form loses** to the pointer-AST classics by
   1.0–1.3× on every input. Its edge elsewhere appears to come from
   contiguous memory, and a runtime that boxes every node leaves little of
@@ -138,6 +98,66 @@ and the family gaps barely moved.
 Numbers behind the cells (ns/leaf, medians of the three runs) are in
 [FINDINGS.md](../FINDINGS.md) and the per-language READMEs; the
 walk-through of the algorithm is in [multipass-reverse.md](multipass-reverse.md).
+
+## How it was tested
+
+**Setup.** The same algorithm was implemented in C++, Rust, Python and
+Haskell next to fourteen other strategies (recursive descent, shunting-yard,
+Pratt, arena AST, bytecode VM, four top-down divide-and-conquer variants and
+a lexer-free control), all sharing one lexer, one grammar, one spec suite
+and differential fuzzing. Every strategy ran on a shared random corpus at
+10, 100, 1 000 and 10 000 leaves and on four adversarial shapes
+(mixed-precedence chains, `^`-towers, a single-precedence chain, deep
+nesting), on a neutral 4-vCPU GitHub runner, **three independent times**,
+all four languages from the same commit in the same runs. All three runs
+landed on one CPU model (AMD EPYC 9V74, read from each run's `env.txt`),
+toolchains pinned (GCC 14.2, rustc 1.98.1, GHC 9.6.7, the image's Python
+3.12). Within each run the strategies are timed round-robin, so drift on
+the runner falls on all of them alike. In an earlier batch one run ran
+~1.3× slower in absolute terms on the same model, which is why only
+within-run ratios are compared.
+
+**Labels.** A cell is labelled from the *range across the three runs*
+(lowest%, highest%):
+- **best** if the low end is ≥5 % ahead;
+- *ahead, narrowly* if the low end is ≥0.5 % ahead but under 5 %;
+- *loses* if the high end is ≤0.5 % behind;
+- *tie* otherwise — which covers a sign flip across runs, but also a range
+  that sits entirely within ±0.5 %, ahead or behind, since that is noise on
+  this runner.
+
+**Earlier batches (†).** For every column whose code did not change (all
+but Rust's family column), the label is taken over the three runs here
+*and* the six runs of the two earlier batches on the same model (2026-09-26
+and 2026-11-10, nine runs in all). Eight labels moved between the
+2026-09-26 batch and this one without a code change (the runner image and
+kernel had changed in between), so a margin that clears a label boundary in
+only some batches does not get that label. Cells marked † carry a label
+that this batch's three runs alone would not give; the range shown is still
+this batch's.
+
+**Other CPU models.** The range measures run-to-run spread on *one* CPU
+model. GitHub hands out several models, and across them the ratios move by
+more than that. Three runs of this same commit on AMD EPYC 7763 change 14 of
+the 72 labels.
+- Against the fused form (9):
+  - Rust's tree form *loses* to `ast-arena` on the random corpus at both
+    sizes (−5…−3 %) and on powchain (−5…−2 %);
+  - C++'s tree form only ties on sumchain (−1…+23 %) and is only narrowly
+    ahead on nestchain (+3…+20 %);
+  - Rust's no-tree form loses to `direct-rd` on the random corpus at both
+    sizes (−10…−6 %) and on powchain (−5…−3 %);
+  - Python's no-tree form loses powchain (−3…−2 %).
+- For it (5):
+  - Haskell's no-tree form ties on the random corpus at n=1000 and on
+    sumchain and is narrowly ahead on towerchain;
+  - C++'s ties at n=10000;
+  - C++ sumchain in the family table is *best* (+7…+25 %).
+
+The tables here use EPYC 9V74 because the previously published batch ran on
+it, and they keep that model for continuity rather than mixing models; the
+7763 results are reported here instead of being averaged in. Treat any cell
+within ~7 % of the line as environment-dependent.
 
 ## What it does *not* claim
 
