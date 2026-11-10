@@ -200,13 +200,14 @@ impl<'t, 's> Mp<'t, 's> {
             let i0 = bk.partition_point(|&x| (x as usize) < b);
             let i1 = i0 + bk[i0..].partition_point(|&x| (x as usize) < e);
             if i0 < i1 {
-                let idx: Vec<u32> = bk[i0..i1].to_vec();
-                let v = &self.s.cbd[depth];
-                let first = v[idx[0] as usize].pos as usize;
+                // index the bucket in place: `range` re-borrows `self`, and
+                // a copied index list allocated on every fallback fold
+                let at = |s: &MpState, j: usize| s.cbd[depth][s.bks[depth][which][j] as usize].pos as usize;
+                let first = at(self.s, i0);
                 let mut acc = self.range(bl, lo, first, depth)?;
-                for j in 0..idx.len() {
-                    let pos = self.s.cbd[depth][idx[j] as usize].pos as usize;
-                    let nhi = if j + 1 < idx.len() { self.s.cbd[depth][idx[j + 1] as usize].pos as usize } else { hi };
+                for j in i0..i1 {
+                    let pos = at(self.s, j);
+                    let nhi = if j + 1 < i1 { at(self.s, j + 1) } else { hi };
                     let rhs = self.range(bl, pos + 1, nhi, depth)?;
                     acc = bl.binop(op_of(self.t[pos].kind), acc, rhs);
                 }
