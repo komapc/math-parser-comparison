@@ -1,0 +1,21 @@
+name: exp-nest
+on:
+  pull_request:
+    paths: [ "exp/**", ".github/workflows/exp.yml" ]
+jobs:
+  ab:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: { rep: [1, 2, 3, 4] }
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get install -y g++-14
+      - run: python3 bench/gen_corpus.py
+      - run: cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-14 && cmake --build build -j --target parsers
+      - run: |
+          F="-O3 -DNDEBUG -std=c++26 -Icpp/include"
+          for v in v0 v1; do g++-14 $F -c exp/$v.cpp -o $v.o; done
+          g++-14 $F exp/ab.cpp v0.o v1.o build/libparsers.a -o ab
+      - run: |
+          grep -m1 "model name" /proc/cpuinfo
+          for i in 1 2 3; do ./ab; done
