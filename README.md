@@ -139,7 +139,9 @@ it the same way; the "before" column is the last pre-fix CI run.
 
 Correctness: curated spec suites and differential fuzzing in all four
 languages — all fifteen strategies must agree, value or
-rejection, on 6 000 random and mutated inputs per run.
+rejection, on 6 000 random and mutated inputs per run — and CI checks that
+the four languages agree with each other on the same inputs, which is what
+catches a bug in a language's shared lexer.
 
 ## Same rules for every parser
 

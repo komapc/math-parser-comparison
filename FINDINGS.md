@@ -61,6 +61,13 @@ differential fuzzing in all four languages ([C++](cpp/tests/fuzz_differential.cp
 · [Rust](rust/tests/fuzz.rs) · [Python](python/test_fuzz.py) ·
 [Haskell](haskell/app/Fuzz.hs)) — all fifteen strategies must agree, value
 or rejection, on the same 3 000 random + 3 000 mutated inputs per run.
+Within a language every strategy shares one lexer, so that fuzzing cannot
+see a lexer bug; CI therefore also runs one strategy per language (two C++
+compilers) on those inputs and requires all four languages to agree
+([bench/xlang_compare.py](bench/xlang_compare.py), relative 1e-9 as in the
+spec suites). The C++ suites run a second time with the AVX2 split scans
+disabled (`MP_NO_SIMD`, `MP_ARENA_NO_SIMD`, `MP_LEAN_NO_SIMD`), so the scalar
+fallbacks are tested too.
 
 ## Cross-language results
 

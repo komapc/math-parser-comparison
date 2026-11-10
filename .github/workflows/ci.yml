@@ -41,6 +41,22 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
+      # The runners have AVX2, so the step above only ever runs the SIMD
+      # split scans; this runs the same suites on the scalar fallbacks.
+      - name: Test (scalar paths, SIMD disabled)
+        env:
+          MP_NO_SIMD: "1"
+          MP_ARENA_NO_SIMD: "1"
+          MP_LEAN_NO_SIMD: "1"
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Cross-language output
+        run: python3 bench/gen_fuzz.py && ./build/xlang bench/fuzz/well_formed.txt bench/fuzz/mutated.txt > xlang-cpp-${{ matrix.compiler }}.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xlang-cpp-${{ matrix.compiler }}
+          path: xlang-cpp-${{ matrix.compiler }}.txt
+
   python:
     runs-on: ubuntu-latest
     steps:
@@ -49,6 +65,12 @@ jobs:
         run: python3 python/test_parsers.py
       - name: Differential fuzz
         run: python3 python/test_fuzz.py
+      - name: Cross-language output
+        run: python3 bench/gen_fuzz.py && python3 python/xlang.py bench/fuzz/well_formed.txt bench/fuzz/mutated.txt > xlang-python.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xlang-python
+          path: xlang-python.txt
 
   haskell:
     runs-on: ubuntu-latest
@@ -73,6 +95,13 @@ jobs:
       - name: Correctness
         working-directory: haskell
         run: cabal test
+      - name: Cross-language output
+        working-directory: haskell
+        run: python3 ../bench/gen_fuzz.py && cabal run -v0 xlang -- ../bench/fuzz/well_formed.txt ../bench/fuzz/mutated.txt > ../xlang-haskell.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xlang-haskell
+          path: xlang-haskell.txt
 
   rust:
     runs-on: ubuntu-latest
@@ -84,3 +113,28 @@ jobs:
       - name: Correctness + differential fuzz
         working-directory: rust
         run: cargo test --release -- --nocapture
+      - name: Cross-language output
+        working-directory: rust
+        run: python3 ../bench/gen_fuzz.py && cargo run -q --release --bin xlang -- ../bench/fuzz/well_formed.txt ../bench/fuzz/mutated.txt > ../xlang-rust.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xlang-rust
+          path: xlang-rust.txt
+
+  # Every strategy in one language shares that language's lexer, so the
+  # per-language fuzz above cannot catch a number-parsing bug; comparing the
+  # four languages' results on the same 6 000 inputs can.
+  cross-language:
+    needs: [build, python, haskell, rust]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: xlang-*
+          merge-multiple: true
+      - name: Compare
+        run: |
+          python3 bench/gen_fuzz.py
+          python3 bench/xlang_compare.py bench/fuzz/well_formed.txt bench/fuzz/mutated.txt -- \
+            xlang-cpp-gcc-14.txt xlang-cpp-clang-18.txt xlang-rust.txt xlang-python.txt xlang-haskell.txt
