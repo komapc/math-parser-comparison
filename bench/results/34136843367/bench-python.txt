@@ -1,0 +1,22 @@
+== Python: math-expression evaluator comparison ==
+
+Correctness: 1110/1110 expressions agree
+
+One-shot ns/leaf on shared corpora:
+strategy                          n=10       n=100      n=1000     n=10000
+--------------------------------------------------------------------------
+ast-recursive-descent           3463.7      3288.5      3244.1      3851.6
+ast-shunting-yard               3178.9      3144.2      3293.6      3756.3
+ast-pratt                       3469.5      3391.1      3370.9      3955.4
+ast-arena                       3816.6      3623.7      3771.0      4131.1
+multipass                       5880.1      6162.2      7365.9      9248.3
+multipass-arena                 6160.4      6336.0      7813.3      9516.4
+direct-mp                       5736.6      5987.1      7176.5      8643.8
+multipass-bfs                   6948.8      7075.0      9112.6     11844.0
+multipass-reverse               4673.9      4370.0      4525.0      4828.5
+multipass-reverse-fold          3046.7      2993.3      3231.6      3565.7
+direct-recursive-descent        3202.1      3021.2      2989.5      3033.4
+direct-shunting-yard            2883.3      2921.9      3066.9      3116.1
+direct-reverse                  2640.2      2586.8      2731.6      2798.6
+direct-scannerless              2369.7      2263.9      2291.3      2275.2
+bytecode-vm                     2954.4      3019.3      3148.9      3424.2

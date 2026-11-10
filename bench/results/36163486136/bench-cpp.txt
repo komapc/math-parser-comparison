@@ -1,0 +1,19 @@
+== C++: shared-corpus benchmark ==
+
+strategy                          n=10       n=100      n=1000     n=10000
+--------------------------------------------------------------------------
+ast-recursive-descent             84.3        89.8        93.8        95.9
+ast-shunting-yard                 87.6        95.0       102.1        99.8
+ast-pratt                         83.2        91.8        99.6        97.8
+ast-arena                         49.8        53.8        55.3        55.4
+multipass                        142.2       187.4       183.4       186.9
+multipass-arena                  100.3       100.4       104.4       108.2
+direct-mp                         88.4        81.7        80.4        88.4
+multipass-bfs                    132.8       115.4       108.8       121.5
+multipass-reverse                 79.2        76.9        76.2        76.7
+multipass-reverse-fold            49.1        51.6        53.5        53.9
+direct-recursive-descent          36.9        38.6        38.4        38.6
+direct-shunting-yard              36.4        37.1        37.2        37.0
+direct-reverse                    36.2        37.3        37.6        37.7
+direct-scannerless                29.6        30.1        29.3        29.3
+bytecode-vm                       45.1        46.3        46.3        46.0
