@@ -1,13 +1,13 @@
 # Rust port
 
 The fourth language: all fifteen strategies, same grammar, same shared lexer,
-same 540-check spec suite and 6 000-expression differential fuzz, same corpora
+same 615-check spec suite and 6 000-expression differential fuzz, same corpora
 and adversarial shapes as the C++, Python and Haskell trees. Safe Rust
 throughout — no `unsafe` anywhere in the crate. No dependencies.
 
 ```sh
 cd rust
-cargo test --release                        # 540 spec checks + differential fuzz
+cargo test --release                        # 615 spec checks + differential fuzz
 cargo run --release --bin bench             # ns/leaf on ../bench/corpus (python3 ../bench/gen_corpus.py first)
 cargo run --release --bin bench -- ../bench/corpus direct-reverse ast-arena   # subset
 cargo run --release --bin adversarial       # powchain / towerchain / sumchain / nestchain

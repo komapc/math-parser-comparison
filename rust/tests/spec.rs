@@ -1,6 +1,6 @@
 //! Shared spec suite — the same 22 value cases and 14 error cases as
 //! python/test_parsers.py, cpp/tests/test_parsers.cpp and the Haskell suite,
-//! run against every strategy: 36 × 15 = 540 checks.
+//! run against every strategy: 41 × 15 = 615 checks.
 
 use mathparser::all_evaluators;
 
@@ -28,6 +28,10 @@ const CASES: &[(&str, f64)] = &[
     ("(0 - a) ^ 0.5", f64::NAN),
     ("1e400", INF),
     ("1e-400 + a", 2.0),
+    // regression: Haskell's `reads` got ~20-digit exponents wrong
+    ("0e10000000000000000000", 0.0),
+    ("1e-10000000000000000000 + a", 2.0),
+    ("1e9223372036854775807", INF),
 ];
 const ERRORS: &[&str] = &[
     "a +", "(a + b", "a b", "* a", "a + * b", "", "a)", "(a)(b)", "a(3)", ".",
@@ -35,6 +39,9 @@ const ERRORS: &[&str] = &[
     "a()", "()",
     // regression: Haskell's shared lexer fast-pathed ".e5" to 0.0
     ".e5", ".E-3",
+    // regression: Haskell multipass-reverse looped forever on an unclosed
+    // '(' that is not the first token
+    "((a", "a + (b",
 ];
 
 fn nearly(a: f64, b: f64) -> bool {
@@ -69,6 +76,6 @@ fn spec() {
         }
     }
     println!("{} checks across {} evaluators, {} failure(s)", checks, evs.len(), failures);
-    assert_eq!(checks, 540);
+    assert_eq!(checks, 615);
     assert_eq!(failures, 0);
 }

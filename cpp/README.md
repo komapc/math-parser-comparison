@@ -6,7 +6,7 @@
 
 ![C++26](https://img.shields.io/badge/C%2B%2B-26-00599C?logo=cplusplus&logoColor=white)
 ![CMake](https://img.shields.io/badge/CMake-3.20%2B-064F8C?logo=cmake&logoColor=white)
-![tests](https://img.shields.io/badge/tests-555%20checks%20%2B%20fuzz-brightgreen)
+![tests](https://img.shields.io/badge/tests-630%20checks%20%2B%20fuzz-brightgreen)
 ![warnings](https://img.shields.io/badge/-Wall%20-Wextra%20-Wpedantic-clean-brightgreen)
 ![deps](https://img.shields.io/badge/dependencies-none-blue)
 
@@ -96,7 +96,7 @@ From the repo root (`-S cpp`); drop the `cpp/` prefix if you're already in this 
 cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-14
 cmake --build build -j
 
-ctest --test-dir build --output-on-failure   # 555 checks + 6300-input differential fuzz (15 strategies)
+ctest --test-dir build --output-on-failure   # 630 checks + 6300-input differential fuzz (15 strategies)
 ./build/corpus_bench                          # one-shot, shared corpus (cross-language comparable)
 ./build/adversarial_bench                     # 4 structured shapes: top-down worst cases (now O(n log n)), nestchain (bottom-up's), vs reverse Θ(n)
 ```
@@ -112,7 +112,7 @@ structured chains and needs no corpus.
 include/parser/   interfaces (evaluator, ast, arena_ast, lexer, token, parser)
 src/              one file per strategy + shared lexer/ast
 bench/            corpus_bench.cpp  adversarial_bench.cpp  (shared corpus, what CI reports)
-tests/            test_parsers.cpp (555 checks) + fuzz_differential.cpp (6300-input cross-strategy fuzz), run via CTest
+tests/            test_parsers.cpp (630 checks) + fuzz_differential.cpp (6300-input cross-strategy fuzz), run via CTest
 ```
 
 > All numbers above are from the neutral CI runner (median of three runs).

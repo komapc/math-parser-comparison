@@ -595,7 +595,9 @@ reverseMpParse toks = reduceRange 0 (n - 1)
         build i expect
           | i >= hi   = if expect then error "unexpected end of sub-expression" else []
           | otherwise = case tKind (arr ! i) of
-              KLParen -> let j = pm ! i in ROpd (reduceRange (i + 1) j) : build (j + 1) False
+              KLParen -> let j = pm ! i
+                         in if j < 0 then error "mismatched parentheses"
+                            else ROpd (reduceRange (i + 1) j) : build (j + 1) False
               KNum    -> ROpd (sNum (tVal (arr ! i)))           : build (i + 1) False
               KVar    -> ROpd (sVar (round (tVal (arr ! i))))   : build (i + 1) False
               k | k `elem` [KPlus, KMinus, KStar, KSlash, KCaret] ->
@@ -692,7 +694,9 @@ reduceBinLevel ops (ROpd x0 : rest) = collapse x0 rest
 reduceBinLevel _ _ = error "expected operand"
 
 parenMatchArr :: Array Int Tok -> Int -> Array Int Int
-parenMatchArr arr n = accumArray (\_ v -> v) 0 (0, n - 1) matches
+-- Unmatched entries stay -1: a default of 0 would send an unclosed '(' back to
+-- token 1 and loop forever.
+parenMatchArr arr n = accumArray (\_ v -> v) (-1) (0, n - 1) matches
   where
     (_, matches) = foldl' step ([], []) [0 .. n - 2]
     step (!stack, !ms) i = case tKind (arr ! i) of   -- strict, as in buildCandidates

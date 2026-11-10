@@ -3,7 +3,7 @@
 Idiomatic Python port of all fifteen strategies. Run from the repo root.
 
 ```sh
-python3 python/test_parsers.py     # correctness (540 checks)
+python3 python/test_parsers.py     # correctness (615 checks)
 python3 python/test_fuzz.py        # differential fuzz: 15 strategies must agree on 6000 inputs
 python3 bench/gen_corpus.py        # generate shared corpora (once)
 python3 python/bench.py            # cross-check + timing on shared corpora
