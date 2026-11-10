@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <memory>
 using namespace mp;
-namespace mp { std::unique_ptr<IEvaluator> make_direct_v0(); std::unique_ptr<IEvaluator> make_direct_v1(); std::unique_ptr<IEvaluator> make_tree_v0(); std::unique_ptr<IEvaluator> make_tree_v1(); }
+namespace mp { std::unique_ptr<IEvaluator> make_direct_v0(); std::unique_ptr<IEvaluator> make_direct_v1(); std::unique_ptr<IEvaluator> make_direct_v2(); std::unique_ptr<IEvaluator> make_direct_v3(); std::unique_ptr<IEvaluator> make_tree_v0(); std::unique_ptr<IEvaluator> make_tree_v1(); }
 volatile double sink;
 static std::string nest(int m){std::string s(m,'(');s+="1";for(int i=0;i<m;++i)s+=" + 1)";return s;}
 static std::string sum(int m){std::string s="1";for(int i=1;i<m;++i){s+=(i%2)?" + ":" - ";s+=std::to_string(1+i%9);}return s;}
@@ -17,7 +17,7 @@ static std::string tw(int m){std::string s="1";for(int i=0;i<m/2;++i)s+=" ^ 1";f
 int main(){
   std::vector<std::unique_ptr<IEvaluator>> evs;
   for(auto&e:all_evaluators()) if(std::string(e->name())=="direct-shunting-yard"||std::string(e->name())=="direct-reverse"||std::string(e->name())=="ast-arena"||std::string(e->name())=="multipass-reverse-fold") evs.push_back(std::move(e));
-  evs.push_back(make_direct_v0()); evs.push_back(make_direct_v1()); evs.push_back(make_tree_v0()); evs.push_back(make_tree_v1());
+  evs.push_back(make_direct_v0()); evs.push_back(make_direct_v1()); evs.push_back(make_direct_v2()); evs.push_back(make_direct_v3()); evs.push_back(make_tree_v0()); evs.push_back(make_tree_v1());
   std::vector<std::string> corpus; {std::ifstream f("bench/corpus/n1000.txt"); for(std::string l;std::getline(f,l);) if(!l.empty()) corpus.push_back(l);}
   double cvars[26]={2,3,4,5};
   struct Sh{const char*n;std::vector<std::string> x;};
