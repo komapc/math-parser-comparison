@@ -39,6 +39,15 @@ executable adversarial
     ghc-options:      -rtsopts "-with-rtsopts=-A64m"
     default-language: Haskell2010
 
+-- Cross-language check: prints one result per input line for
+-- bench/xlang_compare.py (see there).
+executable xlang
+    import:           warnings
+    hs-source-dirs:   app
+    main-is:          Xlang.hs
+    build-depends:    base, math-parser
+    default-language: Haskell2010
+
 test-suite test
     import:           warnings
     type:             exitcode-stdio-1.0

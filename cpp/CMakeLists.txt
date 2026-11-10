@@ -74,3 +74,6 @@ add_test(NAME parsers_correctness COMMAND tests)
 add_executable(fuzz_differential tests/fuzz_differential.cpp)
 target_link_libraries(fuzz_differential PRIVATE parsers)
 add_test(NAME parsers_fuzz_differential COMMAND fuzz_differential)
+
+add_executable(xlang tests/xlang.cpp)  # cross-language check, see bench/xlang_compare.py
+target_link_libraries(xlang PRIVATE parsers)
