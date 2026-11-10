@@ -17,7 +17,7 @@ cargo run --release --bin adversarial       # powchain / towerchain / sumchain /
 
 | file | what |
 |---|---|
-| `src/lexer.rs` | shared lexer: streaming `Lexer::next()` for left-to-right strategies, `tokenize()` for the array-bound ones; 16-byte `Token` |
+| `src/lexer.rs` | shared lexer: streaming `Lexer::next()` for left-to-right strategies, `tokenize_into()` (into a reused per-evaluator `Vec`) for the array-bound ones; 16-byte `Token` |
 | `src/builder.rs` | the representation axis: `Builder` trait with `PtrAst` (boxed tree), `Arena` (index tree in one `Vec`), `Direct` (no tree) |
 | `src/classics.rs` | recursive descent, Pratt, shunting-yard — one generic driver each |
 | `src/multipass.rs` | top-down divide-and-conquer (multipass, -arena, direct-mp, -bfs), bounded scans + buckets, sparse-table RMQ |
@@ -32,32 +32,39 @@ cargo run --release --bin adversarial       # powchain / towerchain / sumchain /
 Drivers are generic functions over `Builder`, monomorphised per carrier the
 way the C++ policy templates are; the builder calls inline away.
 
+Every buffer (token array, node arena, stacks, buckets, sparse table) lives
+in the evaluator and is reused, so after the first expression every arena
+and no-tree strategy makes **zero** heap allocations per evaluation, as in
+C++ (counted with a counting `GlobalAlloc`, on the corpus and on all four
+structured shapes at m=8192); the boxed-tree forms, `multipass` included,
+make one per node.
+
 ## Results (neutral 4-vCPU runner, median of three runs, ns/leaf)
 
 | tier | C++ | Rust |
 |---|--:|--:|
-| no tree (`direct-rd` / `direct-sy` / `direct-reverse`) | 41 / 41 / 41 | 48 / 51 / 48 |
-| contiguous tree (`ast-arena` / `multipass-reverse-fold`) | 58 / 56 | 65 / 65 |
-| pointer tree (`ast-rd` / `ast-pratt`) | 108 / 107 | 110 / 108 |
-| buffered bottom-up (`multipass-reverse`) | 81 | 89 |
-| bytecode-vm | 53 | 62 |
-| lexer-free control (`direct-scannerless`) | 32 | 30 |
+| no tree (`direct-rd` / `direct-sy` / `direct-reverse`) | 41 / 40 / 40 | 47 / 51 / 47 |
+| contiguous tree (`ast-arena` / `multipass-reverse-fold`) | 58 / 56 | 65 / 64 |
+| pointer tree (`ast-rd` / `ast-pratt`) | 108 / 107 | 109 / 108 |
+| buffered bottom-up (`multipass-reverse`) | 80 | 86 |
+| bytecode-vm | 53 | 61 |
+| lexer-free control (`direct-scannerless`) | 32 | 29 |
 
-Same tiers to within a few percent (n=1000; runs 36226353574, 36226831278,
-36227295521, both languages from commit 921ec7f, all three on one CPU
+Same tiers to within a few percent (n=1000; runs 42805297064, 42806389267,
+42806442518, both languages from commit 7b83ad4, all three on one CPU
 model, AMD EPYC 9V74; rustc 1.98.1). Two differences worth naming: the
 fold's small edge over `ast-arena` in C++ does not reproduce here — Rust is
-a tie from n=100 up (within ±1 % in every run) and ahead only at n=10 — and
-the top-down family that lost its AVX2 candidate scan in the port is slower
-in Rust: 1.5–1.9× behind C++, pointer `multipass` closest, `direct-mp`
-furthest. On the structured shapes the fold beats `ast-arena` on nestchain
-by 27–29 % and on towerchain by 9 % in every run, is ahead, narrowly, on
-sumchain (+2…+4 %) and ties on powchain; `direct-reverse` is level with
-`direct-rd` on the random corpus (−2…+2 % across sizes and runs) and ahead
-of it on every structured shape. Both random-corpus ties are
-hardware-dependent: on three EPYC 7763 runs of the same commit the fold
-trails `ast-arena` by 3–7 % and `direct-reverse` trails `direct-rd` by
-5–7 %. Full cross-language tables:
+a tie from n=100 up (−1…+2 % in every run) and ahead only at n=10 (+3…+4 %) —
+and the top-down family that lost its AVX2 candidate scan in the port is
+slower in Rust: 1.3–1.8× behind C++ at n=1000, pointer `multipass` closest,
+`direct-mp` furthest. On the structured shapes the fold beats `ast-arena` on
+nestchain by 30–33 % and on towerchain by 5–12 % in every run, and ties on
+sumchain (+4…+5 % in this batch, but +0.2 % in one run of an earlier batch)
+and powchain (+1 %); `direct-reverse` is level with `direct-rd` on the random
+corpus (0…+2 % across sizes and runs) and ahead of it on every structured
+shape. Both random-corpus ties are hardware-dependent: on three EPYC 7763
+runs of the same commit the fold trails `ast-arena` by 3–5 % and
+`direct-reverse` trails `direct-rd` by 6–10 % on the random corpus. Full cross-language tables:
 [FINDINGS.md](../FINDINGS.md), [docs/one-pager.md](../docs/one-pager.md).
 
 ## What the port was for
@@ -68,7 +75,7 @@ Two questions the C++ numbers left open:
    answer is mixed. The overall tiers are not a GCC story: the `direct-*`
    tier matches within a few percent of C++ in instructions, cycles and
    branch misses on the same laptop (`perf stat`, n=1000 corpus). But the
-   fold's specific ~2–4 % edge over `ast-arena` does not reproduce — LLVM
+   fold's specific ~3–4 % edge over `ast-arena` does not reproduce — LLVM
    ties the two at n=1000 and puts the fold slightly behind at n=10000 — so that one sliver looks compiler-sensitive even
    though the tier ordering around it is real. The CI tables in the
    top-level README carry the neutral-runner numbers.

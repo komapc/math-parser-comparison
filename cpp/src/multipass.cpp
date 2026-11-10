@@ -127,6 +127,7 @@ public:
 
     ExprPtr parse(std::string_view src) override {
         tokenize(src, tokens_);
+        foldStack_.clear();   // a previous call may have thrown mid-fold
         buildCandidates();
         const std::size_t n = tokens_.size() - 1;
         auto [cbeg, cend] = candRange(0, n, 0);
@@ -142,6 +143,7 @@ private:
 #endif
     std::vector<std::size_t>            parenMatch_;
     std::vector<std::size_t>            parenStack_;  // reused across eval() calls
+    std::vector<ExprPtr>                foldStack_;   // right-fold operands, reused
 
     void buildCandidates() {
         for (auto& v : candsByDepth_) v.clear();
@@ -315,21 +317,24 @@ private:
                     }
                     return acc;
                 } else {
-                    std::vector<ExprPtr> parts;
-                    parts.reserve(static_cast<std::size_t>(cend - cbeg) + 1);
+                    // Operands on the reused member foldStack_ (a local vector
+                    // here allocated on every `x ^ y`); nested calls pop back
+                    // to `base`, so only indices are held across them.
+                    const std::size_t base = foldStack_.size();
                     std::size_t prevLo = lo;
                     for (auto it = cbeg; it != cend; ++it) {
-                        parts.push_back(parseRange(prevLo, it->pos, depth, cend, cend));
+                        ExprPtr part = parseRange(prevLo, it->pos, depth, cend, cend);
+                        foldStack_.push_back(std::move(part));
                         prevLo = it->pos + 1;
                     }
-                    parts.push_back(parseRange(prevLo, hi, depth, cend, cend));
-                    ExprPtr acc = std::move(parts.back());
+                    ExprPtr acc = parseRange(prevLo, hi, depth, cend, cend);
                     auto it = cend;
-                    for (std::size_t i = parts.size() - 1; i-- > 0; ) {
+                    for (std::size_t i = foldStack_.size(); i-- > base; ) {
                         --it;
                         acc = binary(tokens_[it->pos].type,
-                                     std::move(parts[i]), std::move(acc));
+                                     std::move(foldStack_[i]), std::move(acc));
                     }
+                    foldStack_.resize(base);
                     return acc;
                 }
             }

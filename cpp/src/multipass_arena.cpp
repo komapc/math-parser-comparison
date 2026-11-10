@@ -196,11 +196,13 @@ private:
 #endif
     std::vector<std::size_t>            parenMatch_;
     std::vector<std::size_t>            parenStack_;  // reused across eval() calls
+    std::vector<int>                    foldStack_;   // right-fold operands, reused
     const double*                       vars_ = nullptr;
 
     void build(std::string_view src) {
         tokenize(src, tokens_);
         nodes_.clear();
+        foldStack_.clear();   // a previous call may have thrown mid-fold
         nodes_.reserve(tokens_.size());
         buildCandidates();
     }
@@ -405,21 +407,25 @@ private:
                     return acc;
                 } else {
                     // Right fold: a op (b op (c op d)) …
-                    std::vector<int> parts;
-                    parts.reserve(static_cast<std::size_t>(cend - cbeg) + 1);
+                    // Operands go on foldStack_, a member reused across calls
+                    // (a local vector here allocated on every `x ^ y`).
+                    // Nested parseRange calls push above `base` and pop back
+                    // to it before returning, so only indices are held.
+                    const std::size_t base = foldStack_.size();
                     std::size_t prevLo = lo;
                     for (auto it = cbeg; it != cend; ++it) {
-                        parts.push_back(parseRange(prevLo, it->pos, depth, cend, cend));
+                        const int part = parseRange(prevLo, it->pos, depth, cend, cend);
+                        foldStack_.push_back(part);
                         prevLo = it->pos + 1;
                     }
-                    parts.push_back(parseRange(prevLo, hi, depth, cend, cend));
-                    int acc = parts.back();
+                    int acc = parseRange(prevLo, hi, depth, cend, cend);
                     auto it = cend;
-                    for (std::size_t i = parts.size() - 1; i-- > 0; ) {
+                    for (std::size_t i = foldStack_.size(); i-- > base; ) {
                         --it;
                         acc = emit({binaryKind(tokens_[it->pos].type),
-                                    parts[i], acc, 0, 0.0});
+                                    foldStack_[i], acc, 0, 0.0});
                     }
+                    foldStack_.resize(base);
                     return acc;
                 }
             }
