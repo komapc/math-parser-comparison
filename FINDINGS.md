@@ -100,7 +100,7 @@ and two on 2026-11-10 (d2474e2: 42791921436 / 42791964111 / 42793955904,
 and the published 7b83ad4 batch). The code differs between them only in the
 top-down family and in error and long-exponent paths, so the fused form,
 `direct-reverse`, the classics, C++ `direct-mp` and the Python and Haskell
-families are the same in all nine runs. Even so, 7 of the 72 scoreboard
+families are the same in all nine runs. Even so, 8 of the 72 scoreboard
 labels changed between the 2026-09-26 batch and the published one (the
 runner image moved from 20260920 to 20261101 and the kernel from 6.17 to
 7.0 in between; the two same-day batches differ in a few cells as well) —
@@ -108,12 +108,12 @@ three runs alone do not pin a label down. Every scoreboard cell except the
 Rust family column is therefore labelled over all nine runs, with the same
 thresholds (`bench/tables.py --prior`; command in
 [`bench/results/`](bench/results/README.md)); every number printed is
-still the published batch's. Seven labels differ from what the published
-batch alone gives, marked † in the [one-pager](docs/one-pager.md). Six go
+still the published batch's. Eight labels differ from what the published
+batch alone gives, marked † in the [one-pager](docs/one-pager.md). Seven go
 against the fold: Rust tree powchain and sumchain (narrowly ahead → tie),
 C++ direct powchain (best → narrowly ahead), C++ direct towerchain (best →
-tie), Haskell direct towerchain (narrowly ahead → tie) and C++ family
-sumchain (best → narrowly ahead). Some of these are sign changes between
+tie), C++ direct sumchain and Haskell direct towerchain (narrowly ahead →
+tie) and C++ family sumchain (best → narrowly ahead). Some of these are sign changes between
 batches, others only a run that falls short of a label boundary. One is in
 its favour: Python tree nestchain, which loses by 2 % in all three
 published runs, reads tie because one run in each earlier batch had it

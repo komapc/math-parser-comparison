@@ -24,13 +24,14 @@ from the *range across those three runs* (lowest%, highest%): **best** if the
 low end is ≥5 % ahead; *ahead, narrowly* if the low end is ≥0.5 % ahead but
 under 5 %; *loses* if the high end is ≤0.5 % behind; *tie* otherwise — which
 covers a sign flip across runs, but also a range that sits entirely within
-±0.5 %, ahead or behind, since that is noise on this runner. For the
-tree and no-tree scoreboards, whose code did not change, the label is taken
-over the three runs here *and* the six runs of the two earlier batches on
-the same model (2026-09-26 and 2026-11-10, nine runs in all): seven labels
-moved between the 2026-09-26 batch and this one without a code change
-(the runner image and kernel had changed), so a margin that changes sign
-between batches is a tie too. Cells marked † carry a label that this batch's
+±0.5 %, ahead or behind, since that is noise on this runner. For every
+column whose code did not change (all but Rust's family column), the label
+is taken over the three runs here *and* the six runs of the two earlier
+batches on the same model (2026-09-26 and 2026-11-10, nine runs in all):
+eight labels moved between the 2026-09-26 batch and this one without a
+code change (the runner image and kernel had changed in between), so a
+margin that clears a label boundary in only some batches does not get that
+label. Cells marked † carry a label that this batch's
 three runs alone would not give; the range shown is still this batch's. The
 range measures run-to-run spread on *one* CPU model. GitHub hands out several
 models, and across them the ratios move by more than that. Three runs of
