@@ -208,7 +208,7 @@ private:
 // ---- tree policy: build an arena AST, then walk it ------------------------
 struct TreePolicy {
     using V = int;
-    static constexpr const char* kName = "tv3";
+    static constexpr const char* kName = "multipass-reverse-fold";
     std::vector<ArenaAst::Node> nodes;
     const double* vars = nullptr;
 
@@ -250,7 +250,7 @@ struct TreePolicy {
 // ---- direct policy: operands are values, nothing is built ----------------
 struct DirectPolicy {
     using V = double;
-    static constexpr const char* kName = "v3";
+    static constexpr const char* kName = "direct-reverse";
     const double* vars = nullptr;
 
     void begin(std::size_t, const double* v) { vars = v; }
@@ -265,10 +265,10 @@ struct DirectPolicy {
 
 }  // namespace
 
-std::unique_ptr<IEvaluator> make_tree_v3() {
+std::unique_ptr<IEvaluator> make_multipass_reverse_fold() {
     return std::make_unique<ReverseFold<TreePolicy>>();
 }
-std::unique_ptr<IEvaluator> make_direct_v3() {
+std::unique_ptr<IEvaluator> make_direct_reverse() {
     return std::make_unique<ReverseFold<DirectPolicy>>();
 }
 
