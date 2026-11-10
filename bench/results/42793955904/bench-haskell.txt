@@ -1,0 +1,21 @@
+== Haskell: math-expression evaluator comparison ==
+
+Correctness: all strategies agree
+
+strategy                          n=10       n=100      n=1000     n=10000
+--------------------------------------------------------------------------
+ast-recursive-descent            551.6       481.5       610.0       539.9
+ast-shunting-yard                636.8       579.5       713.7       732.3
+ast-pratt                        523.3       497.1       617.3       537.2
+ast-arena                        587.7       531.4       666.9       634.3
+multipass                        839.0       808.6       986.7      1072.7
+multipass-arena                  922.0       888.9      1081.7      1229.8
+direct-mp                        875.8       837.2      1023.8      1157.8
+multipass-bfs                   1072.4      1048.5      1283.6      1900.9
+multipass-reverse                777.9       710.0       867.9       954.2
+multipass-reverse-fold           615.2       555.1       681.6       649.9
+direct-recursive-descent         541.0       478.1       612.3       538.9
+direct-shunting-yard             627.0       588.1       712.7       740.0
+direct-reverse                   559.8       505.5       629.0       551.0
+direct-scannerless               486.3       437.3       552.5       511.1
+bytecode-vm                      633.8       589.8       728.3       751.1

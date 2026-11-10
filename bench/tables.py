@@ -1,6 +1,6 @@
 """Regenerate every bench-derived doc table from CI artifacts.
 
-usage: python3 tables.py RUN1 RUN2 RUN3 [--rust R1 R2 R3] [--allow-mixed-cpu]
+usage: python3 tables.py RUN1 RUN2 RUN3 [--rust R1 R2 R3] [--prior R1 R2 R3]... [--allow-mixed-cpu]
        python3 tables.py --cpus RUN...     (print each run's CPU model, grouped)
 Each RUN is a directory: either bench/results/<run-id>/ (the archived copy
 in this repo; CI artifacts expire after 90 days) or a `gh run download`
@@ -11,6 +11,14 @@ GitHub-hosted runners come on several CPU models (four in nine runs on
 microarchitecture. A batch is therefore refused unless every run's env.txt
 names the same CPU; --allow-mixed-cpu overrides that, for runs from before
 env.txt existed.
+
+--prior adds earlier same-CPU batches (repeatable) whose code is unchanged for
+the tree and direct scoreboards (fold / direct-reverse vs the classics). Those
+cells are then labelled over every run of every batch with the same
+thresholds, so a margin that changes sign between batches, not just within
+one, reads as a tie. Ranges printed are still the main batch's; a label the
+main batch alone would not give is marked with a dagger. The family
+scoreboard is never pooled: its rivals' code changes between batches.
 """
 import os, re, statistics as st, sys
 
@@ -172,30 +180,35 @@ def label(lo, hi):
     return "tie"
 
 
-def compare(runs_vals, me, pool, rule):
+def compare(runs_vals, me, pool, rule, prior=()):
     """% = (1 - me/rival)*100 per run. rule 'median': rival = best of pool on the
-    run medians; rule 'perrun': rival = best of pool within each run."""
+    run medians; rule 'perrun': rival = best of pool within each run.
+    `prior` runs (earlier batches) only widen the returned label range."""
     med = {s: st.median(r[s] for r in runs_vals) for s in pool + [me]}
     if rule == "median":
         rival = min(pool, key=med.get)
         adv = [(1 - r[me] / r[rival]) * 100 for r in runs_vals]
         fac = [r[me] / r[rival] for r in runs_vals]
+        padv = [(1 - r[me] / r[rival]) * 100 for r in prior]
     else:
         riv = [min(pool, key=r.get) for r in runs_vals]
         rival = max(set(riv), key=riv.count)
         adv = [(1 - r[me] / r[x]) * 100 for r, x in zip(runs_vals, riv)]
         fac = [r[me] / r[x] for r, x in zip(runs_vals, riv)]
-    return rival, min(adv), max(adv), sorted(fac)
+        padv = [(1 - r[me] / min(r[x] for x in pool)) * 100 for r in prior]
+    return rival, min(adv), max(adv), sorted(fac), min(adv + padv), max(adv + padv)
 
 
-def cellstr(rival, lo, hi):
+def cellstr(rival, lo, hi, plo=None, phi=None):
     a, b = round(lo), round(hi)
     rng = (f"{a:+d}…{b:+d} %" if a != b else f"{a:+d} %").replace("+0…", "0…").replace("…+0 %", "…0 %")
     if rng in ("+0 %", "-0 %"): rng = "0 %"
-    return f"{label(lo, hi)} ({rng} vs `{SHORT[rival]}`)"
+    lab = label(lo, hi) if plo is None else label(plo, phi)
+    mark = "" if lab == label(lo, hi) else " †"
+    return f"{lab}{mark} ({rng} vs `{SHORT[rival]}`)"
 
 
-def scoreboard(D, rule="median"):
+def scoreboard(D, rule="median", priors=()):
     rows = [("random corpus (n=1000)", "bench", 2), ("random corpus (n=10000)", "bench", 3)]
     shapes = ["powchain", "towerchain", "sumchain", "nestchain"]
     for title, me, pool in [("tree", "multipass-reverse-fold", TREE_CLASSICS),
@@ -205,16 +218,17 @@ def scoreboard(D, rule="median"):
         for name, kind, i in rows + [(s, "adv", -1) for s in shapes]:
             cells = []
             for l in LANGS:
-                if kind == "bench":
-                    rv = [{s: r[s][i] for s in r} for r in D[l]["bench"]]
-                else:
-                    rv = [{s: r[name][s][-1] for s in r[name]} for r in D[l]["adv"]]
-                rival, lo, hi, fac = compare(rv, me, pool, rule)
-                if title == "tree" and l == "haskell" and hi <= -0.5:
+                def vals(DD):
+                    if kind == "bench":
+                        return [{s: r[s][i] for s in r} for r in DD[l]["bench"]]
+                    return [{s: r[name][s][-1] for s in r[name]} for r in DD[l]["adv"]]
+                pv = [] if title == "family" else [x for P in priors for x in vals(P)]
+                rival, lo, hi, fac, plo, phi = compare(vals(D), me, pool, rule, pv)
+                if title == "tree" and l == "haskell" and phi <= -0.5:
                     a, b = f"{fac[0]:.1f}", f"{fac[-1]:.1f}"
                     c = f"loses ({a if a == b else a + '–' + b}× slower than `{SHORT[rival]}`)"
                 else:
-                    c = cellstr(rival, lo, hi)
+                    c = cellstr(rival, lo, hi, plo, phi)
                 cells.append(c)
             print(f"| {name} | " + " | ".join(cells) + " |")
 
@@ -268,13 +282,18 @@ if __name__ == "__main__":
         sys.exit(0)
     allow_mixed = "--allow-mixed-cpu" in args
     args = [a for a in args if a != "--allow-mixed-cpu"]
+    prior = []
+    while "--prior" in args:
+        k = args.index("--prior"); prior.append(args[k + 1:k + 4]); args = args[:k] + args[k + 4:]
     rust = None
     if "--rust" in args:
         k = args.index("--rust"); rust = args[k + 1:k + 4]; args = args[:k]
     runs = {l: args for l in LANGS}
     if rust: runs["rust"] = rust
-    check_one_cpu(sorted(set(args + (rust or []))), allow_mixed)
+    check_one_cpu(sorted(set(args + (rust or []) + [r for p in prior for r in p])), allow_mixed)
     D = load(runs)
+    P = [load({l: p for l in LANGS}) for p in prior]
     med = xfastest(D); control(D, med)
     for l in ["python", "haskell"]: size_table(D, l)
-    result1(D); readme_tree(D); n1000_tiers(D); adv_cpp(D); sliver(D); scoreboard(D, "median"); scoreboard(D, "perrun")
+    result1(D); readme_tree(D); n1000_tiers(D); adv_cpp(D); sliver(D); scoreboard(D, "median", P); scoreboard(D, "perrun", P)
+    if P: print("† label over all runs of this batch and the --prior batches; range is this batch's")
