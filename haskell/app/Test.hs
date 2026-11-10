@@ -24,6 +24,9 @@ cases =
   , ("(0 - a) ^ 0.5", 0 / 0)
   -- literal overflow/underflow is a value (inf / 0), not a syntax error
   , ("1e400", 1 / 0), ("1e-400 + a", 2)
+  -- regression: Haskell's `reads` got ~20-digit exponents wrong
+  , ("0e10000000000000000000", 0), ("1e-10000000000000000000 + a", 2)
+  , ("1e9223372036854775807", 1 / 0)
   ]
 
 errs :: [String]
@@ -39,6 +42,9 @@ errs =
   -- regression: the shared lexer's digit guard counted exponent digits,
   -- so ".e5" fast-pathed to 0.0 instead of erroring
   , ".e5", ".E-3"
+  -- regression: Haskell multipass-reverse looped forever on an unclosed
+  -- '(' that is not the first token
+  , "((a", "a + (b"
   ]
 
 nearly :: Double -> Double -> Bool

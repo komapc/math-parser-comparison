@@ -39,6 +39,10 @@ CASES = [
     # literal overflow/underflow is a value (inf / 0), not a syntax error
     ("1e400", math.inf),
     ("1e-400 + a", 2),
+    # regression: Haskell's `reads` got ~20-digit exponents wrong
+    ("0e10000000000000000000", 0),
+    ("1e-10000000000000000000 + a", 2),
+    ("1e9223372036854775807", math.inf),
 ]
 
 ERRORS = [
@@ -50,6 +54,9 @@ ERRORS = [
     "a()", "()",
     # regression: Haskell's shared lexer fast-pathed ".e5" to 0.0
     ".e5", ".E-3",
+    # regression: Haskell multipass-reverse looped forever on an unclosed
+    # '(' that is not the first token
+    "((a", "a + (b",
 ]
 
 

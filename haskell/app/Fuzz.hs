@@ -17,7 +17,7 @@
 -- b=3, c=4, d=5 (the shared generator only ever emits a/b/c/d as variables).
 module Main (main) where
 
-import Control.Exception (SomeException, evaluate, try)
+import Control.Exception (SomeAsyncException, SomeException, evaluate, fromException, tryJust)
 import Control.Monad (unless, when)
 import System.Directory (doesFileExist)
 import System.Exit (exitFailure, exitSuccess)
@@ -133,12 +133,19 @@ checkAll (ref : rest) expr = do
   where
     tryEval :: Evaluator -> String -> IO (Maybe (Double, Bool))
     tryEval ev e = do
+      -- tryJust, not try: a plain `try @SomeException` would also catch the
+      -- asynchronous exception `timeout` uses to stop the call, so a hang
+      -- came back as an ordinary rejection and the HANG branch never fired.
       r <- timeout budgetMicros
-             (try (evaluate (evRun ev env e)) :: IO (Either SomeException Double))
+             (tryJust syncOnly (evaluate (evRun ev env e)))
       pure $ case r of
         Nothing         -> Nothing
         Just (Right v)  -> Just (v, False)
         Just (Left _)   -> Just (0.0, True)
+    syncOnly :: SomeException -> Maybe SomeException
+    syncOnly x = case fromException x :: Maybe SomeAsyncException of
+      Just _  -> Nothing   -- rethrown, so `timeout` sees its own exception
+      Nothing -> Just x
     hangMsg :: Evaluator -> String
     hangMsg ev = printf "HANG on %s: %s did not finish within %ds"
                    (show expr) (evName ev) (budgetMicros `div` 1000000 :: Int)

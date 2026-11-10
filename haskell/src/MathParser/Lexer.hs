@@ -127,13 +127,31 @@ slowPath :: String -> Int -> Double
 slowPath lexeme i =
   -- Pad a leading/trailing '.' so Haskell's `reads` accepts it (".5" -> "0.5",
   -- "2." -> "2.0").
-  let padded = pad lexeme
+  let padded = clampExp (pad lexeme)
   in case reads padded :: [(Double, String)] of
        [(v, "")] -> v
        _         -> errorAt i "invalid number"
   where
     pad l  = padTrail (padLead l)
     padLead l = if take 1 l == "." then '0' : l else l
+    -- `reads` gets exponents of ~20+ digits wrong (1e-10000000000000000000
+    -- came back as inf, 1e9223372036854775807 as 0). Past these bounds the
+    -- result is already decided (every mantissa M < 10^L, and M >= 1 unless
+    -- it is zero): above, M * 10^(e - frac) >= 10^401 is inf; below,
+    -- it is < 10^-400 and rounds to 0. Clamping keeps the value and keeps
+    -- the exponent small enough for `reads`.
+    clampExp l = case break (`elem` "eE") l of
+      (mant, e : rest) | Just ex <- expValue rest ->
+        let (ip, fp) = break (== '.') mant
+            frac = toInteger (length (drop 1 fp))
+            len  = toInteger (length ip) + frac
+            ex'  = max (frac - len - 401) (min (frac + 401) ex)
+        in mant ++ e : show ex'
+      _ -> l
+    expValue ('-' : d) | not (null d), all isDigit d = Just (negate (read d))
+    expValue ('+' : d) | not (null d), all isDigit d = Just (read d)
+    expValue d         | not (null d), all isDigit d = Just (read d)
+    expValue _ = Nothing :: Maybe Integer
     padTrail l = case break (`elem` "eE") l of
                    (mant, expo) | take 1 (reverse mant) == "." -> mant ++ "0" ++ expo
                    _                                           -> l
