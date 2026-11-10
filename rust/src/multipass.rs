@@ -38,6 +38,7 @@ pub struct MpState {
     bks: Vec<[Vec<u32>; 2]>,  // lazily built prec-1 / prec-2 buckets per depth
     bks_built: bool,
     st: Vec<Vec<Vec<u32>>>,   // sparse table per depth (bfs only)
+    stack: Vec<u32>,          // open-paren stack for build_candidates
 }
 
 struct Mp<'t, 's> {
@@ -62,7 +63,8 @@ fn build_candidates(t: &[Token], s: &mut MpState) -> Result<(), Error> {
     s.pm.resize(t.len(), 0);
     let mut depth = 0usize;
     let mut expect_operand = true;
-    let mut stack: Vec<u32> = Vec::new();
+    let stack = &mut s.stack;
+    stack.clear();
     for i in 0..t.len() - 1 {
         let k = t[i].kind;
         match k {
@@ -119,19 +121,25 @@ fn build_sparse(s: &mut MpState) {
     for (d, v) in s.cbd.iter().enumerate() {
         let n = v.len();
         let tbl = &mut s.st[d];
-        tbl.clear();
-        if n == 0 { continue; }
+        if n == 0 { continue; }   // never queried; rows keep their capacity
         let logn = usize::BITS as usize - n.leading_zeros() as usize;
-        tbl.push((0..n as u32).collect());
+        // Rows are resized in place, never dropped, so their capacity
+        // survives across calls (they were reallocated on every eval until
+        // 2026-11; C++ already reused them). Rows past `logn` are never read.
+        while tbl.len() < logn { tbl.push(Vec::new()); }
+        tbl[0].clear();
+        tbl[0].extend(0..n as u32);
         for k in 1..logn {
             let half = 1usize << (k - 1);
-            let prev = &tbl[k - 1];
-            let mut row = vec![0u32; n];
+            let (lower, upper) = tbl.split_at_mut(k);
+            let prev = &lower[k - 1];
+            let row = &mut upper[0];
+            row.clear();
+            row.resize(n, 0);
             for i in 0..=(n - (1usize << k)) {
                 let (a, b) = (prev[i], prev[i + half]);
                 row[i] = if better(&v[a as usize], &v[b as usize]) { a } else { b };
             }
-            tbl.push(row);
         }
     }
 }
@@ -238,19 +246,15 @@ impl<'t, 's> Mp<'t, 's> {
                     }
                     return Ok(acc);
                 }
-                // right fold (^)
-                let mut parts: Vec<B::V> = Vec::with_capacity(e - b + 1);
-                let mut prev = lo;
-                for i in b..e {
+                // right fold (^), built from the right: same tree, and no
+                // operand buffer (a Vec here allocated on every `x ^ y`)
+                let last = self.s.cbd[depth][e - 1].pos as usize;
+                let mut acc = self.range(bl, last + 1, hi, depth)?;
+                for i in (b..e).rev() {
                     let pos = self.s.cbd[depth][i].pos as usize;
-                    parts.push(self.range(bl, prev, pos, depth)?);
-                    prev = pos + 1;
-                }
-                parts.push(self.range(bl, prev, hi, depth)?);
-                let mut acc = parts.pop().unwrap();
-                while let Some(p) = parts.pop() {
-                    let pos = self.s.cbd[depth][b + parts.len()].pos as usize;
-                    acc = bl.binop(op_of(self.t[pos].kind), p, acc);
+                    let start = if i == b { lo } else { self.s.cbd[depth][i - 1].pos as usize + 1 };
+                    let lhs = self.range(bl, start, pos, depth)?;
+                    acc = bl.binop(op_of(self.t[pos].kind), lhs, acc);
                 }
                 return Ok(acc);
             }

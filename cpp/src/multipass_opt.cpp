@@ -98,6 +98,7 @@ protected:
     // Sparse table: st_[d][k][i] = index of minimum candidate in
     // candsByDepth_[d][i .. i+2^k-1]. Key = (prec asc, pos desc).
     std::vector<std::vector<std::vector<int>>> st_;
+    std::vector<int>                    foldStack_;  // right-fold operands, reused
 
     void buildAll() {
         const std::size_t n = tokens_.size();
@@ -197,12 +198,14 @@ protected:
     void buildSt(int d) {
         auto& v = candsByDepth_[d];
         const int n = (int)v.size();
-        if (n == 0) { st_[d].clear(); return; }
+        if (n == 0) return;   // never queried; keep the rows' capacity
         const int logn = 32 - std::countl_zero((unsigned)n);
         // resize, not assign: rows keep their capacity across calls. Stale
         // entries past a row's valid prefix are never read by stQuery().
-        st_[d].resize(logn);
-        for (auto& row : st_[d]) row.resize(n);
+        // Only grow the row count: shrinking would free rows a later call
+        // needs again. stQuery() never reads a row k >= logn.
+        if ((int)st_[d].size() < logn) st_[d].resize(logn);
+        for (int k = 0; k < logn; ++k) st_[d][k].resize(n);
         for (int i = 0; i < n; ++i) st_[d][0][i] = i;
         for (int k = 1; k < logn; ++k)
             for (int i = 0; i + (1<<k) <= n; ++i) {
@@ -267,6 +270,7 @@ public:
         tokenize(src, tokens_);
         vars_ = vars;
         nodes_.clear(); nodes_.reserve(tokens_.size());
+        foldStack_.clear();   // a previous call may have thrown mid-fold
         buildAll();
         return evalNode(buildBfs(0, tokens_.size()-1, 0));
     }
@@ -325,17 +329,20 @@ private:
                 }
                 return acc;
             } else {
-                std::vector<int> pts; pts.reserve((std::size_t)(chi-clo)+1);
+                // Operands on the reused member foldStack_ (see
+                // multipass_arena.cpp); nested calls pop back to `base`.
+                const std::size_t base = foldStack_.size();
                 std::size_t prev = lo;
                 for (int i = clo; i < chi; ++i) {
-                    pts.push_back(buildIdx(prev, v[i].pos, depth, chi, chi));
+                    const int part = buildIdx(prev, v[i].pos, depth, chi, chi);
+                    foldStack_.push_back(part);
                     prev = v[i].pos+1;
                 }
-                pts.push_back(buildIdx(prev, hi, depth, chi, chi));
-                int acc = pts.back();
-                for (int i = (int)pts.size()-2; i >= 0; --i)
-                    acc = emit({binaryKind(tokens_[v[clo + i].pos].type),
-                                pts[i], acc, 0, 0.0});
+                int acc = buildIdx(prev, hi, depth, chi, chi);
+                for (int i = chi - 1; i >= clo; --i)
+                    acc = emit({binaryKind(tokens_[v[i].pos].type),
+                                foldStack_[base + (std::size_t)(i - clo)], acc, 0, 0.0});
+                foldStack_.resize(base);
                 return acc;
             }
         }

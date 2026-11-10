@@ -110,60 +110,65 @@ impl Evaluator for AstArena {
     }
 }
 
-pub struct Multipass { st: multipass::MpState }
+pub struct Multipass { toks: Vec<lexer::Token>, st: multipass::MpState }
 impl Evaluator for Multipass {
     fn name(&self) -> &'static str { "multipass" }
     fn eval(&mut self, src: &str, vars: Vars) -> Result<f64, Error> {
-        let toks = lexer::tokenize(src)?;
+        lexer::tokenize_into(src, &mut self.toks)?;
+        let toks = &self.toks;
         let mut b = PtrAst { vars };
-        let root = multipass::mp_parse(&toks, &mut b, &mut self.st, false)?;
+        let root = multipass::mp_parse(toks, &mut b, &mut self.st, false)?;
         Ok(b.result(root))
     }
 }
-pub struct MultipassArena { st: multipass::MpState, nodes: Vec<ANode> }
+pub struct MultipassArena { toks: Vec<lexer::Token>, st: multipass::MpState, nodes: Vec<ANode> }
 impl Evaluator for MultipassArena {
     fn name(&self) -> &'static str { "multipass-arena" }
     fn eval(&mut self, src: &str, vars: Vars) -> Result<f64, Error> {
-        let toks = lexer::tokenize(src)?;
+        lexer::tokenize_into(src, &mut self.toks)?;
+        let toks = &self.toks;
         self.nodes.clear();
         self.nodes.reserve(src.len() + 1);
         let mut b = Arena { vars, nodes: &mut self.nodes };
-        let root = multipass::mp_parse(&toks, &mut b, &mut self.st, false)?;
+        let root = multipass::mp_parse(toks, &mut b, &mut self.st, false)?;
         Ok(b.result(root))
     }
 }
-pub struct DirectMp { st: multipass::MpState }
+pub struct DirectMp { toks: Vec<lexer::Token>, st: multipass::MpState }
 impl Evaluator for DirectMp {
     fn name(&self) -> &'static str { "direct-mp" }
     fn eval(&mut self, src: &str, vars: Vars) -> Result<f64, Error> {
-        let toks = lexer::tokenize(src)?;
+        lexer::tokenize_into(src, &mut self.toks)?;
+        let toks = &self.toks;
         let mut b = Direct { vars };
-        let root = multipass::mp_parse(&toks, &mut b, &mut self.st, false)?;
+        let root = multipass::mp_parse(toks, &mut b, &mut self.st, false)?;
         Ok(b.result(root))
     }
 }
-pub struct MultipassBfs { st: multipass::MpState, nodes: Vec<ANode> }
+pub struct MultipassBfs { toks: Vec<lexer::Token>, st: multipass::MpState, nodes: Vec<ANode> }
 impl Evaluator for MultipassBfs {
     fn name(&self) -> &'static str { "multipass-bfs" }
     fn eval(&mut self, src: &str, vars: Vars) -> Result<f64, Error> {
-        let toks = lexer::tokenize(src)?;
+        lexer::tokenize_into(src, &mut self.toks)?;
+        let toks = &self.toks;
         self.nodes.clear();
         self.nodes.reserve(src.len() + 1);
         let mut b = Arena { vars, nodes: &mut self.nodes };
-        let root = multipass::mp_parse(&toks, &mut b, &mut self.st, true)?;
+        let root = multipass::mp_parse(toks, &mut b, &mut self.st, true)?;
         Ok(b.result(root))
     }
 }
 
-pub struct MultipassReverse { st: reverse::RevState<i32>, nodes: Vec<ANode> }
+pub struct MultipassReverse { toks: Vec<lexer::Token>, st: reverse::RevState<i32>, nodes: Vec<ANode> }
 impl Evaluator for MultipassReverse {
     fn name(&self) -> &'static str { "multipass-reverse" }
     fn eval(&mut self, src: &str, vars: Vars) -> Result<f64, Error> {
-        let toks = lexer::tokenize(src)?;
+        lexer::tokenize_into(src, &mut self.toks)?;
+        let toks = &self.toks;
         self.nodes.clear();
         self.nodes.reserve(src.len() + 1);
         let mut b = Arena { vars, nodes: &mut self.nodes };
-        let root = reverse::reverse_parse(&toks, &mut b, &mut self.st)?;
+        let root = reverse::reverse_parse(toks, &mut b, &mut self.st)?;
         Ok(b.result(root))
     }
 }
@@ -210,11 +215,11 @@ pub fn all_evaluators() -> Vec<Box<dyn Evaluator>> {
         Box::new(AstSy(SyStacks::default())),
         Box::new(AstPratt),
         Box::new(AstArena { nodes: Vec::new() }),
-        Box::new(Multipass { st: Default::default() }),
-        Box::new(MultipassArena { st: Default::default(), nodes: Vec::new() }),
-        Box::new(DirectMp { st: Default::default() }),
-        Box::new(MultipassBfs { st: Default::default(), nodes: Vec::new() }),
-        Box::new(MultipassReverse { st: reverse::RevState::new(), nodes: Vec::new() }),
+        Box::new(Multipass { toks: Vec::new(), st: Default::default() }),
+        Box::new(MultipassArena { toks: Vec::new(), st: Default::default(), nodes: Vec::new() }),
+        Box::new(DirectMp { toks: Vec::new(), st: Default::default() }),
+        Box::new(MultipassBfs { toks: Vec::new(), st: Default::default(), nodes: Vec::new() }),
+        Box::new(MultipassReverse { toks: Vec::new(), st: reverse::RevState::new(), nodes: Vec::new() }),
         Box::new(ReverseFold { st: Default::default(), nodes: Vec::new() }),
         Box::new(DirectRd),
         Box::new(DirectSy(SyStacks::default())),

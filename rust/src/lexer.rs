@@ -177,16 +177,26 @@ fn fail_char(c: u8, pos: u32) -> Error {
     }
 }
 
-/// The whole token array. Always ends with a `Kind::End` token.
-pub fn tokenize(src: &str) -> Result<Vec<Token>, Error> {
+/// The whole token array, into a caller-owned buffer that keeps its
+/// capacity across calls (the C++ `tokenize(src, out)` does the same).
+/// Always ends with a `Kind::End` token.
+pub fn tokenize_into(src: &str, out: &mut Vec<Token>) -> Result<(), Error> {
     let mut lx = Lexer::new(src);
-    let mut out = Vec::with_capacity(src.len() / 2 + 2);
+    out.clear();
+    out.reserve(src.len() / 2 + 2);
     loop {
         let t = lx.next()?;
         let end = t.kind == Kind::End;
         out.push(t);
         if end {
-            return Ok(out);
+            return Ok(());
         }
     }
+}
+
+/// `tokenize_into` with a fresh buffer.
+pub fn tokenize(src: &str) -> Result<Vec<Token>, Error> {
+    let mut out = Vec::new();
+    tokenize_into(src, &mut out)?;
+    Ok(out)
 }

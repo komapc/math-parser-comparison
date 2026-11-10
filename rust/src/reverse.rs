@@ -25,16 +25,17 @@ enum Item<V: Copy> {
 pub struct RevState<V: Copy> {
     pm: Vec<u32>,
     items: Vec<Item<V>>,
+    stack: Vec<u32>,   // open-paren stack for paren_match, reused
 }
 
 impl<V: Copy> RevState<V> {
-    pub fn new() -> Self { RevState { pm: Vec::new(), items: Vec::new() } }
+    pub fn new() -> Self { RevState { pm: Vec::new(), items: Vec::new(), stack: Vec::new() } }
 }
 
-fn paren_match(t: &[Token], pm: &mut Vec<u32>) {
+fn paren_match(t: &[Token], pm: &mut Vec<u32>, stack: &mut Vec<u32>) {
     pm.clear();
     pm.resize(t.len(), 0);
-    let mut stack: Vec<u32> = Vec::new();
+    stack.clear();
     for i in 0..t.len() - 1 {
         match t[i].kind {
             Kind::LParen => stack.push(i as u32),
@@ -48,7 +49,7 @@ fn paren_match(t: &[Token], pm: &mut Vec<u32>) {
 
 pub fn reverse_parse<B: Builder>(t: &[Token], b: &mut B, st: &mut RevState<B::V>) -> Result<B::V, Error>
 where B::V: Copy {
-    paren_match(t, &mut st.pm);
+    paren_match(t, &mut st.pm, &mut st.stack);
     st.items.clear();
     st.items.reserve(t.len());
     let mut r = Rev { t, pm: &st.pm, items: &mut st.items };
