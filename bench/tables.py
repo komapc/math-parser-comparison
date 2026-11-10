@@ -13,12 +13,12 @@ names the same CPU; --allow-mixed-cpu overrides that, for runs from before
 env.txt existed.
 
 --prior adds earlier same-CPU batches (repeatable) whose code is unchanged for
-the tree and direct scoreboards (fold / direct-reverse vs the classics). Those
-cells are then labelled over every run of every batch with the same
-thresholds, so a margin that changes sign between batches, not just within
-one, reads as a tie. Ranges printed are still the main batch's; a label the
-main batch alone would not give is marked with a dagger. The family
-scoreboard is never pooled: its rivals' code changes between batches.
+the compared strategies. Scoreboard cells are then labelled over every run of
+every batch with the same thresholds, so a margin that only clears a label
+boundary in one batch does not get that label. Ranges printed are still the
+main batch's; a label the main batch alone would not give is marked with a
+dagger. NOT_POOLED lists the scoreboard columns whose rivals' code changed
+between the --prior batches and the main one; those use the main batch only.
 """
 import os, re, statistics as st, sys
 
@@ -208,6 +208,12 @@ def cellstr(rival, lo, hi, plo=None, phi=None):
     return f"{lab}{mark} ({rng} vs `{SHORT[rival]}`)"
 
 
+# Rust's top-down family (direct-mp, the family rival, included) lost its
+# per-eval token Vec, sparse-table and stack allocations in 7b83ad4/d2474e2.
+# C++ direct-mp (multipass_lean.cpp), Python and Haskell are unchanged.
+NOT_POOLED = {("family", "rust")}
+
+
 def scoreboard(D, rule="median", priors=()):
     rows = [("random corpus (n=1000)", "bench", 2), ("random corpus (n=10000)", "bench", 3)]
     shapes = ["powchain", "towerchain", "sumchain", "nestchain"]
@@ -222,7 +228,7 @@ def scoreboard(D, rule="median", priors=()):
                     if kind == "bench":
                         return [{s: r[s][i] for s in r} for r in DD[l]["bench"]]
                     return [{s: r[name][s][-1] for s in r[name]} for r in DD[l]["adv"]]
-                pv = [] if title == "family" else [x for P in priors for x in vals(P)]
+                pv = [] if (title, l) in NOT_POOLED else [x for P in priors for x in vals(P)]
                 rival, lo, hi, fac, plo, phi = compare(vals(D), me, pool, rule, pv)
                 if title == "tree" and l == "haskell" and phi <= -0.5:
                     a, b = f"{fac[0]:.1f}", f"{fac[-1]:.1f}"

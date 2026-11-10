@@ -63,8 +63,8 @@ sumchain (+4…+5 % in this batch, but +0.2 % in one run of an earlier batch)
 and powchain (+1 %); `direct-reverse` is level with `direct-rd` on the random
 corpus (0…+2 % across sizes and runs) and ahead of it on every structured
 shape. Both random-corpus ties are hardware-dependent: on three EPYC 7763
-runs of the same commit the fold trails `ast-arena` by 3–6 % and
-`direct-reverse` trails `direct-rd` by 6–11 %. Full cross-language tables:
+runs of the same commit the fold trails `ast-arena` by 3–5 % and
+`direct-reverse` trails `direct-rd` by 6–10 % on the random corpus. Full cross-language tables:
 [FINDINGS.md](../FINDINGS.md), [docs/one-pager.md](../docs/one-pager.md).
 
 ## What the port was for

@@ -23,11 +23,14 @@ python3 bench/tables.py $R/42805297064 $R/42806389267 $R/42806442518 \
     --prior $R/42791921436 $R/42791964111 $R/42793955904
 ```
 
-The `--prior` batches ran on the same CPU model with the same code for the
-fold, `direct-reverse` and the classics (d2474e2 and 7b83ad4 differ from
-921ec7f only in the top-down family, the Haskell `multipass-reverse` error
-path and the Haskell lexer's long-exponent path). Only the tree and direct
-scoreboard labels use them: each such cell is labelled over all nine runs,
-so a margin that changes sign between batches reads as a tie. Ranges and
-every other number come from the main batch alone. Labels that the main
-batch alone would have given differently are marked †.
+The `--prior` batches ran on the same CPU model. Between 921ec7f and 7b83ad4
+the code changed only in the top-down family (C++ `multipass`,
+`multipass-arena`, `multipass-bfs`; Rust's whole family including
+`direct-mp`, plus its `tokenize_into` lexer entry point, which the token-array
+strategies use), the Haskell `multipass-reverse` error path, the Haskell
+lexer's long-exponent path, and tests. So every scoreboard cell is labelled
+over all nine runs except the Rust family column (`NOT_POOLED` in
+`tables.py`): a margin that only clears a label boundary in one batch does
+not get that label. Ranges and every other number come from the main batch
+alone. Labels that the main batch alone would have given differently are
+marked †.

@@ -190,8 +190,8 @@ The fused form is the fastest tree builder in C++ (narrowly: +3…+4 % over
 tie at this size in Rust (with `ast-arena`, +0…+2 %) and Python (with
 `ast-pratt`, −0.7…+0.4 %, and `ast-rd`, −0.1…+0.9 %), and fourth in
 Haskell, where both pointer classics and `ast-arena` build faster. Its
-no-tree twin is a clear win in Python only: a three-way tie with
-`direct-rd`/`direct-sy` in C++ at ~40 ns/leaf, level with `direct-rd` in
+no-tree twin is a clear win in Python only: in C++ it sits between
+`direct-rd` (+2 %) and `direct-sy` (−0.2 %) at ~40 ns/leaf, level with `direct-rd` in
 Rust (within 1 % at this size) and ~3 % behind it in Haskell. Both share `ast-arena`'s two structural
 advantages — contiguous arena output and no per-node heap allocation — and the
 fused one adds a third: no recursion.
@@ -253,8 +253,9 @@ Tree tier C++: the fastest tree builder on the random corpus (~4 % ahead of
 `ast-arena` on the n=1000 median, positive in all 12 size×run measurements,
 +3…+4 %) and on every structured shape, by 10–30 % depending on shape and
 run (sumchain the most consistent gap, +18…+19 %; nestchain the widest,
-+24…+30 %). No-tree tier C++: honestly a **three-way tie** with
-`direct-rd` and `direct-sy` on the random corpus at ~40 ns/leaf. On
++24…+30 %). No-tree tier C++: within ~3 % of
+`direct-rd` and `direct-sy` on the random corpus at ~40 ns/leaf — 1–3 %
+ahead of `direct-rd`, 0.2–1.5 % behind `direct-sy` in every run. On
 structured shapes, against `direct-rd` it is ahead on powchain (+7…+9 %),
 towerchain (+4…+9 %) and sumchain (+7…+9 %), and wins nestchain by
 40–58 % (`direct-rd`'s recursion pays for the deep nesting that
@@ -275,8 +276,8 @@ batch, but +0.2 % and 0 % in single runs of the earlier batches);
 recursion costing more as the nesting deepens), and against `direct-sy` it
 wins every structured shape (+16…+28 %). Both random-corpus ties are
 hardware-dependent: on three EPYC 7763 runs of the same commit the fold
-trails `ast-arena` by 3–6 % and `direct-reverse` trails `direct-rd` by
-6–11 %.
+trails `ast-arena` by 3–5 % and `direct-reverse` trails `direct-rd` by
+6–10 % on the random corpus.
 
 Python: narrowly the fastest tree builder at n=10, 100 and 10000 (+2…+6 %
 over the best classic: `ast-shunting-yard` at n=10 and 100, `ast-rd` at

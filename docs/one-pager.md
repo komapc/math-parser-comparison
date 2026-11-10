@@ -34,15 +34,15 @@ between batches is a tie too. Cells marked † carry a label that this batch's
 three runs alone would not give; the range shown is still this batch's. The
 range measures run-to-run spread on *one* CPU model. GitHub hands out several
 models, and across them the ratios move by more than that. Three runs of
-this same commit on AMD EPYC 7763 change 13 of the 72 labels. Against the
+this same commit on AMD EPYC 7763 change 14 of the 72 labels. Against the
 fused form (9): Rust's tree form *loses* to `ast-arena` on the random corpus
 at both sizes (−5…−3 %) and on powchain (−5…−2 %); C++'s tree form only
 ties on sumchain (−1…+23 %) and is only narrowly ahead on nestchain
 (+3…+20 %); Rust's no-tree form loses to `direct-rd` on the random corpus at
 both sizes (−10…−6 %) and on powchain (−5…−3 %); Python's no-tree form loses
-powchain (−3…−2 %). For it (4): Haskell's no-tree form ties on the random
+powchain (−3…−2 %). For it (5): Haskell's no-tree form ties on the random
 corpus at n=1000 and on sumchain and is narrowly ahead on towerchain; C++'s
-ties at n=10000. The tables here use EPYC 9V74 because the
+ties at n=10000; and C++ sumchain in the family table is *best* (+7…+25 %). The tables here use EPYC 9V74 because the
 previously published batch ran on it, and they keep that model for
 continuity rather than mixing models; the 7763 results are reported here
 instead of being averaged in. Treat any cell within ~7 % of the line as
@@ -50,9 +50,9 @@ environment-dependent.
 
 ## Verdict
 
-- **Against its own family it is ahead on every tested input** — *best* on
-  all 24 cells, though only just on C++ sumchain (+5…+39 %, see the note
-  below the scoreboard) — 1.3–1.4× faster than the buffered version of
+- **Against its own family it is ahead on every tested input** — clearly
+  on 23 of the 24 cells, narrowly on C++ sumchain (+5…+39 % here, +4…+39 %
+  over all nine runs; see the note below the scoreboard) — 1.3–1.4× faster than the buffered version of
   itself, which is in turn 1.5–3.6× faster than
   the top-down divide-and-conquer variants on the family's own C++
   worst-case shape (2.0–4.9× for the fused form itself; see the scoreboard
@@ -103,7 +103,9 @@ environment-dependent.
 † Label over all nine runs of the three 9V74 batches. This batch's three
 runs alone would say: tree form — Rust powchain and sumchain *ahead,
 narrowly*, Python nestchain *loses*; no-tree form — C++ powchain and
-towerchain *best*, C++ sumchain and Haskell towerchain *ahead, narrowly*.
+towerchain *best*, C++ sumchain and Haskell towerchain *ahead, narrowly*;
+family — C++ sumchain *best*. (The Rust family column uses this batch only:
+its rival's code changed between batches.)
 
 ### `multipass-reverse-fold` vs the best of its own top-down family
 
@@ -113,14 +115,15 @@ towerchain *best*, C++ sumchain and Haskell towerchain *ahead, narrowly*.
 | random corpus (n=10000) | **best** (+33…+34 % vs `direct-mp`) | **best** (+64…+65 % vs `direct-mp`) | **best** (+41…+43 % vs `direct-mp`) | **best** (+39…+44 % vs `multipass`) |
 | powchain | **best** (+50…+51 % vs `direct-mp`) | **best** (+73 % vs `direct-mp`) | **best** (+20…+22 % vs `direct-mp`) | **best** (+48…+51 % vs `multipass`) |
 | towerchain | **best** (+50…+51 % vs `direct-mp`) | **best** (+56…+58 % vs `direct-mp`) | **best** (+13…+14 % vs `direct-mp`) | **best** (+59…+60 % vs `multipass`) |
-| sumchain | **best** (+5…+39 % vs `direct-mp`) | **best** (+42…+44 % vs `direct-mp`) | **best** (+11…+12 % vs `direct-mp`) | **best** (+25…+27 % vs `multipass`) |
+| sumchain | ahead, narrowly † (+5…+39 % vs `direct-mp`) | **best** (+42…+44 % vs `direct-mp`) | **best** (+11…+12 % vs `direct-mp`) | **best** (+25…+27 % vs `multipass`) |
 | nestchain | **best** (+48…+52 % vs `direct-mp`) | **best** (+24…+26 % vs `direct-mp`) | **best** (+37…+38 % vs `direct-mp`) | **best** (+44…+46 % vs `multipass`) |
 
 Sumchain is where the top-down members come closest to the fused form —
 not a rescued-family win: its single precedence level gives the split-scan
 machinery nothing to search, so the "budget + buckets" rescue and the plain
 buffer end up doing the same trivial pass. The fused form stays ahead of the
-whole family there regardless: +5…+39 % over `direct-mp`. That range is
+whole family there regardless: +5…+39 % over `direct-mp` (one run in an
+earlier batch at +4 %, hence *ahead, narrowly*). That range is
 wide because C++ `direct-mp` on sumchain is bimodal — ~30 or ~46 ns/leaf,
 switching between sizes and runs with no pattern, in this batch and in
 every earlier one — so its low end is `direct-mp`'s fast mode. Since

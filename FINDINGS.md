@@ -76,15 +76,15 @@ first three, in dispatch order, that landed on it — the rest (three EPYC
 7763, two 9V45, Xeon 8370C, two Xeon 8573C, one later 9V74) are not mixed
 in. Ratios do shift between models: on three EPYC 7763 runs of the same
 commit (42805321027 / 42805332588 / 42806415065) Rust's fold trails
-`ast-arena` by 2–6 % on the random corpus and its `direct-reverse` trails
-`direct-rd` by 5–10 %, where on the 9V74 both are ties. Against the
-published labels, 13 of the 72 scoreboard cells read differently on the
+`ast-arena` by 3–5 % on the random corpus and its `direct-reverse` trails
+`direct-rd` by 6–10 %, where on the 9V74 both are ties. Against the
+published labels, 14 of the 72 scoreboard cells read differently on the
 7763: Rust tree n=1000, n=10000 and powchain (tie → loses), Rust direct
 n=1000, n=10000 (tie → loses) and powchain (narrowly ahead → loses),
 Python direct powchain (tie → loses), C++ tree sumchain (best → tie) and
 nestchain (best → narrowly ahead), C++ direct n=10000 (loses → tie), and
 Haskell direct n=1000 and sumchain (loses → tie) and towerchain (tie →
-narrowly ahead) — see the [one-pager](docs/one-pager.md). Toolchains are pinned
+narrowly ahead), and C++ family sumchain (narrowly ahead → best) — see the [one-pager](docs/one-pager.md). Toolchains are pinned
 (GCC 14.2, rustc 1.98.1, GHC 9.6.7, cabal 3.10.3.0, the image's Python
 3.12), and within each run the strategies are timed round-robin, so drift
 on the runner falls on all of them alike. The three runs agree in absolute
@@ -95,26 +95,31 @@ ratios within the run unaffected.
 near-ties, not a clear winner).
 
 **Labels across batches.** Three batches of three runs now exist on the
-EPYC 9V74 with identical code for the fused form, `direct-reverse` and the
-classics: 2026-09-26 (921ec7f: 36226353574 / 36226831278 / 36227295521),
+EPYC 9V74: 2026-09-26 (921ec7f: 36226353574 / 36226831278 / 36227295521)
 and two on 2026-11-10 (d2474e2: 42791921436 / 42791964111 / 42793955904,
-and the published 7b83ad4 batch). Between the first and the last the
+and the published 7b83ad4 batch). The code differs between them only in the
+top-down family and in error and long-exponent paths, so the fused form,
+`direct-reverse`, the classics, C++ `direct-mp` and the Python and Haskell
+families are the same in all nine runs. Even so, 7 of the 72 scoreboard
+labels changed between the 2026-09-26 batch and the published one (the
 runner image moved from 20260920 to 20261101 and the kernel from 6.17 to
-7.0, and 7 of the 72 scoreboard labels changed in cells whose code did
-not — so the same-CPU rule "a margin that flips sign across runs is a tie"
-does not hold up with three runs alone. The tree and direct scoreboard
-labels are therefore computed over all nine runs, with the same
+7.0 in between; the two same-day batches differ in a few cells as well) —
+three runs alone do not pin a label down. Every scoreboard cell except the
+Rust family column is therefore labelled over all nine runs, with the same
 thresholds (`bench/tables.py --prior`; command in
 [`bench/results/`](bench/results/README.md)); every number printed is
-still the published batch's. Six labels differ from what the published
-batch alone gives, marked † in the [one-pager](docs/one-pager.md): five
-against the fold — Rust tree powchain and sumchain (narrowly ahead → tie),
+still the published batch's. Seven labels differ from what the published
+batch alone gives, marked † in the [one-pager](docs/one-pager.md). Six go
+against the fold: Rust tree powchain and sumchain (narrowly ahead → tie),
 C++ direct powchain (best → narrowly ahead), C++ direct towerchain (best →
-tie), Haskell direct towerchain (narrowly ahead → tie) — and one in its
-favour: Python tree nestchain, which loses by 2 % in all three published
-runs, reads tie because one run in each earlier batch had it +0.2 % ahead
-(it was a tie in the 2026-09-26 tables too). The family
-scoreboard is not pooled: its rivals' code changed in between (below).
+tie), Haskell direct towerchain (narrowly ahead → tie) and C++ family
+sumchain (best → narrowly ahead). Some of these are sign changes between
+batches, others only a run that falls short of a label boundary. One is in
+its favour: Python tree nestchain, which loses by 2 % in all three
+published runs, reads tie because one run in each earlier batch had it
++0.2 % ahead (it was a tie in the 2026-09-26 tables too). The Rust family
+column is not pooled: Rust's `direct-mp`, its rival there, changed in
+between (below).
 
 | strategy | C++ ×fastest | Rust ×fastest | Python ×fastest | Haskell ×fastest |
 |---|--:|--:|--:|--:|
@@ -328,9 +333,10 @@ n=10 (+3…+4 %), −0.6…+2.2 % across the runs at n=100, 1000 and 10000 — s
 LLVM does not reproduce GCC's sliver. Its no-tree twin
 `direct-reverse` is genuinely faster in Python (+10…+14 % over
 `direct-sy`, +6…+26 % over `direct-rd`, in every run at every size), but in
-C++ it is a **three-way tie** with `direct-recursive-descent` and
-`direct-shunting-yard` at ~40 ns/leaf (+1…+3 % vs `direct-rd`, −1.5…0 % vs
-`direct-sy` across sizes and runs), and in Rust it is level with
+C++ the three no-tree forms sit within ~3 % of each other at ~40 ns/leaf,
+with `direct-reverse` 1–3 % ahead of `direct-recursive-descent` and a hair
+behind `direct-shunting-yard` in every size and run (−1.5…−0.2 %: a tie at
+n=1000, narrowly behind at n=10000), and in Rust it is level with
 `direct-rd` (0…+2 %) and 6–9 % ahead of `direct-sy`. Haskell is the
 exception: the pointer classics lead every arena form, from ~1.1–1.2× at
 the tight end (`ast-arena`) to ~2–3× at the wide end (`multipass-bfs`); the
@@ -444,8 +450,9 @@ nestchain, where it stays clearly ahead of `multipass-arena`), and the
 fused form stays ahead of the whole family on sumchain regardless — by at
 least 1.35× at the median in that batch, ~1.1× over `direct-mp` in the
 2026-09-25 one, ~1.06–1.08× (+4…+13 % per run, *ahead, narrowly*) in the
-two 2026-09-26 ones and +5…+39 % (*best*) in the published 2026-11-10
-batch. It widens the C++ sumchain cells in the
+two 2026-09-26 ones and +5…+39 % in the published 2026-11-10 batch —
+*best* on that batch alone, *ahead, narrowly* over all nine 9V74 runs, which
+is the label the one-pager carries. It widens the C++ sumchain cells in the
 [one-pager](docs/one-pager.md)'s Table 2 and Table 3 scoreboards; the
 median-based numbers elsewhere in this document already account for it.
 

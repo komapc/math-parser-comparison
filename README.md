@@ -15,7 +15,7 @@ Just the verdict, one page: **[docs/one-pager.md](docs/one-pager.md)**.
 - **Same rules for everyone.** All 15 strategies share one lexer, one
   grammar and one spec suite, and must agree on 6 000 fuzzed inputs per run.
   Every number is a range over three CI runs on one CPU model, and a margin
-  that flips sign across runs — or between batches run months apart — is
+  that flips sign across runs — or between batches weeks apart — is
   reported as a tie.
 - **Against its own top-down family, it is ahead on every tested input.** Its
   worst case is its average case. The top-down variants needed scan budgets,
@@ -88,10 +88,10 @@ fits memory layout being the main factor: contiguous forms win in C++ and
 Rust, and the advantage does not carry over to a runtime that boxes every
 node.
 
-Its no-tree twin `direct-reverse` **ties `direct-shunting-yard` in C++**,
-both at ~40 ns/leaf (−0.2 % at n=1000, −1.5…−0.2 % across sizes, so it
-reads as narrowly behind at n=10000), and is 1–3 % ahead of
-`direct-recursive-descent`. In Rust it is level with `direct-rd` (−0.2…+1.8 %
+Its no-tree twin `direct-reverse` **trails `direct-shunting-yard` by a
+hair in C++** — both at ~40 ns/leaf, behind in all 12 size×run measurements
+but only by 0.2–1.5 % (a tie at n=1000, narrowly behind at n=10000) — and
+is 1–3 % ahead of `direct-recursive-descent`. In Rust it is level with `direct-rd` (−0.2…+1.8 %
 across all sizes) and 6–9 % ahead of `direct-sy`. In Python it wins
 outright: ahead of both `direct-shunting-yard` and `direct-rd` at every
 size, in every run (+6…+26 % vs `direct-rd`, +10…+14 % vs `direct-sy`). On
