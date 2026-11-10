@@ -1,0 +1,31 @@
+# TEMPORARY (tuning A/B; removed before merge): builds origin/main as `base`
+# and this branch as `var`, runs both benches interleaved.
+name: ab
+on:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  cpp:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: { rep: [1, 2, 3, 4, 5, 6] }
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - run: sudo apt-get install -y g++-14
+      - run: python3 bench/gen_corpus.py
+      - name: build
+        run: |
+          git worktree add ../basewt origin/main
+          for b in base var; do
+            src=$([ $b = base ] && echo ../basewt/cpp || echo cpp)
+            cmake -S $src -B $b -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-14 >/dev/null
+            cmake --build $b -j --target corpus_bench adversarial_bench >/dev/null
+          done
+      - name: run
+        run: |
+          grep -m1 "model name" /proc/cpuinfo
+          for i in 1 2 3; do for b in base var; do
+            echo "### $b corpus"; ./$b/corpus_bench
+            echo "### $b adversarial"; ./$b/adversarial_bench
+          done; done
