@@ -29,3 +29,21 @@ jobs:
             echo "### $b corpus"; ./$b/corpus_bench
             echo "### $b adversarial"; ./$b/adversarial_bench
           done; done
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: { rep: [1, 2, 3, 4, 5, 6] }
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - run: python3 bench/gen_corpus.py
+      - name: run
+        run: |
+          git worktree add ../basewt origin/main
+          cp -r bench/corpus ../basewt/bench/
+          grep -m1 "model name" /proc/cpuinfo
+          for i in 1 2; do for b in base var; do
+            d=$([ $b = base ] && echo ../basewt || echo .)
+            echo "### $b corpus"; (cd $d && python3 python/bench.py)
+            echo "### $b adversarial"; (cd $d && python3 python/adversarial.py)
+          done; done
