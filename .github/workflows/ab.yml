@@ -5,7 +5,7 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
-      only: { description: "cpp-adv = C++ adversarial only, 10 jobs x 5 rounds", default: "" }
+      only: { description: "cpp-adv = C++ adversarial only, 10 jobs x 5 rounds; rust = rust job only", default: "" }
 jobs:
   cpp-adv:
     if: inputs.only == 'cpp-adv'
@@ -75,7 +75,7 @@ jobs:
             echo "### $b adversarial"; (cd $d && python3 python/adversarial.py)
           done; done
   rust:
-    if: inputs.only == ''
+    if: inputs.only == '' || inputs.only == 'rust'
     runs-on: ubuntu-latest
     strategy:
       matrix: { rep: [1, 2, 3, 4, 5, 6] }

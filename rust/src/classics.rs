@@ -195,53 +195,30 @@ pub fn sy_parse<B: Builder>(src: &str, b: &mut B, st: &mut SyStacks<B::V>) -> Re
     st.out.clear();
     st.ops.clear();
     let mut lx = Lexer::new(src);
-    let mut expect_operand = true;
-    loop {
-        let t = lx.next()?;
-        match t.kind {
-            Kind::Num => {
-                if !expect_operand {
-                    return Err(Error::at("unexpected number", t.pos));
+    // Two-mode scan: the grammar alternates operand / operator, so each mode
+    // matches its own small set of kinds instead of one match guarded by an
+    // expect-operand flag (the shape the fused fold has).
+    'scan: loop {
+        // -- operand mode: number, variable, '(' or a prefix sign
+        loop {
+            let t = lx.next()?;
+            match t.kind {
+                Kind::Num => { let v = b.num(t.value); st.out.push(v); break; }
+                Kind::Ident => { let v = b.var(t.value as usize); st.out.push(v); break; }
+                Kind::LParen => st.ops.push(SyOp { kind: Kind::LParen, prec: 0, unary: false, lparen: true }),
+                Kind::Plus | Kind::Minus => {
+                    st.ops.push(SyOp { kind: t.kind, prec: UNARY_PREC, unary: true, lparen: false })
                 }
-                let v = b.num(t.value);
-                st.out.push(v);
-                expect_operand = false;
+                Kind::End => return Err(Error::at("unexpected end of input", t.pos)),
+                Kind::RParen => return Err(Error::at("empty parentheses", t.pos)),
+                _ => return Err(Error::at("unexpected operator", t.pos)),
             }
-            Kind::Ident => {
-                if !expect_operand {
-                    return Err(Error::at("unexpected variable", t.pos));
-                }
-                let v = b.var(t.value as usize);
-                st.out.push(v);
-                expect_operand = false;
-            }
-            Kind::LParen => {
-                if !expect_operand {
-                    return Err(Error::at("unexpected '('", t.pos));
-                }
-                st.ops.push(SyOp { kind: Kind::LParen, prec: 0, unary: false, lparen: true });
-                expect_operand = true;
-            }
-            Kind::RParen => {
-                if expect_operand {
-                    return Err(Error::at("empty parentheses", t.pos));
-                }
-                loop {
-                    match st.ops.pop() {
-                        None => return Err(Error::at("mismatched parenthesis", t.pos)),
-                        Some(op) if op.lparen => break,
-                        Some(op) => sy_emit(b, &mut st.out, op)?,
-                    }
-                }
-                expect_operand = false;
-            }
-            Kind::Plus | Kind::Minus | Kind::Star | Kind::Slash | Kind::Caret => {
-                if expect_operand {
-                    if !matches!(t.kind, Kind::Plus | Kind::Minus) {
-                        return Err(Error::at("unexpected operator", t.pos));
-                    }
-                    st.ops.push(SyOp { kind: t.kind, prec: UNARY_PREC, unary: true, lparen: false });
-                } else {
+        }
+        // -- operator mode: binary op, ')' or end; ')' stays in this mode
+        loop {
+            let t = lx.next()?;
+            match t.kind {
+                Kind::Plus | Kind::Minus | Kind::Star | Kind::Slash | Kind::Caret => {
                     let prec = bin_prec(t.kind);
                     let ra = t.kind == Kind::Caret;
                     while let Some(&top) = st.ops.last() {
@@ -252,14 +229,19 @@ pub fn sy_parse<B: Builder>(src: &str, b: &mut B, st: &mut SyStacks<B::V>) -> Re
                         sy_emit(b, &mut st.out, top)?;
                     }
                     st.ops.push(SyOp { kind: t.kind, prec, unary: false, lparen: false });
-                    expect_operand = true;
+                    break;
                 }
-            }
-            Kind::End => {
-                if expect_operand {
-                    return Err(Error::at("unexpected end of input", t.pos));
-                }
-                break;
+                Kind::RParen => loop {
+                    match st.ops.pop() {
+                        None => return Err(Error::at("mismatched parenthesis", t.pos)),
+                        Some(op) if op.lparen => break,
+                        Some(op) => sy_emit(b, &mut st.out, op)?,
+                    }
+                },
+                Kind::End => break 'scan,
+                Kind::Num => return Err(Error::at("unexpected number", t.pos)),
+                Kind::Ident => return Err(Error::at("unexpected variable", t.pos)),
+                Kind::LParen => return Err(Error::at("unexpected '('", t.pos)),
             }
         }
     }
