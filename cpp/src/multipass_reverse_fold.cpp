@@ -181,21 +181,6 @@ public:
                     break;
                 }
                 if (t.type == TokenType::Caret) {
-                    // Fast path, the twin of the sign one: "x ^ leaf" where the
-                    // leaf is not itself a base folds straight into the
-                    // register. If it is a base, x goes to the segment and the
-                    // leaf becomes the operand, still in operator mode, facing
-                    // the next ^.
-                    if (cur.type == TokenType::Number || cur.type == TokenType::Ident) {
-                        const Token leaf = advance();
-                        const V lv = (leaf.type == TokenType::Number)
-                                         ? pol_.num(leaf.value)
-                                         : pol_.var(static_cast<int>(leaf.value));
-                        if (cur.type != TokenType::Caret) { val = pol_.pow(val, lv); continue; }
-                        seg[segTop++] = {val, Tag::PowBase, t.type};
-                        val = lv;
-                        continue;
-                    }
                     seg[segTop++] = {val, Tag::PowBase, t.type};
                     break;
                 }
