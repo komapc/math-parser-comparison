@@ -5,7 +5,7 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
-      only: { description: "cpp-adv = C++ adversarial only, 10 jobs x 5 rounds; rust = rust job only", default: "" }
+      only: { description: "cpp-adv = C++ adversarial only, 10 jobs x 5 rounds; rust|haskell = that job only", default: "" }
 jobs:
   cpp-adv:
     if: inputs.only == 'cpp-adv'
@@ -96,4 +96,37 @@ jobs:
             d=$([ $b = base ] && echo ../basewt/rust || echo rust)
             echo "### $b corpus"; (cd $d && ./target/release/bench)
             echo "### $b adversarial"; (cd $d && ./target/release/adversarial)
+          done; done
+  haskell:
+    if: inputs.only == '' || inputs.only == 'haskell'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: { rep: [1, 2, 3, 4, 5, 6] }
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - run: sudo apt-get update && sudo apt-get install -y libgmp-dev
+      - uses: haskell-actions/setup@v2
+        with: { ghc-version: '9.6.7', cabal-version: '3.10.3.0' }
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cabal/packages
+            ~/.cabal/store
+          key: ${{ runner.os }}-cabal-ab-${{ hashFiles('haskell/*.cabal', 'haskell/cabal.project*') }}
+          restore-keys: ${{ runner.os }}-cabal-
+      - run: python3 bench/gen_corpus.py
+      - name: build
+        run: |
+          git worktree add ../basewt origin/main
+          cp -r bench/corpus ../basewt/bench/
+          (cd haskell && cabal build -v0 exe:bench exe:adversarial)
+          (cd ../basewt/haskell && cabal build -v0 exe:bench exe:adversarial)
+      - name: run
+        run: |
+          grep -m1 "model name" /proc/cpuinfo
+          for i in 1 2 3; do for b in $([ $((i % 2)) = 1 ] && echo base var || echo var base); do
+            d=$([ $b = base ] && echo ../basewt/haskell || echo haskell)
+            echo "### $b corpus"; (cd $d && $(cabal list-bin bench))
+            echo "### $b adversarial"; (cd $d && $(cabal list-bin adversarial))
           done; done
