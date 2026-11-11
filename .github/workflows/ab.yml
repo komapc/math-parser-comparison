@@ -47,3 +47,25 @@ jobs:
             echo "### $b corpus"; (cd $d && python3 python/bench.py)
             echo "### $b adversarial"; (cd $d && python3 python/adversarial.py)
           done; done
+  rust:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: { rep: [1, 2, 3, 4, 5, 6] }
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - run: python3 bench/gen_corpus.py
+      - name: build
+        run: |
+          git worktree add ../basewt origin/main
+          cp -r bench/corpus ../basewt/bench/
+          (cd rust && rustup toolchain install && cargo build -q --release --bin bench --bin adversarial)
+          (cd ../basewt/rust && cargo build -q --release --bin bench --bin adversarial)
+      - name: run
+        run: |
+          grep -m1 "model name" /proc/cpuinfo
+          for i in 1 2 3; do for b in base var; do
+            d=$([ $b = base ] && echo ../basewt/rust || echo rust)
+            echo "### $b corpus"; (cd $d && ./target/release/bench)
+            echo "### $b adversarial"; (cd $d && ./target/release/adversarial)
+          done; done

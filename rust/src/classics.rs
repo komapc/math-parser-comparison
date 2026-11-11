@@ -1,7 +1,7 @@
 //! The three left-to-right classics — recursive descent, Pratt, shunting-yard —
 //! written once over the streaming lexer and instantiated per builder.
 
-use crate::builder::{op_of, Builder, Op};
+use crate::builder::{op_of, Builder};
 use crate::lexer::{Kind, Lexer, Token};
 use crate::Error;
 
@@ -43,6 +43,9 @@ impl<'a> Stream<'a> {
 }
 
 // ---- recursive descent -----------------------------------------------------
+// Each rule knows its precedence level, so it uses the builder's level-aware
+// forms (add_sub / mul_div / pow) — the same one-compare reduction the fused
+// fold gets, and what the C++ recursive descent writes inline.
 pub fn rd_parse<B: Builder>(src: &str, b: &mut B) -> Result<B::V, Error> {
     let mut s = Stream::new(src)?;
     let root = rd_expr(&mut s, b)?;
@@ -55,9 +58,9 @@ pub fn rd_parse<B: Builder>(src: &str, b: &mut B) -> Result<B::V, Error> {
 fn rd_expr<B: Builder>(s: &mut Stream, b: &mut B) -> Result<B::V, Error> {
     let mut left = rd_term(s, b)?;
     while matches!(s.kind(), Kind::Plus | Kind::Minus) {
-        let op = op_of(s.advance()?.kind);
+        let k = s.advance()?.kind;
         let r = rd_term(s, b)?;
-        left = b.binop(op, left, r);
+        left = b.add_sub(k, left, r);
     }
     Ok(left)
 }
@@ -65,9 +68,9 @@ fn rd_expr<B: Builder>(s: &mut Stream, b: &mut B) -> Result<B::V, Error> {
 fn rd_term<B: Builder>(s: &mut Stream, b: &mut B) -> Result<B::V, Error> {
     let mut left = rd_unary(s, b)?;
     while matches!(s.kind(), Kind::Star | Kind::Slash) {
-        let op = op_of(s.advance()?.kind);
+        let k = s.advance()?.kind;
         let r = rd_unary(s, b)?;
-        left = b.binop(op, left, r);
+        left = b.mul_div(k, left, r);
     }
     Ok(left)
 }
@@ -93,7 +96,7 @@ fn rd_power<B: Builder>(s: &mut Stream, b: &mut B) -> Result<B::V, Error> {
     if s.kind() == Kind::Caret {
         s.advance()?;
         let e = rd_unary(s, b)?;
-        return Ok(b.binop(Op::Pow, base, e));
+        return Ok(b.pow(base, e));
     }
     Ok(base)
 }
