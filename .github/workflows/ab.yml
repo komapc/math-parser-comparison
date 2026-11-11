@@ -4,8 +4,34 @@ name: ab
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      only: { description: "cpp-adv = C++ adversarial only, 10 jobs x 5 rounds", default: "" }
 jobs:
+  cpp-adv:
+    if: inputs.only == 'cpp-adv'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: { rep: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] }
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - run: sudo apt-get install -y g++-14
+      - name: build
+        run: |
+          git worktree add ../basewt origin/main
+          for b in base var; do
+            src=$([ $b = base ] && echo ../basewt/cpp || echo cpp)
+            cmake -S $src -B $b -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-14 >/dev/null
+            cmake --build $b -j --target adversarial_bench >/dev/null
+          done
+      - name: run
+        run: |
+          grep -m1 "model name" /proc/cpuinfo
+          for i in 1 2 3 4 5; do for b in $([ $((i % 2)) = 1 ] && echo base var || echo var base); do
+            echo "### $b adversarial"; ./$b/adversarial_bench
+          done; done
   cpp:
+    if: inputs.only == ''
     runs-on: ubuntu-latest
     strategy:
       matrix: { rep: [1, 2, 3, 4, 5, 6] }
@@ -30,6 +56,7 @@ jobs:
             echo "### $b adversarial"; ./$b/adversarial_bench
           done; done
   python:
+    if: inputs.only == ''
     runs-on: ubuntu-latest
     strategy:
       matrix: { rep: [1, 2, 3, 4, 5, 6] }
@@ -48,6 +75,7 @@ jobs:
             echo "### $b adversarial"; (cd $d && python3 python/adversarial.py)
           done; done
   rust:
+    if: inputs.only == ''
     runs-on: ubuntu-latest
     strategy:
       matrix: { rep: [1, 2, 3, 4, 5, 6] }
