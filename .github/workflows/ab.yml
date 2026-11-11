@@ -17,7 +17,7 @@ jobs:
       - name: build
         run: |
           git worktree add ../basewt origin/main
-          for b in base var; do
+          for b in $([ $((i % 2)) = 1 ] && echo base var || echo var base); do
             src=$([ $b = base ] && echo ../basewt/cpp || echo cpp)
             cmake -S $src -B $b -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-14 >/dev/null
             cmake --build $b -j --target corpus_bench adversarial_bench >/dev/null
@@ -25,7 +25,7 @@ jobs:
       - name: run
         run: |
           grep -m1 "model name" /proc/cpuinfo
-          for i in 1 2 3; do for b in base var; do
+          for i in 1 2 3; do for b in $([ $((i % 2)) = 1 ] && echo base var || echo var base); do
             echo "### $b corpus"; ./$b/corpus_bench
             echo "### $b adversarial"; ./$b/adversarial_bench
           done; done
@@ -42,7 +42,7 @@ jobs:
           git worktree add ../basewt origin/main
           cp -r bench/corpus ../basewt/bench/
           grep -m1 "model name" /proc/cpuinfo
-          for i in 1 2; do for b in base var; do
+          for i in 1 2; do for b in $([ $((i % 2)) = 1 ] && echo base var || echo var base); do
             d=$([ $b = base ] && echo ../basewt || echo .)
             echo "### $b corpus"; (cd $d && python3 python/bench.py)
             echo "### $b adversarial"; (cd $d && python3 python/adversarial.py)
@@ -64,7 +64,7 @@ jobs:
       - name: run
         run: |
           grep -m1 "model name" /proc/cpuinfo
-          for i in 1 2 3; do for b in base var; do
+          for i in 1 2 3; do for b in $([ $((i % 2)) = 1 ] && echo base var || echo var base); do
             d=$([ $b = base ] && echo ../basewt/rust || echo rust)
             echo "### $b corpus"; (cd $d && ./target/release/bench)
             echo "### $b adversarial"; (cd $d && ./target/release/adversarial)

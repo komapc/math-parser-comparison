@@ -183,7 +183,10 @@ class DirectBuilder:
 # Hand-tuned the way a compiler would tune it: power and primary are inlined
 # into unary (they are not recursive on their own), and each rule reads the
 # current token once. CPython inlines nothing; in C++ the compiler does this.
-# Every Python driver gets the same treatment, the fused reducer included.
+# Every Python driver was given the same treatment (2026-11 tuning audit);
+# it was kept where CI measured a gain — RD, Pratt, shunting-yard, bytecode.
+# The fused reducer's and multipass's versions measured no gain and were
+# dropped.
 def rd_parse(tokens, B):
     i = 0
 
@@ -383,7 +386,7 @@ def _build_candidates(tokens):
                     raise ValueError("unexpected operator")
                 cand = (i, UNARY_PREC, False, True)
             else:
-                cand = (i, PREC[k], k == CARET, False)
+                cand = (i, bin_prec(k), k == CARET, False)
             while depth >= len(cbd):
                 cbd.append([])
             cbd[depth].append(cand)
@@ -731,9 +734,7 @@ def reverse_fold_parse(tokens, B):
     i = 0
 
     def fold(c):
-        # right-to-left over the segment: right-assoc ^; ^ binds tighter than a
-        # sign. The hot call sites test for an empty segment inline first
-        # (hand-inlining, as in rd_parse).
+        # right-to-left over the segment: right-assoc ^; ^ binds tighter than a sign
         if len(seg) == seg_base:
             return c
         acc = c
@@ -781,10 +782,10 @@ def reverse_fold_parse(tokens, B):
         while True:
             tok = tokens[i]; i += 1; k = tok.kind
             if k == PLUS or k == MINUS:
-                v = cur if len(seg) == seg_base else fold(cur)
+                v = fold(cur)
                 term = v if pend_mul is None else B.binop(pend_mul, term, v)
                 sum_ = term if pend_add is None else B.binop(pend_add, sum_, term)
-                pend_add = "+" if k == PLUS else "-"; pend_mul = None
+                pend_add = BIN_CHAR[k]; pend_mul = None
                 break
             if k == RPAREN:
                 if not frames:
@@ -793,11 +794,18 @@ def reverse_fold_parse(tokens, B):
                 term, sum_, seg_base, pend_mul, pend_add = frames.pop()
                 continue
             if k == STAR or k == SLASH:
-                v = cur if len(seg) == seg_base else fold(cur)
+                v = fold(cur)
                 term = v if pend_mul is None else B.binop(pend_mul, term, v)
-                pend_mul = "*" if k == STAR else "/"
+                pend_mul = BIN_CHAR[k]
                 break
             if k == CARET:
+                # Fast path, the twin of the sign one: "x ^ leaf" where the leaf
+                # is not itself a base ("2^3 * ...") folds straight into the
+                # register; a pending sign or base below it still sees one value.
+                nxt = tokens[i]; nk = nxt.kind
+                if (nk == NUM or nk == IDENT) and tokens[i + 1].kind != CARET:
+                    cur = B.binop("^", cur, B.num(nxt.value) if nk == NUM else B.var(int(nxt.value)))
+                    i += 1; continue
                 seg.append((1, cur)); break
             if k == END:
                 if frames:
