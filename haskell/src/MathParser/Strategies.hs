@@ -631,15 +631,7 @@ reverseFoldParse = operand [] [] Nothing Nothing
       KNum    -> operator (sNum (tVal t)) seg frames tm sm ts
       KVar    -> operator (sVar (round (tVal t))) seg frames tm sm ts
       KLParen -> operand [] ((seg, tm, sm) : frames) Nothing Nothing ts
-      k | k == KPlus || k == KMinus -> case ts of
-            -- Fast path: a sign on a plain leaf that is not the base of a ^
-            -- ("-16", "-a") applies at once, as in the other three languages.
-            (l : rest@(n : _))
-              | tKind n /= KCaret, tKind l == KNum ->
-                  operator (sgn k (sNum (tVal l))) seg frames tm sm rest
-              | tKind n /= KCaret, tKind l == KVar ->
-                  operator (sgn k (sVar (round (tVal l)))) seg frames tm sm rest
-            _ -> operand (FUn k : seg) frames tm sm ts
+      k | k == KPlus || k == KMinus -> operand (FUn k : seg) frames tm sm ts
       _ -> error ("expected operand at position " ++ show (tPos t))
 
     -- operator mode: binary op, ')' or end; ')' stays in this mode
@@ -654,15 +646,7 @@ reverseFoldParse = operand [] [] Nothing Nothing
             let !v  = foldSeg seg cur
                 !tv = closeMul tm v
             in operand [] frames (Just (opOf k, tv)) sm ts
-      KCaret -> case ts of
-        -- Fast path, the twin of the sign one: "x ^ leaf" where the leaf is
-        -- not itself a base folds at once instead of through the segment.
-        (l : rest@(n : _))
-          | tKind n /= KCaret, tKind l == KNum ->
-              operator (sBin Pow cur (sNum (tVal l))) seg frames tm sm rest
-          | tKind n /= KCaret, tKind l == KVar ->
-              operator (sBin Pow cur (sVar (round (tVal l)))) seg frames tm sm rest
-        _ -> operand (FPow cur : seg) frames tm sm ts
+      KCaret  -> operand (FPow cur : seg) frames tm sm ts
       KRParen -> case frames of
         []                       -> error ("mismatched parenthesis at position " ++ show (tPos t))
         ((seg0, tm0, sm0) : fs)  -> operator (closeRange cur seg tm sm) seg0 fs tm0 sm0 ts
@@ -670,9 +654,8 @@ reverseFoldParse = operand [] [] Nothing Nothing
            | otherwise   -> error "missing ')'"
       _ -> error ("expected operator at position " ++ show (tPos t))
 
-    sgn k x = if k == KMinus then sNeg x else sPos x
     foldSeg seg cur = foldl' step cur seg
-      where step acc (FUn k)  = sgn k acc
+      where step acc (FUn k)  = if k == KMinus then sNeg acc else sPos acc
             step acc (FPow b) = sBin Pow b acc
     closeMul Nothing        v = v
     closeMul (Just (op, l)) v = sBin op l v

@@ -6,7 +6,8 @@ and why, so a reader can check that the rivals were not left untuned.
 
 ## Rules
 
-- **Measurement.** A full-build A/B on GitHub runners. `base` is `main`, `var`
+- **Measurement.** A full-build A/B on GitHub runners (the temporary `ab`
+  workflow on the tuning branch). `base` is `main`, `var`
   is the tuning branch. Both are built in the same job and run interleaved,
   with the order alternated per round, and every job is compared within
   itself. Strategies whose code did not change are the controls. Laptop runs
@@ -36,14 +37,18 @@ strategy faster). Run IDs are `ab` workflow runs.
 | Python | hand inlining (cached token kind, helpers folded into the caller, precedence table) | RD, Pratt, SY, bytecode | classics +5…+10 % corpus, +4…+13 % powchain, +25…+35 % nestchain (RD/Pratt/arena) | yes | 42927364429, 42983981414, 43112168784 |
 | Python | the same treatment | fold, multipass candidates | within the controls | no | 42927364429 |
 | Python | `^ leaf` fast path | fold (tree + direct) | powchain +1…+5 %; other cells within the controls | yes | 42983981414, 43112168784 |
-| Haskell | strict `case` on (result, rest) pairs instead of a lazy `let` | RD, Pratt, scannerless | powchain +4…+12 %; corpus gain not separable from the job offset | yes | 43111184403, 43112168784 |
+| Haskell | strict `case` on (result, rest) pairs instead of a lazy `let` | RD, Pratt, scannerless | relative to the five controls: direct-rd corpus +2…+5 %, powchain +6…+7 %; ast-arena powchain +5…+7 % | yes | 43111184403, 43112168784, 43180075680, 43181187054 |
 | Haskell | operator kinds tested directly, not by `elem` | SY, bytecode | within noise; kept for symmetry with the fold | yes | 43111184403 |
 | Haskell | the same `elem` change | multipass candidates, reverse-mp | within noise | no (they serve as controls) | 43111184403 |
-| Haskell | pending level as (kind, operand) arguments, not `Maybe (Op, r)`; sign and `^ leaf` fast paths | fold (tree + direct) | powchain +3…+8 %; nestchain −2.2 % in one sample, +0.8 % in the other | pending rerun with five untouched controls | 43111184403, 43112168784, 43180075680 |
+| Haskell | pending level as (kind, operand) arguments, not `Maybe (Op, r)`; sign and `^ leaf` fast paths | fold (tree + direct) | relative to controls: tree powchain +4 %, but sumchain −2.6 % and nestchain −3.9 % | no | 43180075680 |
+| Haskell | sign and `^ leaf` fast paths only (old `Maybe` pending) | fold (tree + direct) | relative to controls: tree powchain +4 %, sumchain −2.1 %, nestchain −2.0 %; direct form flat | no | 43181187054 |
 
 ## What it changed
 
-The rivals gained more than we did in Python, Rust and Haskell. C++ is
-unchanged. The published tables are regenerated from a fresh 3× EPYC 9V74
+Only rivals' changes survived in Rust and Haskell. The one change to ours
+that was kept is the Python `^ leaf` fast path (powchain only). C++ is
+unchanged. In Haskell all fifteen strategies moved a few percent between
+builds, untouched ones included, so the Haskell numbers above are taken
+relative to the median of five untouched strategies in the same job. The published tables are regenerated from a fresh 3× EPYC 9V74
 batch after these changes, and the labels are pooled only over batches with
 unchanged code.
