@@ -528,7 +528,7 @@ buildCandidates arr n =
                    []        -> (depth - 1, False, [], cmap, matches)
       KNum    -> (depth, False, stack, cmap, matches)
       KVar    -> (depth, False, stack, cmap, matches)
-      k | k == KPlus || k == KMinus || k == KStar || k == KSlash || k == KCaret ->
+      k | k `elem` [KPlus, KMinus, KStar, KSlash, KCaret] ->
             let cand | expect = if k == KPlus || k == KMinus
                                   then Cand i 3 False True
                                   else error "unexpected operator"
@@ -593,7 +593,7 @@ reverseMpParse toks = reduceRange 0 (n - 1)
                             else ROpd (reduceRange (i + 1) j) : build (j + 1) False
               KNum    -> ROpd (sNum (tVal (arr ! i)))           : build (i + 1) False
               KVar    -> ROpd (sVar (round (tVal (arr ! i))))   : build (i + 1) False
-              k | k == KPlus || k == KMinus || k == KStar || k == KSlash || k == KCaret ->
+              k | k `elem` [KPlus, KMinus, KStar, KSlash, KCaret] ->
                     if expect
                       then if k == KPlus || k == KMinus
                              then RUn k : build (i + 1) True

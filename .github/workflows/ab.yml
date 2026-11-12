@@ -125,7 +125,7 @@ jobs:
       - name: run
         run: |
           grep -m1 "model name" /proc/cpuinfo
-          for i in 1 2 3; do for b in $([ $((i % 2)) = 1 ] && echo base var || echo var base); do
+          for i in 1 2 3 4; do for b in $([ $((i % 2)) = 1 ] && echo base var || echo var base); do
             d=$([ $b = base ] && echo ../basewt/haskell || echo haskell)
             echo "### $b corpus"; (cd $d && $(cabal list-bin bench))
             echo "### $b adversarial"; (cd $d && $(cabal list-bin adversarial))
