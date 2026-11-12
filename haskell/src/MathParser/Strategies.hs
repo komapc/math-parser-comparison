@@ -622,61 +622,51 @@ reverseMpParse toks = reduceRange 0 (n - 1)
 -- right-to-left fold (right-assoc ^; ^ binds tighter than a prefix sign).
 data FItem r = FUn !Kind | FPow r
 
--- A pending binary level is two arguments, its operator kind (KEnd = nothing
--- pending) and its left operand — the C++/Rust fold's pendMul/term scalars —
--- rather than a Maybe (Op, r) allocated on every barrier. A '(' saves them in
--- one strict frame.
-data FFrame r = FFrame [FItem r] !Kind r !Kind r
-
-noPending :: r
-noPending = error "fold: no pending operand"   -- never forced: guarded by KEnd
-
 reverseFoldParse :: Sym r => [Tok] -> r
-reverseFoldParse = operand [] [] KEnd noPending KEnd noPending
+reverseFoldParse = operand [] [] Nothing Nothing
   where
     -- operand mode: number, variable, '(' or a prefix sign
-    operand _ _ _ _ _ _ [] = error "unexpected end of input"
-    operand seg frames tk tv sk sv (t : ts) = case tKind t of
-      KNum    -> operator (sNum (tVal t)) seg frames tk tv sk sv ts
-      KVar    -> operator (sVar (round (tVal t))) seg frames tk tv sk sv ts
-      KLParen -> operand [] (FFrame seg tk tv sk sv : frames) KEnd noPending KEnd noPending ts
+    operand _ _ _ _ [] = error "unexpected end of input"
+    operand seg frames tm sm (t : ts) = case tKind t of
+      KNum    -> operator (sNum (tVal t)) seg frames tm sm ts
+      KVar    -> operator (sVar (round (tVal t))) seg frames tm sm ts
+      KLParen -> operand [] ((seg, tm, sm) : frames) Nothing Nothing ts
       k | k == KPlus || k == KMinus -> case ts of
             -- Fast path: a sign on a plain leaf that is not the base of a ^
             -- ("-16", "-a") applies at once, as in the other three languages.
             (l : rest@(n : _))
               | tKind n /= KCaret, tKind l == KNum ->
-                  operator (sgn k (sNum (tVal l))) seg frames tk tv sk sv rest
+                  operator (sgn k (sNum (tVal l))) seg frames tm sm rest
               | tKind n /= KCaret, tKind l == KVar ->
-                  operator (sgn k (sVar (round (tVal l)))) seg frames tk tv sk sv rest
-            _ -> operand (FUn k : seg) frames tk tv sk sv ts
+                  operator (sgn k (sVar (round (tVal l)))) seg frames tm sm rest
+            _ -> operand (FUn k : seg) frames tm sm ts
       _ -> error ("expected operand at position " ++ show (tPos t))
 
     -- operator mode: binary op, ')' or end; ')' stays in this mode
-    operator _ _ _ _ _ _ _ [] = error "unexpected end of input"
-    operator cur seg frames tk tv sk sv (t : ts) = case tKind t of
+    operator _ _ _ _ _ [] = error "unexpected end of input"
+    operator cur seg frames tm sm (t : ts) = case tKind t of
       k | k == KPlus || k == KMinus ->
             let !v  = foldSeg seg cur
-                !t' = close tk tv v
-                !s' = close sk sv t'
-            in operand [] frames KEnd noPending k s' ts
+                !tv = closeMul tm v
+                !sv = closeAdd sm tv
+            in operand [] frames Nothing (Just (opOf k, sv)) ts
         | k == KStar || k == KSlash ->
             let !v  = foldSeg seg cur
-                !t' = close tk tv v
-            in operand [] frames k t' sk sv ts
+                !tv = closeMul tm v
+            in operand [] frames (Just (opOf k, tv)) sm ts
       KCaret -> case ts of
         -- Fast path, the twin of the sign one: "x ^ leaf" where the leaf is
         -- not itself a base folds at once instead of through the segment.
         (l : rest@(n : _))
           | tKind n /= KCaret, tKind l == KNum ->
-              operator (sBin Pow cur (sNum (tVal l))) seg frames tk tv sk sv rest
+              operator (sBin Pow cur (sNum (tVal l))) seg frames tm sm rest
           | tKind n /= KCaret, tKind l == KVar ->
-              operator (sBin Pow cur (sVar (round (tVal l)))) seg frames tk tv sk sv rest
-        _ -> operand (FPow cur : seg) frames tk tv sk sv ts
+              operator (sBin Pow cur (sVar (round (tVal l)))) seg frames tm sm rest
+        _ -> operand (FPow cur : seg) frames tm sm ts
       KRParen -> case frames of
-        [] -> error ("mismatched parenthesis at position " ++ show (tPos t))
-        (FFrame seg0 tk0 tv0 sk0 sv0 : fs) ->
-          operator (closeRange cur seg tk tv sk sv) seg0 fs tk0 tv0 sk0 sv0 ts
-      KEnd | null frames -> closeRange cur seg tk tv sk sv
+        []                       -> error ("mismatched parenthesis at position " ++ show (tPos t))
+        ((seg0, tm0, sm0) : fs)  -> operator (closeRange cur seg tm sm) seg0 fs tm0 sm0 ts
+      KEnd | null frames -> closeRange cur seg tm sm
            | otherwise   -> error "missing ')'"
       _ -> error ("expected operator at position " ++ show (tPos t))
 
@@ -684,9 +674,11 @@ reverseFoldParse = operand [] [] KEnd noPending KEnd noPending
     foldSeg seg cur = foldl' step cur seg
       where step acc (FUn k)  = sgn k acc
             step acc (FPow b) = sBin Pow b acc
-    close KEnd _ v = v
-    close k    l v = sBin (opOf k) l v
-    closeRange cur seg tk tv sk sv = close sk sv (close tk tv (foldSeg seg cur))
+    closeMul Nothing        v = v
+    closeMul (Just (op, l)) v = sBin op l v
+    closeAdd Nothing        v = v
+    closeAdd (Just (op, l)) v = sBin op l v
+    closeRange cur seg tm sm = closeAdd sm (closeMul tm (foldSeg seg cur))
 
 -- Reduce one REVERSED ^/unary segment — (un* opd (^ un* opd)*) read backwards —
 -- by folding right-to-left: right-assoc ^ and the ^-binds-tighter-than-unary
