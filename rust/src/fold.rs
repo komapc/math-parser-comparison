@@ -148,19 +148,6 @@ where B::V: Copy + Default {
                 break;
             }
             if k == Kind::Caret {
-                // Fast path, the twin of the sign one: "x ^ leaf" where the
-                // leaf is not itself a base folds straight into the register.
-                // If it is a base, x goes to the segment and the leaf becomes
-                // the operand, still in operator mode, facing the next ^.
-                if cur.kind == Kind::Num || cur.kind == Kind::Ident {
-                    let leaf = cur;
-                    cur = lx.next()?;
-                    let lv = if leaf.kind == Kind::Num { b.num(leaf.value) } else { b.var(leaf.value as usize) };
-                    if cur.kind != Kind::Caret { val = b.pow(val, lv); continue; }
-                    seg.push(Seg::PowBase(val));
-                    val = lv;
-                    continue;
-                }
                 seg.push(Seg::PowBase(val));
                 break;
             }
