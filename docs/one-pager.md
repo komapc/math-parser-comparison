@@ -27,10 +27,12 @@ precedence level, no split search — is a competitive way to evaluate
     and on every structured shape; its no-tree form ties
     `direct-shunting-yard` on the corpus and trails it on nestchain by
     15–17 %.
-  - Rust: the tree form is narrowly ahead of the arena classic everywhere
-    but nestchain, where it is clearly ahead. The no-tree form loses to
-    the tuned `direct-rd` on the random corpus by 6–7 %, is narrowly ahead
-    on powchain and clearly ahead on the other three shapes.
+  - Rust: the tree form is level with the arena classic on the random
+    corpus, powchain and sumchain (within 1–2 % — ahead on this CPU, 4–6 %
+    behind on two others; see ‡), narrowly ahead on towerchain and clearly
+    ahead on nestchain (+31…+36 %). The no-tree form loses to the tuned
+    `direct-rd` on the random corpus by 6–7 %, is narrowly ahead on
+    powchain and clearly ahead on the other three shapes.
   - Python: after the classics were hand-inlined, the tree form loses to
     `ast-pratt` on every input (1–2 % at n=10000, 8–15 % elsewhere). The
     no-tree form ties `direct-rd` at n=1000 and on sumchain, loses by 1 %
@@ -48,12 +50,20 @@ precedence level, no split search — is a competitive way to evaluate
 
 | input | C++ | Rust | Python | Haskell |
 |---|---|---|---|---|
-| random corpus (n=1000) | ahead, narrowly (+3…+4 % vs `ast-arena`) | ahead, narrowly (+1 % vs `ast-arena`) | loses (-10…-8 % vs `ast-pratt`) | loses (1.2× slower than `ast-rd`) |
-| random corpus (n=10000) | ahead, narrowly (+4…+5 % vs `ast-arena`) | ahead, narrowly (+1…+2 % vs `ast-arena`) | loses (-2…-1 % vs `ast-pratt`) | loses (1.3–1.4× slower than `ast-rd`) |
-| powchain | **best** (+11…+15 % vs `ast-arena`) | ahead, narrowly (+1 % vs `ast-arena`) | loses (-15…-13 % vs `ast-pratt`) | loses (1.2× slower than `ast-rd`) |
+| random corpus (n=1000) | ahead, narrowly (+3…+4 % vs `ast-arena`) | ahead, narrowly ‡ (+1 % vs `ast-arena`) | loses (-10…-8 % vs `ast-pratt`) | loses (1.2× slower than `ast-rd`) |
+| random corpus (n=10000) | ahead, narrowly (+4…+5 % vs `ast-arena`) | ahead, narrowly ‡ (+1…+2 % vs `ast-arena`) | loses (-2…-1 % vs `ast-pratt`) | loses (1.3–1.4× slower than `ast-rd`) |
+| powchain | **best** (+11…+15 % vs `ast-arena`) | ahead, narrowly ‡ (+1 % vs `ast-arena`) | loses (-15…-13 % vs `ast-pratt`) | loses (1.2× slower than `ast-rd`) |
 | towerchain | **best** (+6…+7 % vs `ast-arena`) | ahead, narrowly (+4…+8 % vs `ast-arena`) | loses (-11…-10 % vs `ast-pratt`) | loses (1.1–1.2× slower than `ast-rd`) |
-| sumchain | **best** (+19…+22 % vs `ast-arena`) | ahead, narrowly (+2…+4 % vs `ast-arena`) | loses (-15…-13 % vs `ast-pratt`) | loses (1.1–1.2× slower than `ast-rd`) |
+| sumchain | **best** (+19…+22 % vs `ast-arena`) | ahead, narrowly ‡ (+2…+4 % vs `ast-arena`) | loses (-15…-13 % vs `ast-pratt`) | loses (1.1–1.2× slower than `ast-rd`) |
 | nestchain | **best** (+27…+32 % vs `ast-arena`) | **best** (+31…+36 % vs `ast-arena`) | loses (-8 % vs `ast-pratt`) | loses (1.2–1.3× slower than `ast-pratt`) |
+
+‡ Read with care. Over the nine runs of the three earlier 9V74 batches
+these four cells were a *tie*; they read *ahead, narrowly* now because the
+column is no longer pooled (`ast-arena` is built by the recursive-descent
+parser that the tuning pass changed, although its own A/B was flat), not
+because the fold got faster. On the EPYC 7763 and the Xeon 8573C the fold
+trails `ast-arena` on the random corpus by 4–6 %. Treat Rust's tree form
+as level with `ast-arena`.
 
 ### No-tree form `direct-reverse` vs the best classic no-tree evaluator
 
@@ -66,12 +76,13 @@ precedence level, no split search — is a competitive way to evaluate
 | sumchain | tie † (+3…+39 % vs `direct-sy`) | **best** (+14 % vs `direct-rd`) | tie (0…+2 % vs `direct-rd`) | tie (-3…+2 % vs `direct-rd`) |
 | nestchain | loses (-17…-15 % vs `direct-sy`) | **best** (+7 % vs `direct-rd`) | **best** (+6…+8 % vs `direct-sy`) | loses (-15…-12 % vs `direct-rd`) |
 
-† Label over all twelve runs of the four 9V74 batches; only the C++
-columns are pooled this way (their code did not change). This batch's three
-runs alone would say: C++ powchain and towerchain *best*, C++ sumchain
-*ahead, narrowly*. The C++ sumchain range is wide because `direct-sy` ran
-in a slow mode on sumchain in one run (+39 %); in the other two the margin
-was +3 % and +5 %.
+† Label over all twelve runs of the four 9V74 batches, which is used for
+the C++ columns and the Haskell family column (their code did not change;
+see "Earlier batches" below). This batch's three runs alone would say: C++
+powchain and towerchain *best*, C++ sumchain *ahead, narrowly*; and in the
+family table below, C++ sumchain *best*. The C++ sumchain range here is
+wide because `direct-sy` ran in a slow mode on sumchain in one run (+39 %);
+in the other two the margin was +3 % and +5 %.
 
 ### `multipass-reverse-fold` vs the best of its own top-down family
 

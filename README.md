@@ -23,8 +23,9 @@ Just the verdict, one page: **[docs/one-pager.md](docs/one-pager.md)**.
   winner, and behind in Python and Haskell.** That is after a
   [same-rules tuning pass](bench/TUNING.md) that offered every
   implementation, ours included, the same hand optimisations; the rivals
-  gained more from it. It is the fastest tree builder in C++ by 3–5 % and
-  in Rust by 1–2 %; it loses in Python and Haskell. On the random corpus its
+  gained more from it. It is the fastest tree builder in C++ by 3–5 %,
+  level with `ast-arena` in Rust (within 1–2 %, sign depends on the CPU),
+  and loses in Python and Haskell. On the random corpus its
   no-tree form ties the fastest classic in C++ (and in Python at n=1000) and loses in
   Rust and Haskell.
 - **How to read the numbers.** Every number is a range over three CI runs on
@@ -49,7 +50,7 @@ no recursion, no prepass, every token touched once.
 [Haskell](haskell/src/MathParser/Strategies.hs) ·
 **[full walk-through](docs/multipass-reverse.md)**)
 
-## Result 1 — vs the classics: a sliver in C++ and Rust, behind in Python and Haskell
+## Result 1 — vs the classics: a sliver in C++, level in Rust, behind in Python and Haskell
 
 Random corpus, ns/leaf at n=1000, neutral 4-vCPU CI runner, median of three
 independent runs of one commit on one CPU model (2026-11-12, AMD EPYC 9V74),
@@ -72,8 +73,9 @@ two decimals):
 - **C++:** the fastest of nine tree builders on the random corpus, but only
   3–5 % ahead of `ast-arena` — positive in all 12 size×run measurements and
   in every earlier 9V74 batch: a consistent sliver, not a margin.
-- **Rust:** narrowly ahead of `ast-arena` (+0.6…+1.8 %, level at n=100); on
-  the EPYC 7763 and Xeon 8573C it trails by 4–6 % instead.
+- **Rust:** level with `ast-arena`: +0.6…+1.8 % on this CPU (level at
+  n=100), 4–6 % behind on the EPYC 7763 and Xeon 8573C. Over the earlier
+  batches of the old code it was a tie.
 - **Python:** behind. After the classics were hand-inlined it trails
   `ast-pratt` by 8–10 % at n=1000 and 1–2 % at n=10000, and `ast-sy` by
   0–3 % at n=10 and 100.
@@ -81,8 +83,8 @@ two decimals):
   n=10000. Every arena form trails the pointer classics there: contiguous
   memory is the likely edge in C++ and Rust, and a runtime that boxes every
   node leaves little of it.
-- **Structured shapes:** leads in C++ and Rust everywhere (narrowly in Rust
-  on powchain, towerchain and sumchain); in Python it trails `ast-pratt` on
+- **Structured shapes:** leads in C++ everywhere; in Rust clearly ahead on
+  nestchain, within 1–8 % on the other three; in Python it trails `ast-pratt` on
   all four shapes by 8–15 %.
 - The buffered `multipass-reverse` sits ~1.35–1.4× behind the fold.
 

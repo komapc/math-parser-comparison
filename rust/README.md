@@ -78,10 +78,11 @@ Two questions the C++ numbers left open:
    answer is mixed. The overall tiers are not a GCC story: the `direct-*`
    tier matches within a few percent of C++ in instructions, cycles and
    branch misses on the same laptop (`perf stat`, n=1000 corpus). But the
-   fold's specific ~3–4 % edge over `ast-arena` does not reproduce — LLVM
-   ties the two at n=1000 and puts the fold slightly behind at n=10000 — so that one sliver looks compiler-sensitive even
-   though the tier ordering around it is real. The CI tables in the
-   top-level README carry the neutral-runner numbers.
+   fold's specific ~3–5 % edge over `ast-arena` only partly reproduces —
+   on the CI runner LLVM leaves the fold 0.6–1.8 % ahead on one CPU model
+   and 4–6 % behind on two others — so that sliver looks compiler- and
+   hardware-sensitive even though the tier ordering around it is real.
+   The CI tables in the top-level README carry the neutral-runner numbers.
 2. **Does the fold survive safe Rust?** The C++ fold's last 10 % came from
    pre-sized raw buffers indexed by locals instead of `std::vector`
    push/pop. Measured here by instruction count (load-independent):
@@ -90,8 +91,8 @@ Two questions the C++ numbers left open:
    misses on the laptop. So `fold.rs` now uses the safe `Vec` form, like
    the buffered `reverse.rs`. On the CI runner the switch is visible after
    all: in that batch the fold went from 1.02× to 1.05× `ast-arena` at n=1000, and on
-   powchain from narrowly ahead to a tie. The random-corpus verdict does not
-   move — a tie either way — so the safe form stays: a ~3 % sliver is not
+   powchain from narrowly ahead to a tie. The random-corpus verdict did not
+   move — a tie either way in that batch — so the safe form stays: a ~3 % sliver is not
    worth `unsafe`. It survives, at the cost of that sliver.
 
 What actually mattered, in order:

@@ -175,7 +175,7 @@ Neutral runner, ns/leaf at n=1000 ([full tables](../FINDINGS.md#cross-language-r
 | | C++ | Rust | Python | Haskell |
 |---|--:|--:|--:|--:|
 | fastest classic tree builder | `ast-arena` 58 | `ast-arena` 66 | **`ast-pratt` 2 264** | **`ast-rd` 458** |
-| **`multipass-reverse-fold`** | **56** | **65** | 2 470 | 532 |
+| **`multipass-reverse-fold`** | **56** | 65 | 2 470 | 532 |
 | `multipass-reverse` | 80 | 87 | 3 402 | 721 |
 | best *top-down* multipass | `direct-mp` 83 | `direct-mp` 154 | `direct-mp` 4 133 | `multipass` 830 |
 | fastest *no-tree* classic | `direct-sy` 40 | **`direct-rd` 44** | `direct-rd` 2 099 | **`direct-rd` 460** |
@@ -187,8 +187,9 @@ Median of three CI runs on one CPU model (43186179671 / 43186221304 /
 the [same-rules tuning pass](../bench/TUNING.md); rustc 1.98.1). The
 buffered form beats the top-down family in every language. The fused form
 is the fastest tree builder in C++ (narrowly: +3…+5 % over `ast-arena` at
-every size, positive in all 12 size×run measurements) and, more narrowly
-still, in Rust (+0.6…+1.1 % at this size; level at n=100), but behind the
+every size, positive in all 12 size×run measurements), level with
+`ast-arena` in Rust (+0.6…+1.1 % at this size on this CPU, level at n=100,
+4–6 % behind on two other CPU models), and behind the
 hand-inlined pointer classics in Python (−8…−10 % vs `ast-pratt` at this
 size) and fourth in Haskell, where both pointer classics and `ast-arena`
 build faster. Its no-tree twin is level with the fastest no-tree classic
@@ -269,8 +270,9 @@ sumchain — but −1…0 % and −4 % on 2026-09-26), and loses nestchain
 (−17…−15 %).
 
 Rust reproduces similar tiers, with the tuned `direct-rd` as the
-exception. The fold is narrowly ahead of `ast-arena` on the random corpus
-(+0.6…+1.8 % at n=10, 1000 and 10000, level at n=100), on powchain (+1 %),
+exception. The fold is level with `ast-arena` on the random corpus
+(+0.6…+1.8 % at n=10, 1000 and 10000, level at n=100; a tie over the
+earlier batches of the old code), narrowly ahead on powchain (+1 %),
 towerchain (+4…+8 %) and sumchain (+2…+4 %), and clearly ahead on
 nestchain (+31…+36 %). `direct-reverse` loses to `direct-rd` on the random
 corpus (−3…−4 % at n=10, −5…−7 % above) — `direct-rd` gained 7–10 % from
