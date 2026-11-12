@@ -211,7 +211,13 @@ def cellstr(rival, lo, hi, plo=None, phi=None):
 # Rust's top-down family (direct-mp, the family rival, included) lost its
 # per-eval token Vec, sparse-table and stack allocations in 7b83ad4/d2474e2.
 # C++ direct-mp (multipass_lean.cpp), Python and Haskell are unchanged.
-NOT_POOLED = {("family", "rust")}
+# 2026-11 same-rules tuning (bench/TUNING.md) changed the code on both sides
+# of every Python column and the classics of the Rust and Haskell tree/direct
+# columns; only C++ and the Haskell family column are unchanged.
+NOT_POOLED = {("family", "rust"),
+              ("tree", "python"), ("direct", "python"), ("family", "python"),
+              ("tree", "rust"), ("direct", "rust"),
+              ("tree", "haskell"), ("direct", "haskell")}
 
 
 def scoreboard(D, rule="median", priors=()):
