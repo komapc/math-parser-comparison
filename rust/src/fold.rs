@@ -84,10 +84,9 @@ where B::V: Copy + Default {
     where B::V: Copy {
         if *seg_top == seg_base { return c; } // lone operand: no memory touched
         let mut acc = c;
-        let mut i = *seg_top;
-        while i > seg_base {
-            i -= 1;
-            acc = match seg[i] {
+        // one range check for the whole segment, not one per item
+        for it in seg[seg_base..*seg_top].iter().rev() {
+            acc = match *it {
                 Seg::Un(k) => b.unary(k, acc),
                 Seg::PowBase(v) => b.pow(v, acc),
             };
