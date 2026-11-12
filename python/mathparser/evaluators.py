@@ -733,6 +733,9 @@ def reverse_fold_parse(tokens, B):
     pend_mul = pend_add = None   # None = nothing pending, else a BIN_CHAR op
     i = 0
 
+    # Callers test for an empty segment (the common case: a lone operand)
+    # before calling, so a barrier costs no Python call unless there is
+    # something to fold.
     def fold(c):
         # right-to-left over the segment: right-assoc ^; ^ binds tighter than a sign
         if len(seg) == seg_base:
@@ -750,7 +753,7 @@ def reverse_fold_parse(tokens, B):
         return acc
 
     def close(c):
-        v = fold(c)
+        v = c if len(seg) == seg_base else fold(c)
         t = v if pend_mul is None else B.binop(pend_mul, term, v)
         return t if pend_add is None else B.binop(pend_add, sum_, t)
 
@@ -782,7 +785,7 @@ def reverse_fold_parse(tokens, B):
         while True:
             tok = tokens[i]; i += 1; k = tok.kind
             if k == PLUS or k == MINUS:
-                v = fold(cur)
+                v = cur if len(seg) == seg_base else fold(cur)
                 term = v if pend_mul is None else B.binop(pend_mul, term, v)
                 sum_ = term if pend_add is None else B.binop(pend_add, sum_, term)
                 pend_add = BIN_CHAR[k]; pend_mul = None
@@ -790,11 +793,14 @@ def reverse_fold_parse(tokens, B):
             if k == RPAREN:
                 if not frames:
                     raise ValueError(f"mismatched parenthesis at position {tok.pos}")
-                cur = close(cur)
+                # close(), inlined: a call costs more than the body here
+                v = cur if len(seg) == seg_base else fold(cur)
+                if pend_mul is not None: v = B.binop(pend_mul, term, v)
+                cur = v if pend_add is None else B.binop(pend_add, sum_, v)
                 term, sum_, seg_base, pend_mul, pend_add = frames.pop()
                 continue
             if k == STAR or k == SLASH:
-                v = fold(cur)
+                v = cur if len(seg) == seg_base else fold(cur)
                 term = v if pend_mul is None else B.binop(pend_mul, term, v)
                 pend_mul = BIN_CHAR[k]
                 break
