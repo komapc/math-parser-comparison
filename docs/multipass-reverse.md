@@ -165,7 +165,7 @@ xychart-beta
 
 That was ~75–115× over top-down in C++ at m=8192 (~17× Python at m=1024, ~8×
 Haskell at m=4096 — sizes differ, so ratios aren't cross-language comparable).
-Post-fix the shipped binaries reproduce a ~1.5–3.6× gap on powchain (1.9–4.9× against
+Post-fix the shipped binaries reproduce a ~1.4–3.5× gap on powchain (1.9–4.7× against
 the fused form), still in bottom-up's favour, with no machinery on its side.
 
 ## Where it lands on the random corpora
@@ -174,30 +174,34 @@ Neutral runner, ns/leaf at n=1000 ([full tables](../FINDINGS.md#cross-language-r
 
 | | C++ | Rust | Python | Haskell |
 |---|--:|--:|--:|--:|
-| fastest classic tree builder | `ast-arena` 58 | `ast-arena` 66 | **`ast-pratt` 2 264** | **`ast-rd` 458** |
-| **`multipass-reverse-fold`** | **56** | 65 | 2 470 | 532 |
-| `multipass-reverse` | 80 | 87 | 3 402 | 721 |
-| best *top-down* multipass | `direct-mp` 83 | `direct-mp` 154 | `direct-mp` 4 133 | `multipass` 830 |
-| fastest *no-tree* classic | `direct-sy` 40 | **`direct-rd` 44** | `direct-rd` 2 099 | **`direct-rd` 460** |
-| **`direct-reverse`** | 40 | 47 | 2 089 | 482 |
-| *`direct-scannerless`* (lexer-free control) | *32* | *29* | *1 691* | *412* |
+| fastest classic tree builder | `ast-arena` 58 | **`ast-arena` 66** | `ast-pratt` 2 257 | **`ast-rd` 464** |
+| **`multipass-reverse-fold`** | **56** | **66** | **2 256** ¹ | 538 |
+| `multipass-reverse` | 80 | 87 | 3 408 | 733 |
+| best *top-down* multipass | `direct-mp` 83 | `direct-mp` 154 | `direct-mp` 4 139 | `multipass` 840 |
+| fastest *no-tree* classic | **`direct-sy` 40** | **`direct-rd` 45** | `direct-rd` 2 116 | **`direct-rd` 463** |
+| **`direct-reverse`** | **40** | 47 | **2 059** | 491 |
+| *`direct-scannerless`* (lexer-free control) | *32* | *29* | *1 690* | *416* |
 
-Median of three CI runs on one CPU model (43186179671 / 43186221304 /
-43201629859, AMD EPYC 9V74, all four languages from commit a7f2a16, after
-the [same-rules tuning pass](../bench/TUNING.md); rustc 1.98.1). The
-buffered form beats the top-down family in every language. The fused form
-is the fastest tree builder in C++ (narrowly: +3…+5 % over `ast-arena` at
-every size, positive in all 12 size×run measurements), level with
-`ast-arena` in Rust (+0.6…+1.1 % at this size on this CPU, level at n=100,
-4–6 % behind on two other CPU models), and behind the
-hand-inlined pointer classics in Python (−8…−10 % vs `ast-pratt` at this
-size) and fourth in Haskell, where both pointer classics and `ast-arena`
-build faster. Its no-tree twin is level with the fastest no-tree classic
-in C++ (−0.2…+0.5 % vs `direct-sy`, +1…+2 % vs `direct-rd`) and in Python
-at this size (+0.2…+0.6 % vs `direct-rd`; clearly ahead only at n=10 and
-100), and behind `direct-rd` in Rust (−6…−7 %) and Haskell (−5…−6 %). Both share
-`ast-arena`'s two structural advantages — contiguous arena output and no
-per-node heap allocation — and the fused one adds a third: no recursion.
+¹ Nested tuples in Python, like `ast-pratt`; an arena in the other three
+languages ([TUNING.md](../bench/TUNING.md)).
+
+Median of three CI runs on one CPU model (43227113612 / 43227138258 /
+43231342538, AMD EPYC 9V74, all four languages from one commit, after the
+[same-rules tuning pass](../bench/TUNING.md) and the fold-only pass;
+rustc 1.98.1). The buffered form beats the top-down family in every
+language. The fused form is the fastest tree builder in C++ (narrowly:
++3…+5 % over `ast-arena` at every size, positive in all 12 size×run
+measurements), level with `ast-arena` in Rust (−1…+1 % at this size,
+−1.4…+2.0 % over all sizes on this CPU, 4–5 % behind on the EPYC 7763),
+level with `ast-pratt` in Python (−0.3…+0.9 % at this size, 5–8 % ahead of
+the fastest classic at n=10 and 100) and fourth in Haskell, where both
+pointer classics and `ast-arena` build faster. Its no-tree twin is level
+with the fastest no-tree classic in C++ (−0.2…0 % vs `direct-sy` at this
+size, +2…+3 % vs `direct-rd`), narrowly ahead of it in Python (+2…+3 % vs
+`direct-rd` at this size, +13…+17 % at n=10 and 100), and behind
+`direct-rd` in Rust (−6 %) and Haskell (−6 %). In C++ and Rust the fold
+shares `ast-arena`'s two structural advantages — contiguous arena output
+and no per-node heap allocation — and adds a third: no recursion.
 
 ## The fused variant
 
@@ -236,70 +240,74 @@ two policies) · [Rust](../rust/src/fold.rs) ·
 
 Neutral 4-vCPU CI runner (structured shapes at m=8192; full tables in
 [FINDINGS.md](../FINDINGS.md)), median of three CI runs
-(43186179671 / 43186221304 / 43201629859, commit a7f2a16, all on AMD EPYC
-9V74; rustc 1.98.1):
+(43227113612 / 43227138258 / 43231342538, all on AMD EPYC 9V74;
+rustc 1.98.1):
 
 | C++, ns/leaf | `mp-reverse-fold` | `ast-arena` | `direct-reverse` | `direct-rd` | `direct-sy` | *`direct-scannerless`* (control) |
 |---|--:|--:|--:|--:|--:|--:|
 | random corpus, n=1000 | 56 | 58 | 40 | 41 | 40 | *32* |
-| powchain (mixed precedence) | 26 | 30 | 20 | 22 | 22 | *21* |
-| towerchain (`^` run then `*` run) | 28 | 30 | 16 | 17 | 17 | *15* |
-| sumchain (single precedence) | 28 | 35 | 14 | 15 | 14 | *12* |
-| nestchain (deep parens) | 26 | 39 | 21 | 36 | 18 | *19* |
+| powchain (mixed precedence) | 27 | 30 | 20 | 22 | 22 | *21* |
+| towerchain (`^` run then `*` run) | 28 | 29 | 16 | 17 | 17 | *15* |
+| sumchain (single precedence) | 28 | 34 | 14 | 15 | 14 | *12* |
+| nestchain (deep parens) | 27 | 38 | 21 | 40 | 18 | *20* |
 
-The verdicts below use per-run ratios. For C++, whose code has not changed
-since, a margin that changed sign against the earlier same-CPU batches
-(2026-09-26, d2474e2, 7b83ad4) makes the verdict a tie even if this batch
-alone looks one-sided — see [bench/results/](../bench/results/README.md).
-The other languages' classics changed in the tuning pass, so their verdicts
-come from this batch alone.
+The verdicts below use per-run ratios, as time saved against the rival
+(1 − ours/rival). A margin that changed sign against an earlier same-CPU
+batch whose code on both sides is unchanged makes the verdict a tie even
+if this batch alone looks one-sided — see
+[bench/results/](../bench/results/README.md).
 
-Tree tier C++: the fastest tree builder on the random corpus (~4 % ahead of
-`ast-arena` on the n=1000 median, positive in all 12 size×run measurements,
-+3…+5 %) and on every structured shape, by 6–32 % depending on shape and
-run (towerchain the narrowest, +6…+7 %; nestchain the widest, +27…+32 %).
-No-tree tier C++: within ~3 % of `direct-rd` and `direct-sy` on the random
-corpus at ~40 ns/leaf — 1–3 % ahead of `direct-rd`, level with `direct-sy`
-(−1.3…+0.5 %). On structured shapes, against `direct-rd` it is ahead on
-powchain (+9 %), towerchain (+4…+10 %) and sumchain (+7…+9 %), and wins
-nestchain by 33–53 % (`direct-rd`'s recursion pays for the deep nesting
-that `direct-reverse` never recurses through); against `direct-sy` it is
-narrowly ahead on powchain (+8…+9 %), ties towerchain and sumchain
-(+5…+8 % and +3…+39 % in this batch — `direct-sy` has a slow mode on
-sumchain — but −1…0 % and −4 % on 2026-09-26), and loses nestchain
-(−17…−15 %).
+Tree tier C++: the fastest tree builder on the random corpus (+3…+5 %
+over `ast-arena`, positive in all 12 size×run measurements) and on every
+structured shape, by 3–32 % depending on shape and run (towerchain the
+narrowest, +3…+14 %; nestchain the widest, +23…+32 %). No-tree tier C++:
+within ~3 % of `direct-rd` and `direct-sy` on the random corpus at
+~40 ns/leaf — 2–3 % ahead of `direct-rd`, level with `direct-sy`
+(−1.5…+0.3 %). On structured shapes, against `direct-rd` it is ahead on
+powchain (+9…+10 %), towerchain (+8…+9 %) and sumchain (+7…+8 %), and
+wins nestchain by 45–48 % (`direct-rd`'s recursion pays for the deep
+nesting that `direct-reverse` never recurses through); against
+`direct-sy` it is narrowly ahead on powchain (+8…+10 %), ties towerchain
+and sumchain (+5…+7 % and +3…+4 % in this batch, but −1…0 % and −4 % on
+2026-09-26), and loses nestchain (−21…−16 %).
 
 Rust reproduces similar tiers, with the tuned `direct-rd` as the
 exception. The fold is level with `ast-arena` on the random corpus
-(+0.6…+1.8 % at n=10, 1000 and 10000, level at n=100; a tie over the
-earlier batches of the old code), narrowly ahead on powchain (+1 %),
-towerchain (+4…+8 %) and sumchain (+2…+4 %), and clearly ahead on
-nestchain (+31…+36 %). `direct-reverse` loses to `direct-rd` on the random
-corpus (−3…−4 % at n=10, −5…−7 % above) — `direct-rd` gained 7–10 % from
-the level-aware builder forms the C++ one already had — but is ahead of it
-on every structured shape (+2 % powchain, +21 % towerchain, +14 % sumchain,
-+7 % nestchain), and against `direct-sy` it wins every structured shape
-(+15…+27 %). The random-corpus tree margin is hardware-dependent: on three
-EPYC 7763 runs and three Xeon 8573C runs of the same commit the fold
-trails `ast-arena` by 4–6 % on the random corpus.
+(−1.4…+2.0 % over the four sizes) and powchain (−1…+2 %), narrowly ahead
+on towerchain (+6…+7 %) and sumchain (+2 %),
+and clearly ahead on nestchain (+29…+34 %). `direct-reverse` loses to
+`direct-rd` on the random corpus (−3 % at n=10, −5…−6 % above) —
+`direct-rd` gained 7–10 % from the level-aware builder forms the C++ one
+already had — but is ahead of it on every structured shape (+2 %
+powchain, +12…+17 % towerchain, +14 % sumchain, +7 % nestchain), and
+against `direct-sy` it wins every structured shape (+15…+27 %). The
+random-corpus tree margin is hardware-dependent: on three EPYC 7763 runs
+of the same commit the fold trails `ast-arena` by 4–5 %. Moving its stacks
+from push/pop to pre-sized buffers indexed by locals, as in C++, did not
+pay: the A/B gain on the corpus was matched by untouched strategies in the
+same binary ([TUNING.md](../bench/TUNING.md)).
 
 Python: after the same-rules tuning pass hand-inlined the classics (+5…+10 %
-on the corpus), the fold is no longer the fastest tree builder at any size
-— it trails `ast-shunting-yard` by 0–3 % at n=10 and 100 and `ast-pratt`
-by 8–10 % at n=1000 (2 470 vs 2 264 ns/leaf) and 1–2 % at n=10000, and on
-the structured shapes it trails `ast-pratt` by 8–15 %. `direct-reverse` is
-clearly ahead of `direct-rd` at n=10 and 100 (+9…+12 %), level at n=1000
-(2 089 vs 2 099), narrowly behind at n=10000 (−1 %), and ahead of
-`direct-sy` at every size (+3…+6 %); on the shapes it loses powchain to
-`direct-rd` (−5…−6 %), ties sumchain and is clearly ahead on towerchain
-(+5…+7 %) and nestchain (+6…+8 % over `direct-sy`, +21…+22 % over
-`direct-rd`, whose call per grammar level per leaf is what deep nesting
-multiplies). Haskell: the fold, like every arena form there, trails the
-pointer classics, by ~1.15× up to n=1000 and ~1.3× at n=10000 (~1.2× and
-~1.4× before the shared arena carrier was made strict, a change that lands
-on every arena strategy alike); `direct-reverse` trails `direct-rd` by
-2–13 % at every size, in every run, ties it on sumchain and trails it by
-3–15 % on the other shapes.
+on the corpus), the fold had fallen behind `ast-pratt` (−8…−10 % at
+n=1000). The fold-only pass found that most of that was the arena, not the
+algorithm: a list of tuples indexed by int is no closer to the hardware
+than nested tuples in CPython, only slower (`ast-arena` trails `ast-rd` by
+the same margin). Built from nested tuples, like the classics, and with
+one Python call skipped per barrier, the fold is level with `ast-pratt` at
+n=1000 and 10000 (−0.3…+2.6 %) and 5–8 % ahead of the fastest classic at
+n=10 and 100; on the structured shapes it ties `ast-pratt` on nestchain
+(0…+2 %) and trails it on the other three (−13…−1 %). `direct-reverse` is
+ahead of `direct-rd` at every size (+13…+17 % at n=10 and 100, +1…+3 %
+above) and of `direct-sy` by 6–9 %; on the shapes it loses powchain to
+`direct-rd` (−5…−3 %), is narrowly ahead on sumchain (+1…+3 %) and clearly
+ahead on towerchain (+6 %) and nestchain (+10…+12 % over `direct-sy`,
++23…+25 % over `direct-rd`, whose call per grammar level per leaf is what
+deep nesting multiplies). Haskell: the fold, like every arena form there,
+trails the pointer classics, by ~1.1–1.2× up to n=1000 and ~1.3× at
+n=10000 (~1.2× and ~1.4× before the shared arena carrier was made strict,
+a change that lands on every arena strategy alike); `direct-reverse`
+trails `direct-rd` by 2–10 % at every size, in every run, ties it on
+powchain and sumchain and trails it by 1–12 % on the other two shapes.
 
 The *pedagogical* `multipass-reverse` (buffered item list, three explicit
 passes) stays in the suite because it is the version the walk-through above

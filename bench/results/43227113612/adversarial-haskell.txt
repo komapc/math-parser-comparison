@@ -1,0 +1,74 @@
+== Haskell: adversarial chains (structured inputs) ==
+
+-- powchain: b^e * b^e / ... (mixed precedence) --
+strategy                         m=256      m=1024      m=4096   (ns/leaf; flat = linear, ~4x/col = quadratic)
+ast-recursive-descent              211         189         198
+ast-shunting-yard                  249         244         269
+ast-pratt                          218         183         207
+ast-arena                          230         203         227
+multipass                          474         444         478
+multipass-arena                    518         499         565
+direct-mp                          503         480         567
+multipass-bfs                      670         799        1213
+multipass-reverse                  294         271         303
+multipass-reverse-fold             235         206         243
+direct-recursive-descent           205         180         191
+direct-shunting-yard               264         273         281
+direct-reverse                     212         191         211
+direct-scannerless                 194         183         178
+bytecode-vm                        259         248         265
+
+-- towerchain: 1^1^...^1 * 1 * ... (flat-check attack) --
+strategy                         m=256      m=1024      m=4096   (ns/leaf; flat = linear, ~4x/col = quadratic)
+ast-recursive-descent              185         177         191
+ast-shunting-yard                  223         233         246
+ast-pratt                          195         189         191
+ast-arena                          209         209         213
+multipass                          532         510         527
+multipass-arena                    568         551         561
+direct-mp                          537         497         521
+multipass-bfs                      830         952        1283
+multipass-reverse                  284         265         262
+multipass-reverse-fold             218         204         215
+direct-recursive-descent           186         180         190
+direct-shunting-yard               239         237         264
+direct-reverse                     198         182         198
+direct-scannerless                 180         181         182
+bytecode-vm                        240         251         253
+
+-- sumchain: 1 + 2 - 3 + ... (single precedence — control) --
+strategy                         m=256      m=1024      m=4096   (ns/leaf; flat = linear, ~4x/col = quadratic)
+ast-recursive-descent              212         199         199
+ast-shunting-yard                  249         273         272
+ast-pratt                          207         206         206
+ast-arena                          234         219         227
+multipass                          352         318         312
+multipass-arena                    389         370         362
+direct-mp                          362         335         338
+multipass-bfs                      386         376         356
+multipass-reverse                  330         323         322
+multipass-reverse-fold             269         249         238
+direct-recursive-descent           208         205         199
+direct-shunting-yard               261         276         286
+direct-reverse                     215         215         200
+direct-scannerless                 195         188         185
+bytecode-vm                        256         268         274
+
+-- nestchain: (((...(1 + 1)...) + 1) (deep nesting — bottom-up's turn) --
+strategy                         m=256      m=1024      m=4096   (ns/leaf; flat = linear, ~4x/col = quadratic)
+ast-recursive-descent              237         244         233
+ast-shunting-yard                  308         317         355
+ast-pratt                          232         211         223
+ast-arena                          259         243         248
+multipass                          527         469         510
+multipass-arena                    544         527         577
+direct-mp                          515         498         560
+multipass-bfs                      533         511         590
+multipass-reverse                  428         407         448
+multipass-reverse-fold             288         256         273
+direct-recursive-descent           235         206         225
+direct-shunting-yard               325         323         368
+direct-reverse                     257         235         246
+direct-scannerless                 213         193         202
+bytecode-vm                        315         304         341
+

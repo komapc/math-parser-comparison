@@ -17,8 +17,9 @@ the compared strategies. Scoreboard cells are then labelled over every run of
 every batch with the same thresholds, so a margin that only clears a label
 boundary in one batch does not get that label. Ranges printed are still the
 main batch's; a label the main batch alone would not give is marked with a
-dagger. NOT_POOLED lists the scoreboard columns whose rivals' code changed
-between the --prior batches and the main one; those use the main batch only.
+dagger. Give --prior batches newest first: POOL_DEPTH says how many of them
+each scoreboard column may pool with (only batches whose code on both sides
+of that comparison is unchanged).
 """
 import os, re, statistics as st, sys
 
@@ -208,16 +209,21 @@ def cellstr(rival, lo, hi, plo=None, phi=None):
     return f"{lab}{mark} ({rng} vs `{SHORT[rival]}`)"
 
 
-# Rust's top-down family (direct-mp, the family rival, included) lost its
-# per-eval token Vec, sparse-table and stack allocations in 7b83ad4/d2474e2.
-# C++ direct-mp (multipass_lean.cpp), Python and Haskell are unchanged.
-# 2026-11 same-rules tuning (bench/TUNING.md) changed the code on both sides
-# of every Python column and the classics of the Rust and Haskell tree/direct
-# columns; only C++ and the Haskell family column are unchanged.
-NOT_POOLED = {("family", "rust"),
-              ("tree", "python"), ("direct", "python"), ("family", "python"),
-              ("tree", "rust"), ("direct", "rust"),
-              ("tree", "haskell"), ("direct", "haskell")}
+# How many of the --prior batches (given newest first) each scoreboard
+# column may pool with: a column pools only with batches whose code on both
+# sides of the comparison is unchanged. Batches: a7f2a16 (2026-11-12),
+# 7b83ad4 (2026-11-10), d2474e2 (2026-11-10), 921ec7f (2026-09-26).
+# - 2026-11 fold pass (bench/TUNING.md): every Python column changed -> 0.
+# - 2026-11 same-rules tuning, 7b83ad4 -> a7f2a16: the Rust and Haskell
+#   classics changed -> their tree/direct columns pool with a7f2a16 only.
+# - Rust's top-down family (multipass.rs, incl. direct-mp) lost per-eval
+#   allocations up to 7b83ad4 -> the Rust family column pools with two.
+# - C++ multipass/-arena/-bfs changed after 921ec7f -> C++ family pools
+#   with three. C++ tree/direct and the Haskell family are unchanged.
+POOL_DEPTH = {("tree", "cpp"): 4, ("direct", "cpp"): 4, ("family", "cpp"): 3,
+              ("tree", "rust"): 1, ("direct", "rust"): 1, ("family", "rust"): 2,
+              ("tree", "python"): 0, ("direct", "python"): 0, ("family", "python"): 0,
+              ("tree", "haskell"): 1, ("direct", "haskell"): 1, ("family", "haskell"): 4}
 
 
 def scoreboard(D, rule="median", priors=()):
@@ -234,7 +240,7 @@ def scoreboard(D, rule="median", priors=()):
                     if kind == "bench":
                         return [{s: r[s][i] for s in r} for r in DD[l]["bench"]]
                     return [{s: r[name][s][-1] for s in r[name]} for r in DD[l]["adv"]]
-                pv = [] if (title, l) in NOT_POOLED else [x for P in priors for x in vals(P)]
+                pv = [x for P in priors[:POOL_DEPTH[(title, l)]] for x in vals(P)]
                 rival, lo, hi, fac, plo, phi = compare(vals(D), me, pool, rule, pv)
                 if title == "tree" and l == "haskell" and phi <= -0.5:
                     a, b = f"{fac[0]:.1f}", f"{fac[-1]:.1f}"

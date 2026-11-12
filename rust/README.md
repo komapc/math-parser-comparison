@@ -43,31 +43,35 @@ make one per node.
 
 | tier | C++ | Rust |
 |---|--:|--:|
-| no tree (`direct-rd` / `direct-sy` / `direct-reverse`) | 41 / 40 / 40 | 44 / 46 / 47 |
-| contiguous tree (`ast-arena` / `multipass-reverse-fold`) | 58 / 56 | 66 / 65 |
-| pointer tree (`ast-rd` / `ast-pratt`) | 108 / 107 | 109 / 108 |
+| no tree (`direct-rd` / `direct-sy` / `direct-reverse`) | 41 / 40 / 40 | 45 / 46 / 47 |
+| contiguous tree (`ast-arena` / `multipass-reverse-fold`) | 58 / 56 | 66 / 66 |
+| pointer tree (`ast-rd` / `ast-pratt`) | 108 / 108 | 109 / 109 |
 | buffered bottom-up (`multipass-reverse`) | 80 | 87 |
-| bytecode-vm | 52 | 61 |
+| bytecode-vm | 53 | 61 |
 | lexer-free control (`direct-scannerless`) | 32 | 29 |
 
-Same tiers to within a few percent (n=1000; runs 43186179671, 43186221304,
-43201629859, both languages from commit a7f2a16, after the
+Same tiers to within a few percent (n=1000; runs 43227113612, 43227138258,
+43231342538, both languages from one commit, after the
 [same-rules tuning pass](../bench/TUNING.md), all three on one CPU model,
 AMD EPYC 9V74; rustc 1.98.1). Three differences worth naming. The fold's
-edge over `ast-arena` is smaller here than in C++: +0.6…+1.8 % at n=10,
-1000 and 10000 and level at n=100, against +3…+5 % in C++. Rust's
+edge over `ast-arena` does not survive here: −1.4…+2.0 % over the four
+sizes (a tie), against +3…+5 % in C++. Rust's
 `direct-rd` builds through the level-aware builder forms the C++ one
 already wrote inline (added in the tuning pass, +7…+10 %), and it is now
-the fastest real strategy here, 5–7 % ahead of `direct-reverse` on the
+the fastest real strategy here, 5–6 % ahead of `direct-reverse` on the
 random corpus from n=100 up. And the top-down family that lost its AVX2
 candidate scan in the port is slower in Rust: 1.3–1.9× behind C++ at
 n=1000, pointer `multipass` closest, `direct-mp` furthest. On the
-structured shapes the fold beats `ast-arena` on nestchain by 31–36 % and is
-narrowly ahead on towerchain (+4…+8 %), sumchain (+2…+4 %) and powchain
-(+1 %); `direct-reverse` is ahead of `direct-rd` on every structured shape
-(+2 % to +21 %). The random-corpus tree margin is hardware-dependent: on
-three EPYC 7763 runs and three Xeon 8573C runs of the same commit the fold
-trails `ast-arena` by 4–6 %. Full cross-language tables:
+structured shapes the fold beats `ast-arena` on nestchain by 29–34 %, is
+narrowly ahead on towerchain (+6…+7 %) and sumchain (+2 %) and level on
+powchain (−1…+2 %); `direct-reverse` is ahead of `direct-rd` on every
+structured shape (+2 % to +17 %). The random-corpus tree margin is
+hardware-dependent: on three EPYC 7763 runs of the same commit the fold
+trails `ast-arena` by 4–5 %. A fold-only tuning pass tried pre-sized stacks
+indexed by locals, as in C++ (safe, bounds-checked): the corpus gain was
+matched by untouched strategies in the same binary and `direct-reverse`
+lost 1.5–2 % on powchain, so it was not kept
+([TUNING.md](../bench/TUNING.md)). Full cross-language tables:
 [FINDINGS.md](../FINDINGS.md), [docs/one-pager.md](../docs/one-pager.md).
 
 ## What the port was for
@@ -78,10 +82,11 @@ Two questions the C++ numbers left open:
    answer is mixed. The overall tiers are not a GCC story: the `direct-*`
    tier matches within a few percent of C++ in instructions, cycles and
    branch misses on the same laptop (`perf stat`, n=1000 corpus). But the
-   fold's specific ~3–5 % edge over `ast-arena` only partly reproduces —
-   on the CI runner LLVM leaves the fold 0.6–1.8 % ahead on one CPU model
-   and 4–6 % behind on two others — so that sliver looks compiler- and
-   hardware-sensitive even though the tier ordering around it is real.
+   fold's specific ~3–5 % edge over `ast-arena` does not reproduce —
+   on the CI runner LLVM leaves the fold level with it on one CPU model
+   (−1.4…+2.0 %) and 4–5 % behind on another — so that sliver looks
+   compiler- and hardware-sensitive even though the tier ordering around
+   it is real.
    The CI tables in the top-level README carry the neutral-runner numbers.
 2. **Does the fold survive safe Rust?** The C++ fold's last 10 % came from
    pre-sized raw buffers indexed by locals instead of `std::vector`

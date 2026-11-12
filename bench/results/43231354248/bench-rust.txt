@@ -1,0 +1,19 @@
+== Rust: shared-corpus benchmark ==
+
+strategy                          n=10       n=100      n=1000     n=10000
+--------------------------------------------------------------------------
+ast-recursive-descent            121.3       128.0       131.3       136.8
+ast-shunting-yard                123.8       132.6       136.1       138.9
+ast-pratt                        120.0       127.9       131.0       133.5
+ast-arena                         73.5        75.7        76.4        77.2
+multipass                        197.3       227.3       261.0       298.2
+multipass-arena                  147.0       174.9       202.3       238.1
+direct-mp                        129.6       154.5       181.6       217.5
+multipass-bfs                    157.9       187.5       224.3       271.5
+multipass-reverse                101.2       103.2       105.3       106.0
+multipass-reverse-fold            77.6        79.6        80.3        81.2
+direct-recursive-descent          49.9        50.7        50.9        50.4
+direct-shunting-yard              56.2        58.1        58.4        58.5
+direct-reverse                    57.6        58.3        58.2        58.4
+direct-scannerless                32.6        33.3        33.5        33.5
+bytecode-vm                       68.6        71.6        72.7        73.3

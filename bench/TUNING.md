@@ -104,3 +104,24 @@ Six went for it, and none comes from the fold getting faster:
   is run-to-run noise.
 - **Haskell, no-tree form:** sumchain, loses → tie.
 
+
+### After the fold-only pass
+
+The tables were then regenerated from runs 43227113612, 43227138258 and
+43231342538 (2026-11-12, EPYC 9V74), which include the two kept Python
+changes. Against the batch above, 11 of the 72 labels changed:
+
+- **Python, from the code change:** tree form at n=1000, n=10000 and
+  nestchain (loses → tie, all against `ast-pratt`); no-tree form at
+  n=1000, n=10000 and sumchain (tie or loses → narrowly ahead of
+  `direct-rd`).
+- **Unchanged code, batch-to-batch movement:** Rust tree form on the
+  corpus at both sizes and on powchain (narrowly ahead → tie, against
+  `ast-arena`; this batch alone gives the same labels); C++ tree form on
+  towerchain (best → narrowly ahead, +3…+14 % across runs); Haskell
+  no-tree form on powchain (loses → tie).
+
+Three went against the fused form, all in code that did not change. The
+pooling depth per column (`POOL_DEPTH` in `tables.py`) now lists which
+earlier batches still share both sides' code with this one; see
+[results/README.md](results/README.md).
