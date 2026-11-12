@@ -50,29 +50,31 @@ tiers, not the digits.** Reproduce locally with `cabal run bench`.
 
 | strategy | n=10 | n=100 | n=1000 | n=10000 |
 |---|--:|--:|--:|--:|
-| ast-recursive-descent | 545 | 503 | **594** | **525** |
-| ast-shunting-yard | 614 | 583 | 694 | 723 |
-| ast-pratt | **530** | 506 | 603 | 525 |
-| ast-arena | 578 | 548 | 651 | 620 |
-| multipass | 833 | 825 | 966 | 1 075 |
-| multipass-arena | 925 | 904 | 1 062 | 1 214 |
-| direct-mp | 878 | 861 | 1 005 | 1 117 |
-| multipass-bfs | 1 072 | 1 084 | 1 262 | 1 541 |
-| multipass-reverse | 783 | 726 | 852 | 910 |
-| multipass-reverse-fold | 621 | 566 | 670 | 644 |
-| direct-recursive-descent | 545 | **498** | 600 | 530 |
-| direct-shunting-yard | 632 | 594 | 704 | 737 |
-| direct-reverse | 572 | 516 | 616 | 540 |
-| bytecode-vm | 646 | 607 | 717 | 754 |
-| *direct-scannerless* (control) | *490* | *450* | *535* | *501* |
+| ast-recursive-descent | 526 | 514 | **458** | **424** |
+| ast-shunting-yard | 604 | 598 | 559 | 634 |
+| ast-pratt | **526** | 520 | 471 | 444 |
+| ast-arena | 563 | 550 | 515 | 498 |
+| multipass | 790 | 808 | 830 | 1 050 |
+| multipass-arena | 875 | 892 | 921 | 1 210 |
+| direct-mp | 846 | 858 | 868 | 1 119 |
+| multipass-bfs | 1 033 | 1 064 | 1 115 | 1 665 |
+| multipass-reverse | 754 | 733 | 721 | 890 |
+| multipass-reverse-fold | 615 | 584 | 532 | 565 |
+| direct-recursive-descent | 531 | **510** | 460 | 425 |
+| direct-shunting-yard | 611 | 599 | 568 | 662 |
+| direct-reverse | 563 | 525 | 482 | 478 |
+| bytecode-vm | 628 | 598 | 583 | 664 |
+| *direct-scannerless* (control) | *485* | *454* | *412* | *426* |
 
-Median of three CI runs on one CPU model, AMD EPYC 9V74 (42805297064 /
-42806389267 / 42806442518, 2026-11-10, commit 7b83ad4). Correctness: all
+Median of three CI runs on one CPU model, AMD EPYC 9V74 (43186179671 /
+43186221304 / 43201629859, 2026-11-12, commit a7f2a16, after the
+[same-rules tuning pass](../bench/TUNING.md), which made the recursive-descent
+and Pratt parsers strict in their (result, rest) pairs). Correctness: all
 corpus expressions agree across all 15 strategies. The leaders are a
 cluster: the pointer classics `ast-recursive-descent` and `ast-pratt` and the
 no-tree `direct-recursive-descent` take the four sizes between them, within
-~5 % of each other, with `direct-reverse` 2–5 % behind `direct-rd` in every
-run. Before 2026-09-25 the `direct-*` forms led here. The registry helpers
+~5 % of each other, with `direct-reverse` 2–13 % behind `direct-rd` in every
+run (most at n=10000). Before 2026-09-25 the `direct-*` forms led here. The registry helpers
 that build the tree strategies were then marked `INLINE`, and GHC Core shows
 their dictionary-passing workers gone (`$wmkAst`/`$wmkArena`: 11 → 0); since
 then the pointer classics sit level with or ahead of `direct-rd`.
@@ -86,14 +88,14 @@ the ratios: the tiers hold in every run (the fold behind `ast-rd`,
 cluster is too close to call. The n=10000 column is the least clean — the
 heap carries over from one strategy to the next within a round, and the
 arena forms lose most ground there. The spread is ~2.2× fastest-to-slowest
-on the median (vs C++'s ~3.9×, Python's ~2.5×); the pointer classics lead
-every arena form, from ~1.1–1.2× at the tight end (`ast-arena`) to
-~1.9–3.1× at the wide end (`multipass-bfs`), and "no tree" buys nothing
+on the median (vs C++'s ~4×, Python's ~2.5×); the pointer classics lead
+every arena form, from ~1.07–1.17× at the tight end (`ast-arena`) to
+~2.0–3.9× at the wide end (`multipass-bfs`), and "no tree" buys nothing
 here. `multipass-reverse` beats `multipass-arena`/`-bfs` at every size; the
 `multipass-bfs` growth at n=10000 is the sparse-table build cost. The
 lexer-free `direct-scannerless` is a control, not a contender: it sits
-~8–13 % below `direct-rd` up to n=1000 (between 3 % above and 7 % below
-it at n=10000) — the lazy token
+~9–11 % below `direct-rd` up to n=1000 (level with it at n=10000) — the
+lazy token
 list already fuses with its consumer, so the lexer is a smaller share here
 than in the other three languages.
 
