@@ -43,28 +43,31 @@ make one per node.
 
 | tier | C++ | Rust |
 |---|--:|--:|
-| no tree (`direct-rd` / `direct-sy` / `direct-reverse`) | 41 / 40 / 40 | 47 / 51 / 47 |
-| contiguous tree (`ast-arena` / `multipass-reverse-fold`) | 58 / 56 | 65 / 64 |
+| no tree (`direct-rd` / `direct-sy` / `direct-reverse`) | 41 / 40 / 40 | 44 / 46 / 47 |
+| contiguous tree (`ast-arena` / `multipass-reverse-fold`) | 58 / 56 | 66 / 65 |
 | pointer tree (`ast-rd` / `ast-pratt`) | 108 / 107 | 109 / 108 |
-| buffered bottom-up (`multipass-reverse`) | 80 | 86 |
-| bytecode-vm | 53 | 61 |
+| buffered bottom-up (`multipass-reverse`) | 80 | 87 |
+| bytecode-vm | 52 | 61 |
 | lexer-free control (`direct-scannerless`) | 32 | 29 |
 
-Same tiers to within a few percent (n=1000; runs 42805297064, 42806389267,
-42806442518, both languages from commit 7b83ad4, all three on one CPU
-model, AMD EPYC 9V74; rustc 1.98.1). Two differences worth naming: the
-fold's small edge over `ast-arena` in C++ does not reproduce here — Rust is
-a tie from n=100 up (−1…+2 % in every run) and ahead only at n=10 (+3…+4 %) —
-and the top-down family that lost its AVX2 candidate scan in the port is
-slower in Rust: 1.3–1.8× behind C++ at n=1000, pointer `multipass` closest,
-`direct-mp` furthest. On the structured shapes the fold beats `ast-arena` on
-nestchain by 30–33 % and on towerchain by 5–12 % in every run, and ties on
-sumchain (+4…+5 % in this batch, but +0.2 % in one run of an earlier batch)
-and powchain (+1 %); `direct-reverse` is level with `direct-rd` on the random
-corpus (0…+2 % across sizes and runs) and ahead of it on every structured
-shape. Both random-corpus ties are hardware-dependent: on three EPYC 7763
-runs of the same commit the fold trails `ast-arena` by 3–5 % and
-`direct-reverse` trails `direct-rd` by 6–10 % on the random corpus. Full cross-language tables:
+Same tiers to within a few percent (n=1000; runs 43186179671, 43186221304,
+43201629859, both languages from commit a7f2a16, after the
+[same-rules tuning pass](../bench/TUNING.md), all three on one CPU model,
+AMD EPYC 9V74; rustc 1.98.1). Three differences worth naming. The fold's
+edge over `ast-arena` is smaller here than in C++: +0.6…+1.8 % at n=10,
+1000 and 10000 and level at n=100, against +3…+5 % in C++. Rust's
+`direct-rd` builds through the level-aware builder forms the C++ one
+already wrote inline (added in the tuning pass, +7…+10 %), and it is now
+the fastest real strategy here, 5–7 % ahead of `direct-reverse` on the
+random corpus from n=100 up. And the top-down family that lost its AVX2
+candidate scan in the port is slower in Rust: 1.3–1.9× behind C++ at
+n=1000, pointer `multipass` closest, `direct-mp` furthest. On the
+structured shapes the fold beats `ast-arena` on nestchain by 31–36 % and is
+narrowly ahead on towerchain (+4…+8 %), sumchain (+2…+4 %) and powchain
+(+1 %); `direct-reverse` is ahead of `direct-rd` on every structured shape
+(+2 % to +21 %). The random-corpus tree margin is hardware-dependent: on
+three EPYC 7763 runs and three Xeon 8573C runs of the same commit the fold
+trails `ast-arena` by 4–6 %. Full cross-language tables:
 [FINDINGS.md](../FINDINGS.md), [docs/one-pager.md](../docs/one-pager.md).
 
 ## What the port was for

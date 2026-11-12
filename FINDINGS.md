@@ -75,85 +75,82 @@ Median ns/leaf across the four sizes (n=10…10000), normalised to each
 language's fastest *real* strategy (the lexer-free control is excluded from
 the baseline, shown in italics against it instead) — the column shows
 *ranking*, not cross-language speed. Neutral 4-vCPU GitHub runner, median
-of three independent CI runs of one commit (42805297064, 42806389267,
-42806442518, 2026-11-10, commit 7b83ad4), all three on one CPU model (AMD
-EPYC 9V74, read from each run's `env.txt`). EPYC 9V74 is the model this
-repo publishes; 12 runs of the commit were dispatched and these are the
-first three, in dispatch order, that landed on it — the rest (three EPYC
-7763, two 9V45, Xeon 8370C, two Xeon 8573C, one later 9V74) are not mixed
-in. Ratios do shift between models: on three EPYC 7763 runs of the same
-commit (42805321027 / 42805332588 / 42806415065) Rust's fold trails
-`ast-arena` by 3–5 % on the random corpus and its `direct-reverse` trails
-`direct-rd` by 6–10 %, where on the 9V74 both are ties. Against the
-published labels, 14 of the 72 scoreboard cells read differently on the
-7763: Rust tree n=1000, n=10000 and powchain (tie → loses), Rust direct
-n=1000, n=10000 (tie → loses) and powchain (narrowly ahead → loses),
-Python direct powchain (tie → loses), C++ tree sumchain (best → tie) and
-nestchain (best → narrowly ahead), C++ direct n=10000 (loses → tie), and
-Haskell direct n=1000 and sumchain (loses → tie) and towerchain (tie →
-narrowly ahead), and C++ family sumchain (narrowly ahead → best) — see the [one-pager](docs/one-pager.md). Toolchains are pinned
-(GCC 14.2, rustc 1.98.1, GHC 9.6.7, cabal 3.10.3.0, the image's Python
-3.12), and within each run the strategies are timed round-robin, so drift
-on the runner falls on all of them alike. The three runs agree in absolute
-terms to within a few per cent; the previous published batch (2026-09-26)
-had one run ~1.3× slower across the board on the same CPU model, with
-ratios within the run unaffected.
+of three independent CI runs of one commit (43186179671, 43186221304,
+43201629859, 2026-11-12, commit a7f2a16 — source-identical to `main` after
+the [same-rules tuning pass](bench/TUNING.md), PRs #25–#28), all three on
+one CPU model (AMD EPYC 9V74, read from each run's `env.txt`). EPYC 9V74 is
+the model this repo publishes; 12 runs of the commit were dispatched and
+these are the first three, in dispatch order, that landed on it — the rest
+(two later 9V74, four EPYC 7763, three Xeon 8573C) are not mixed in.
+Ratios do shift between models: on three EPYC 7763 runs of the same commit
+(43186189949 / 43186200491 / 43201661232) and on three Xeon 8573C runs
+(43186170714 / 43186210593 / 43201619944) 14 of the 72 scoreboard cells
+each read differently — on both, Rust's fold *loses* to `ast-arena` on the
+random corpus by 4–6 % where on the 9V74 it is narrowly ahead; the full
+list, for and against the fold, is in the [one-pager](docs/one-pager.md).
+Toolchains are pinned (GCC 14.2, rustc 1.98.1, GHC 9.6.7, cabal 3.10.3.0,
+the image's Python 3.12), and within each run the strategies are timed
+round-robin, so drift on the runner falls on all of them alike. The three
+runs agree in absolute terms to within a few per cent; an earlier batch
+(2026-09-26) had one run ~1.3× slower across the board on the same CPU
+model, with ratios within the run unaffected.
 **Trust the tiers, not the digits** (each `1.0` marks a cluster of
 near-ties, not a clear winner).
 
-**Labels across batches.** Three batches of three runs now exist on the
-EPYC 9V74: 2026-09-26 (921ec7f: 36226353574 / 36226831278 / 36227295521)
-and two on 2026-11-10 (d2474e2: 42791921436 / 42791964111 / 42793955904,
-and the published 7b83ad4 batch). The code differs between them only in the
-top-down family and in error and long-exponent paths, so the fused form,
-`direct-reverse`, the classics, C++ `direct-mp` and the Python and Haskell
-families are the same in all nine runs. Even so, 8 of the 72 scoreboard
-labels changed between the 2026-09-26 batch and the published one (the
-runner image moved from 20260920 to 20261101 and the kernel from 6.17 to
-7.0 in between; the two same-day batches differ in a few cells as well) —
-three runs alone do not pin a label down. Every scoreboard cell except the
-Rust family column is therefore labelled over all nine runs, with the same
-thresholds (`bench/tables.py --prior`; command in
-[`bench/results/`](bench/results/README.md)); every number printed is
-still the published batch's. Eight labels differ from what the published
-batch alone gives, marked † in the [one-pager](docs/one-pager.md). Seven go
-against the fold: Rust tree powchain and sumchain (narrowly ahead → tie),
-C++ direct powchain (best → narrowly ahead), C++ direct towerchain (best →
-tie), C++ direct sumchain and Haskell direct towerchain (narrowly ahead →
-tie) and C++ family sumchain (best → narrowly ahead). Some of these are sign changes between
-batches, others only a run that falls short of a label boundary. One is in
-its favour: Python tree nestchain, which loses by 2 % in all three
-published runs, reads tie because one run in each earlier batch had it
-+0.2 % ahead (it was a tie in the 2026-09-26 tables too). The Rust family
-column is not pooled: Rust's `direct-mp`, its rival there, changed in
-between (below).
+**Labels across batches.** Four batches of three runs now exist on the
+EPYC 9V74: 2026-09-26 (921ec7f: 36226353574 / 36226831278 / 36227295521),
+two on 2026-11-10 (d2474e2: 42791921436 / 42791964111 / 42793955904;
+7b83ad4: 42805297064 / 42806389267 / 42806442518) and this one. Between
+the first three only the top-down family and error and long-exponent paths
+changed, yet 8 of the 72 scoreboard labels moved between 2026-09-26 and
+2026-11-10 (the runner image moved from 20260920 to 20261101 and the kernel
+from 6.17 to 7.0 in between) — three runs alone do not pin a label down.
+So a column whose code is unchanged across batches is labelled over all of
+them, with the same thresholds (`bench/tables.py --prior`; command in
+[`bench/results/`](bench/results/README.md)); every number printed is still
+this batch's. Since the tuning pass touched every Python column and the
+Rust and Haskell classics, and #20 the Rust family, only the C++ columns
+and the Haskell family column are pooled now, over twelve runs. Not
+pooling works in the fold's favour in one place: Rust's tree column reads
+*ahead, narrowly* on the random corpus, powchain and sumchain, where nine
+runs of the old code read *tie*. `ast-arena`, its rival there, is built by
+the recursive-descent parser the tuning pass changed, so it cannot be
+pooled, even though its own A/B was flat. Three
+labels differ from what this batch alone gives, marked † in the
+[one-pager](docs/one-pager.md), all against the fold: C++ direct powchain
+(best → narrowly ahead), towerchain (best → tie) and sumchain (narrowly
+ahead → tie). C++ family sumchain is labelled *ahead, narrowly* by hand:
+on the run medians the closest family member is `multipass-arena`
+(+23…+24 %), but the bimodal `direct-mp` comes within +6 % in one run here
+and +4 % in one 2026-09-26 run.
 
 | strategy | C++ ×fastest | Rust ×fastest | Python ×fastest | Haskell ×fastest |
 |---|--:|--:|--:|--:|
-| ast-recursive-descent | 2.6 | 2.3 | 1.3 | **1.0** |
-| ast-shunting-yard | 2.6 | 2.4 | 1.2 | 1.2 |
-| ast-pratt | 2.6 | 2.3 | 1.2 | **1.0** |
-| **ast-arena** | 1.4 | 1.4 | 1.4 | 1.1 |
-| multipass (pointer) | 3.9 | 4.4 | 2.0 | 1.7 |
-| multipass-arena | 2.6 | 3.4 | 2.1 | 1.9 |
-| direct-mp | 2.1 | 3.0 | 1.9 | 1.8 |
-| multipass-bfs (sparse RMQ) | 2.8 | 3.7 | 2.5 | 2.2 |
-| multipass-reverse | 2.0 | 1.8 | 1.7 | 1.6 |
-| **multipass-reverse-fold** | 1.4 | 1.4 | 1.2 | 1.2 |
+| ast-recursive-descent | 2.6 | 2.4 | 1.2 | **1.0** |
+| ast-shunting-yard | 2.6 | 2.5 | 1.1 | 1.2 |
+| ast-pratt | 2.6 | 2.4 | 1.1 | **1.0** |
+| **ast-arena** | 1.4 | 1.5 | 1.3 | 1.1 |
+| multipass (pointer) | 4.0 | 4.6 | 2.0 | 1.7 |
+| multipass-arena | 2.6 | 3.6 | 2.1 | 1.9 |
+| direct-mp | 2.1 | 3.2 | 1.9 | 1.8 |
+| multipass-bfs (sparse RMQ) | 2.8 | 3.9 | 2.5 | 2.2 |
+| multipass-reverse | 2.0 | 2.0 | 1.7 | 1.5 |
+| **multipass-reverse-fold** | 1.4 | 1.5 | 1.2 | 1.2 |
 | direct-recursive-descent | **1.0** | **1.0** | 1.1 | **1.0** |
-| direct-shunting-yard | **1.0** | 1.1 | 1.1 | 1.3 |
-| direct-reverse | **1.0** | **1.0** | **1.0** | 1.1 |
-| bytecode-vm | 1.3 | 1.3 | 1.2 | 1.3 |
-| *direct-scannerless* (lexer-free control) | *0.8* | *0.6* | *0.8* | *0.9* |
+| direct-shunting-yard | **1.0** | **1.0** | 1.1 | 1.2 |
+| direct-reverse | **1.0** | 1.1 | **1.0** | **1.0** |
+| bytecode-vm | 1.3 | 1.4 | 1.1 | 1.3 |
+| *direct-scannerless* (lexer-free control) | *0.8* | *0.7* | *0.8* | *0.9* |
 
 Raw fastest, median ns/leaf: **C++ ≈ 40** (`direct-sy`, with
-`direct-reverse` within 1.5 % and `direct-rd` ~3 % behind), **Rust ≈ 46**
-(`direct-reverse`, with `direct-rd` within 1 %), **Haskell ≈ 528**
-(`ast-pratt`, with `ast-recursive-descent` and `direct-rd` within ~2 % and
-`direct-reverse` ~5 % behind), **Python ≈ 2 025** (`direct-reverse`,
-`direct-sy` ~12 % behind) — C++ and Rust are ~11–13× faster than Haskell
-and ~44–51× faster than Python in absolute terms. The lexer-free control
-sits at 32 / 29 / 495 / 1 685 (C++ / Rust / Haskell / Python). Absolute
+`direct-reverse` within 0.5 % and `direct-rd` ~3 % behind), **Rust ≈ 44**
+(`direct-rd`, with `direct-sy` ~3 % and `direct-reverse` ~7 % behind),
+**Haskell ≈ 485** (`direct-rd`, with `ast-recursive-descent` and `ast-pratt`
+within ~2 % and `direct-reverse` ~4 % behind), **Python ≈ 2 016**
+(`direct-reverse`, `direct-rd` and `direct-sy` ~6 % behind) — C++ and Rust
+are ~11–12× faster than Haskell and ~45–50× faster than Python in absolute
+terms. The lexer-free control sits at 32 / 29 / 440 / 1 695 (C++ / Rust /
+Haskell / Python). Absolute
 numbers are not comparable across batches — they moved ~1.3× between two
 9V74 batches of near-identical code, and within the 2026-09-26 one — so
 only within-run ratios are compared. Haskell's run-to-run ratio spread fell 5–10× with the 64 MB
@@ -169,11 +166,12 @@ move.
    clusters, same ratios — under a different compiler (LLVM), so the tiers
    are the memory model's, not GCC's. Where the two differ is the top-down
    family (the Rust port has no SIMD candidate scan, so `multipass-arena` /
-   `direct-mp` sit at 3.0–3.4× instead of 2.1–2.6×) and the fused reducer's
-   sliver over `ast-arena`, which LLVM does not reproduce.
+   `direct-mp` sit at 3.2–3.6× instead of 2.1–2.6×) and the fused reducer's
+   sliver over `ast-arena`: +3…+5 % in C++, +1…+2 % under LLVM, and on
+   other CPU models the Rust one reverses.
 2. **Managed runtimes hide layout.** Boxed/GC'd nodes make contiguity
    invisible: `ast-arena` is *slower* than pointer-AST in Python and Haskell,
-   and "no tree" shrinks from C++'s ~2.5× to a ~20–30 % edge in Python and
+   and "no tree" shrinks from C++'s ~2.5× to a ~10–20 % edge in Python and
    to nothing in Haskell, where the tree-building `ast-pratt` and
    `ast-recursive-descent` and the no-tree `direct-rd` are within ~2 % of
    each other. That became visible once the Haskell
@@ -185,7 +183,7 @@ move.
    off nowhere on random corpora. The bottom-up member is the exception — see
    below.
 4. **Overhead compresses the spread:** fastest-to-slowest (max/min of medians)
-   is ~4× in C++, ~4.4× in Rust, ~2.5× in Python and ~2.2× in Haskell — a
+   is ~4× in C++, ~4.6× in Rust, ~2.5× in Python and ~2.2× in Haskell — a
    managed runtime's constant overhead narrows the gap between the fastest and
    slowest strategy, it doesn't widen it. (Haskell read ~1.7× until the
    number-parsing fix below removed a constant term from every strategy.)
@@ -280,17 +278,17 @@ runs; the ratio's range is over the three runs):
 
 | | `direct-rd` | `direct-scannerless` | control ÷ `direct-rd` |
 |---|--:|--:|--:|
-| C++ | 41 | 32 | 0.77 (0.77–0.77) |
-| Rust | 47 | 29 | 0.63 (0.63–0.63) |
-| Python | 2 325 | 1 685 | 0.72 (0.72–0.73) |
-| Haskell | 538 | 495 | 0.92 (0.91–0.93) |
+| C++ | 41 | 32 | 0.77 (0.77–0.78) |
+| Rust | 44 | 29 | 0.66 (0.65–0.66) |
+| Python | 2 129 | 1 695 | 0.80 (0.80–0.80) |
+| Haskell | 485 | 440 | 0.91 (0.90–0.99) |
 
-(Ratio: median of the three per-run ratios; runs 42805297064 / 42806389267 /
-42806442518.) C++ and Python pay roughly a quarter of `direct-rd`'s time
-for having a lexer at all, Rust over a third; in Haskell the control buys
-~7–9 % (~9–10 % in the 2026-09-26 batch) — measurable now that round-robin
-timing has tightened the Haskell runs, but still the smallest share of the
-four. The remaining gap is context: after an operand the fused
+(Ratio: median of the three per-run ratios; runs 43186179671 / 43186221304 /
+43201629859.) C++ pays roughly a quarter of `direct-rd`'s time for having a
+lexer at all, Python a fifth (a quarter before the same-rules tuning made
+`direct-rd` itself faster), Rust a third; in Haskell the control buys ~9 %
+in two runs and ~1 % in the third — still the smallest share of the four.
+The remaining gap is context: after an operand the fused
 parser tests only operator characters, where a general lexer classifies the
 character first. That is intrinsic to having a lexer, and it is the ceiling
 on what rule 2 can recover.
@@ -316,46 +314,50 @@ in-place sweep per precedence level; no split search, recursion only per paren
 group. Same tree, opposite order. **Algorithm walk-through:
 [docs/multipass-reverse.md](docs/multipass-reverse.md).**
 
-### Result 1 — vs the classics: competitive — narrowly ahead in C++, a tie in Rust and Python
+### Result 1 — vs the classics: a peer in C++ and Rust, behind in Python and Haskell
 
-ns/leaf at n=10000, neutral runner (median of runs 42805297064 /
-42806389267 / 42806442518):
+ns/leaf at n=10000, neutral runner (median of runs 43186179671 /
+43186221304 / 43201629859, after the [same-rules tuning pass](bench/TUNING.md)):
 
 | language | `multipass-reverse-fold` | `multipass-reverse` | fastest classic tree builder | fastest overall |
 |---|--:|--:|--:|--:|
-| C++ | **56** | 81 | ast-arena 58 | direct-sy 40 (direct-reverse, direct-rd within 3 %) |
-| Rust | 65 | 87 | ast-arena 65 (tie) | direct-reverse 46 (direct-rd within 1 %) |
-| Python | **2 836** | 3 826 | ast-rd 2 969 | direct-reverse 2 164 |
-| Haskell | 644 | 910 | **ast-rd 525** | ast-rd 525 (ast-pratt 525, direct-rd 530, direct-reverse 540) |
+| C++ | **56** | 81 | ast-arena 59 | direct-sy 40 (direct-reverse 40, direct-rd 41) |
+| Rust | **65** | 87 | ast-arena 66 | direct-rd 44 (direct-sy 46, direct-reverse 47) |
+| Python | 2 796 | 3 784 | **ast-pratt 2 758** | direct-rd 2 129 (direct-reverse 2 148) |
+| Haskell | 565 | 890 | **ast-rd 424** | ast-rd 424 (direct-rd 425, direct-reverse 478) |
 
-(The lexer-free control `direct-scannerless` sits at 32 / 29 / 1 665 / 501.)
+(The lexer-free control `direct-scannerless` sits at 32 / 29 / 1 672 / 426;
+in Haskell at n=10000 it no longer beats the fastest real strategy.)
 
-The fused form is the fastest tree builder in C++ (+2.9…+4.2 % ahead of
+The fused form is the fastest tree builder in C++ (+3.1…+4.6 % ahead of
 `ast-arena` at every size, positive in all 12 size×run measurements
 across three independent CI runs — a consistent sliver, not a margin). In
-Python it is narrowly ahead of the best pointer classic at n=10, 100 and
-10000 (+1…+5 %) and a tie at n=1000 (−0.7…+0.4 % vs `ast-pratt`,
-−0.1…+0.9 % vs `ast-rd`). In Rust it is a tie with `ast-arena`: ahead at
-n=10 (+3…+4 %), −0.6…+2.2 % across the runs at n=100, 1000 and 10000 — so
-LLVM does not reproduce GCC's sliver. Its no-tree twin
-`direct-reverse` is genuinely faster in Python (+10…+14 % over
-`direct-sy`, +6…+26 % over `direct-rd`, in every run at every size), but in
-C++ the three no-tree forms sit within ~3 % of each other at ~40 ns/leaf,
-with `direct-reverse` 1–3 % ahead of `direct-recursive-descent` and a hair
-behind `direct-shunting-yard` in every size and run (−1.5…−0.2 %: a tie at
-n=1000, narrowly behind at n=10000), and in Rust it is level with
-`direct-rd` (0…+2 %) and 6–9 % ahead of `direct-sy`. Haskell is the
-exception: the pointer classics lead every arena form, from ~1.1–1.2× at
-the tight end (`ast-arena`) to ~2–3× at the wide end (`multipass-bfs`); the
-fold itself trails `ast-rd` by ~1.1× up to n=1000 and ~1.25× at n=10000
-(~1.2× and ~1.4× before the shared arena carrier was made strict — one
-change to the carrier all five arena strategies use, the fold's own code
-untouched; see the [Haskell README](haskell/README.md#the-arena-carrier)),
-and `direct-reverse` trails `direct-rd` by 2–5 % on the random corpus in
-every run; on structured shapes it narrowly wins powchain, ties towerchain
-and loses sumchain and nestchain by 1–17 % (full scoreboard:
-[one-pager](docs/one-pager.md)). The buffered `multipass-reverse` — the
-pedagogical version — trails its fused form by ~1.25–1.5×. Design of the fused form:
+Rust it is narrowly ahead of `ast-arena` at n=10, 1000 and 10000
+(+0.6…+1.8 %) and level at n=100 (−0.2…+0.2 %) — a smaller sliver than
+GCC's, and one that reverses on the EPYC 7763 and the Xeon 8573C (−6…−4 %).
+In Python, after the classics were hand-inlined, it trails the best
+pointer classic at every size: `ast-sy` by 0–3 % at n=10 and 100,
+`ast-pratt` by 8–10 % at n=1000 and 1–2 % at n=10000. Its no-tree twin
+`direct-reverse` is still clearly ahead in Python at n=10 and 100
+(+9…+12 % over `direct-rd`), but level at n=1000 (+0.2…+0.6 %) and
+narrowly behind at n=10000 (−1.1…−0.6 %); it beats `direct-sy` by
+3–6 % at every size. In C++ the three no-tree forms sit within ~3 % of each
+other at ~40 ns/leaf, with `direct-reverse` 1–3 % ahead of
+`direct-recursive-descent` and level with `direct-shunting-yard`
+(−1.3…+0.5 %: a tie at n=1000 and n=10000 alike). In Rust it loses to the
+tuned `direct-rd` at every size (−3…−4 % at n=10, −5…−7 % above) and
+to `direct-sy` by 2–4 %. Haskell is the exception: the pointer classics
+lead every arena form, from ~1.07–1.17× at the tight end (`ast-arena`) to
+~2–3× at the wide end (`multipass-bfs`); the fold itself trails `ast-rd`
+by ~1.15× up to n=1000 and ~1.3× at n=10000 (~1.2× and ~1.4× before the
+shared arena carrier was made strict — one change to the carrier all five
+arena strategies use, the fold's own code untouched; see the
+[Haskell README](haskell/README.md#the-arena-carrier)), and
+`direct-reverse` trails `direct-rd` by 2–13 % on the random corpus in
+every run; on structured shapes it ties sumchain and loses the other three
+by 3–15 % (full scoreboard: [one-pager](docs/one-pager.md)). The buffered
+`multipass-reverse` — the pedagogical version — trails its fused form by
+~1.3–1.65×. Design of the fused form:
 [docs/multipass-reverse.md](docs/multipass-reverse.md#the-fused-variant).
 
 ### Result 2 — vs its family: ahead on every tested input
@@ -376,10 +378,10 @@ single-precedence control chain (sumchain) keeps the whole family linear,
 isolating *mixed precedence* as the trigger; a fourth shape (**nestchain**,
 deep parentheses — the one construct where bottom-up recurses) attacks
 reverse's own worst case, and it stays flat there too on the run
-medians (51–52 ns/leaf across sizes, C++ CI runs 42805297064/42806389267/
-42806442518 — within ~4 % from m=512 to m=8192 in each run; `ast-arena`
-sits at 35–37 across the three sizes). The fused form is flatter still and
-the fastest tree builder on that shape outright (27 vs `ast-arena` 36 at
+medians (51–53 ns/leaf across sizes, C++ CI runs 43186179671/43186221304/
+43201629859 — within ~6 % from m=512 to m=8192 in each run; `ast-arena`
+sits at 34–39 across the three sizes). The fused form is flatter still and
+the fastest tree builder on that shape outright (26 vs `ast-arena` 39 at
 m=8192, medians across the same three runs).
 
 Pre-fix, powchain (last CI run before the top-down family was patched; sizes
@@ -399,17 +401,17 @@ drops to O(n log n). `multipass-arena`/`direct-mp` in C++ additionally use an
 AVX2 flat/split check; Python and Rust fold whole precedence levels on budget trip;
 Haskell materialises buckets lazily. Effect at m=8192 (ns/leaf, neutral
 runner; "after" cells are flat across sizes — no quadratic growth; "after"
-is the 2026-11-10 batch, after PR #20 removed the family's last per-eval
-allocations):
+is the 2026-11-12 batch, after PR #20 removed the family's last per-eval
+allocations; the C++ code is unchanged since):
 
 | | powchain before → after | towerchain after † |
 |---|--:|--:|
-| `multipass` | 3 791 → **128** | 100 |
+| `multipass` | 3 791 → **128** | 98 |
 | `multipass-arena` | 4 864 → **65** | 66 |
 | `direct-mp` | 3 236 → **53** | 53 |
-| `multipass-bfs` | 84 → 66 (splits were already O(1)) | **71** |
+| `multipass-bfs` | 84 → 67 (splits were already O(1)) | **70** |
 | `multipass-reverse` (unchanged) | 43 → 36 | 32 |
-| `multipass-reverse-fold` | — → **26** | **26** |
+| `multipass-reverse-fold` | — → **26** | **28** |
 
 † towerchain landed with the fix, so it has no pre-fix CI run (discovery-laptop
 pre-fix: ~2 900–11 000 ns/leaf). The Python and Haskell ports close the same
@@ -417,7 +419,7 @@ holes the same way; their adversarial chains are flat on the neutral runner too.
 
 So: the rest of the family is flat on these shapes now (O(n log n) in the
 worst case) — **because it was rescued**, with
-budgets, buckets and SIMD, and it still trails bottom-up by 1.5–3.6× (2.0–4.9×
+budgets, buckets and SIMD, and it still trails bottom-up by 1.5–3.6× (1.9–4.9×
 against the fused form, powchain and towerchain, C++). `multipass-reverse` is **the only member of the
 family whose worst case is its average case**: same two columns, same code,
 no machinery. The pre-fix numbers are preserved from CI and cannot be
@@ -457,20 +459,24 @@ nestchain, where it stays clearly ahead of `multipass-arena`), and the
 fused form stays ahead of the whole family on sumchain regardless — by at
 least 1.35× at the median in that batch, ~1.1× over `direct-mp` in the
 2026-09-25 one, ~1.06–1.08× (+4…+13 % per run, *ahead, narrowly*) in the
-two 2026-09-26 ones and +5…+39 % in the published 2026-11-10 batch —
-*best* on that batch alone, *ahead, narrowly* over all nine 9V74 runs, which
-is the label the one-pager carries. It widens the C++ sumchain cells in the
+two 2026-09-26 ones, +5…+39 % in the 2026-11-10 7b83ad4 batch and +6…+24 %
+against the faster member per run in the published 2026-11-12 one —
+*best* on that batch alone, *ahead, narrowly* over all twelve 9V74 runs,
+which is the label the one-pager carries. It widens the C++ sumchain cells in the
 [one-pager](docs/one-pager.md)'s Table 2 and Table 3 scoreboards; the
 median-based numbers elsewhere in this document already account for it.
 
 That last range has a specific cause: C++ `direct-mp` on sumchain is
 bimodal. It runs at either ~30 or ~46 ns/leaf, switching between sizes and
-runs with no pattern (the three published runs at m=8192: 29.8 / 45.9 /
-30.2; at m=512: 45.6 / 29.6 / 45.4), and the same two modes are in every
+runs with no pattern (the three published runs at m=8192: 46.6 / 45.9 /
+29.9; at m=512: 46.7 / 45.2 / 45.8), and the same two modes are in every
 9V74 batch, the 2026-09-26 one included (45.6 / 30.1 / 30.8 across sizes in
-its first run). The fold sits at 27.5–28.3 throughout, so its lead reads
-~+5 % against the fast mode and ~+39 % against the slow one; against the
-whole family per run it is +5…+24 %.
+its first run). The fold sits at 27.2–28.5 throughout, so its lead reads
+~+6 % against the fast mode and ~+39 % against the slow one; against the
+whole family per run it is +6…+24 %. `direct-shunting-yard` has two modes
+on this shape too (~14.5 or ~22.9 ns/leaf; slow at m=2048 and m=8192 in
+the first published run only), which is why the C++ no-tree sumchain cell
+reads +3…+39 % against it.
 
 The 2026-09-25 batch (36163486136 / 36163570591 / 36163577544) hit the same
 shape again, differently: its middle run was slow on sumchain for nearly
@@ -480,7 +486,7 @@ every strategy, the fused form included (`multipass-reverse-fold` 16.0 /
 measurement point on this runner, not a code path. In the 2026-09-26
 batches (one CPU model, round-robin timing) sumchain was calmer but still
 the widest C++ cell on the family board (+4…+13 % per run over
-`direct-mp`); in the published 2026-11-10 batch it is the widest by far,
+`direct-mp`); in the 2026-11-10 and published 2026-11-12 batches it is the widest by far,
 for the bimodal reason above.
 
 Per-language detail: [`cpp/`](cpp/README.md) · [`rust/`](rust/README.md) · [`python/`](python/README.md) · [`haskell/`](haskell/README.md).

@@ -23,14 +23,14 @@ A dependency-free C++26 project implementing classic (and not-so-classic) algori
 ## ⚡ Results at a glance
 
 > One-shot, ns per leaf at n=1000 — **shorter is faster**.
-> Neutral 4-vCPU GitHub runner, median of three [CI bench](../.github/workflows/bench.yml) runs on one CPU model, AMD EPYC 9V74 (42805297064 / 42806389267 / 42806442518, 2026-11-10); `×` is relative to the fastest strategy that uses the shared lexer. **Trust the tiers, not the digits.**
+> Neutral 4-vCPU GitHub runner, median of three [CI bench](../.github/workflows/bench.yml) runs on one CPU model, AMD EPYC 9V74 (43186179671 / 43186221304 / 43201629859, 2026-11-12); `×` is relative to the fastest strategy that uses the shared lexer. **Trust the tiers, not the digits.**
 
 ```
-direct-scannerless        █                            32 ns   ×0.79  ← lexer-free control (not ranked)
+direct-scannerless        █                            32 ns   ×0.80  ← lexer-free control (not ranked)
 direct-shunting-yard      ██                           40 ns   ×1.0
 direct-reverse            ██                           40 ns   ×1.0
 direct-recursive-descent  ██                           41 ns   ×1.0   ← three-way tie at the top
-bytecode-vm               ██                           53 ns   ×1.3
+bytecode-vm               ██                           52 ns   ×1.3
 ──────────────────────────────── tier break: builds a tree ────────────────
 multipass-reverse-fold    ██                           56 ns   ×1.4   ← fastest tree builder (bottom-up, fused)
 ast-arena                 ██                           58 ns   ×1.4   ← fastest classic tree builder
@@ -43,12 +43,12 @@ ast-recursive-descent     ████                        108 ns   ×2.7
 ast-shunting-yard         ████                        108 ns   ×2.7
 multipass-bfs             █████                       112 ns   ×2.8
 ──────────────────────────────── tier break: super-linear ─────────────────
-multipass                 ███████                     164 ns   ×4.1   ← O(n log n) + N allocs
+multipass                 ███████                     165 ns   ×4.1   ← O(n log n) + N allocs
 ```
 
-- **Control (×0.79):** `direct-scannerless` is `direct-rd` with the lexer fused into the grammar — no token stream at all. It exists to measure the shared lexer's cost (about a fifth to a quarter of `direct-rd`'s time), not to compete.
-- **Tier 1 (×1.0–1.3):** no tree, O(n), streaming tokens, ≤1 allocation. `direct-sy`, `direct-rd` and `direct-reverse` are a **three-way tie** at ~40 ns/leaf (2.0–2.5 % apart within each run at n=1000, 2–4 % across sizes); `bytecode-vm` sits ~30 % behind in every run.
-- **Tier 2 (×1.4):** the two contiguous tree builders. `multipass-reverse-fold` (bottom-up, fused — see [docs/multipass-reverse.md](../docs/multipass-reverse.md)) is the **fastest tree builder**, ~3–4 % ahead of `ast-arena` (+2.9…+4.2 %, positive in all 12 size×run measurements, 2026-11-10 runs); both stream their tokens into one node vector.
+- **Control (×0.80):** `direct-scannerless` is `direct-rd` with the lexer fused into the grammar — no token stream at all. It exists to measure the shared lexer's cost (about a fifth to a quarter of `direct-rd`'s time), not to compete.
+- **Tier 1 (×1.0–1.3):** no tree, O(n), streaming tokens, ≤1 allocation. `direct-sy`, `direct-rd` and `direct-reverse` are a **three-way tie** at ~40 ns/leaf (within ~2.5 % of each other in each run at n=1000, 2–4 % across sizes); `bytecode-vm` sits ~30 % behind in every run.
+- **Tier 2 (×1.4):** the two contiguous tree builders. `multipass-reverse-fold` (bottom-up, fused — see [docs/multipass-reverse.md](../docs/multipass-reverse.md)) is the **fastest tree builder**, ~3–5 % ahead of `ast-arena` (+3.1…+4.6 %, positive in all 12 size×run measurements, 2026-11-12 runs); both stream their tokens into one node vector.
 - **Tier 3 (×2.0–2.8):** everything that either indexes a token array (`multipass-reverse`, `direct-mp`, `multipass-arena`, `multipass-bfs`) or pays one `make_unique` per node (`ast-rd`, `ast-sy`, `ast-pratt`). For the pointer classics the algorithm barely matters, the allocator dominates. The top-down D&C forms' two former Θ(n²) worst cases (mixed-precedence and `^`-tower chains) are capped at O(n log n) by bounded scans, per-precedence position buckets, iterator passing and an AVX2 window (runtime-dispatched).
 - **Tier 4 (×4.1):** O(n log n) *plus* N allocations *plus* the token array.
 

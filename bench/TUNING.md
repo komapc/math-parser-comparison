@@ -52,3 +52,30 @@ builds, untouched ones included, so the Haskell numbers above are taken
 relative to the median of five untouched strategies in the same job. The published tables are regenerated from a fresh 3× EPYC 9V74
 batch after these changes, and the labels are pooled only over batches with
 unchanged code.
+
+## Effect on the published scoreboard
+
+The published tables were regenerated from runs 43186179671, 43186221304
+and 43201629859 (2026-11-12, commit a7f2a16, EPYC 9V74). Against the
+previously published batch, 19 of the 72 labels changed; 13 went against
+the fused form:
+
+- **Python, tree form:** the corpus at n=1000 (tie → loses), at n=10000
+  (narrowly ahead → loses), towerchain and nestchain (tie → loses).
+- **Python, no-tree form:** n=1000 and sumchain (best → tie), n=10000
+  (best → loses), powchain (tie → loses).
+- **Rust, no-tree form:** the corpus at both sizes (tie → loses).
+- **Rust, tree form:** towerchain (best → narrowly ahead).
+- **Haskell, no-tree form:** powchain (narrowly ahead → loses) and
+  towerchain (tie → loses).
+
+Six went for it, and none comes from the fold getting faster:
+
+- **Rust, tree form:** the corpus at both sizes, powchain and sumchain,
+  tie → narrowly ahead. These moved because the column is no longer pooled
+  with the earlier batches: `ast-arena` shares the recursive-descent parser
+  that changed.
+- **C++, no-tree form:** n=10000, loses → tie. C++ code is unchanged; this
+  is run-to-run noise.
+- **Haskell, no-tree form:** sumchain, loses → tie.
+
