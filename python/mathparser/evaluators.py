@@ -4,10 +4,15 @@ The axis that actually distinguishes them is *representation* × *parse order*:
 
   representation         builder        used by
   ------------------     -----------    -------------------------------------
-  pointer AST (tuples)   TupleBuilder   ast-*, multipass
+  pointer AST (tuples)   TupleBuilder   ast-*, multipass,
+                                        multipass-reverse-fold (*)
   arena (flat list)      ArenaBuilder   ast-arena, multipass-arena/-bfs,
-                                        multipass-reverse,
-                                        multipass-reverse-fold
+                                        multipass-reverse
+
+  (*) An arena in C++/Rust/Haskell. In Python a list of tuples indexed by
+      int is no closer to the hardware than nested tuples, only slower
+      (A/B 43224528039: +5…9 % on the corpus with tuples), so here the
+      fold builds the same tree as ast-pratt — see bench/TUNING.md.
   none (inline float)    DirectBuilder  direct-* (except direct-scannerless,
                                         which has no separate builder)
 
@@ -186,7 +191,8 @@ class DirectBuilder:
 # Every Python driver was given the same treatment (2026-11 tuning audit);
 # it was kept where CI measured a gain — RD, Pratt, shunting-yard, bytecode.
 # The fused reducer's and multipass's versions measured no gain and were
-# dropped.
+# dropped; a narrower change to the fused reducer measured later (skip the
+# fold() call on an empty segment, bench/TUNING.md) was kept.
 def rd_parse(tokens, B):
     i = 0
 
@@ -733,6 +739,9 @@ def reverse_fold_parse(tokens, B):
     pend_mul = pend_add = None   # None = nothing pending, else a BIN_CHAR op
     i = 0
 
+    # Callers test for an empty segment (the common case: a lone operand)
+    # before calling, so a barrier costs no Python call unless there is
+    # something to fold.
     def fold(c):
         # right-to-left over the segment: right-assoc ^; ^ binds tighter than a sign
         if len(seg) == seg_base:
@@ -750,7 +759,7 @@ def reverse_fold_parse(tokens, B):
         return acc
 
     def close(c):
-        v = fold(c)
+        v = c if len(seg) == seg_base else fold(c)
         t = v if pend_mul is None else B.binop(pend_mul, term, v)
         return t if pend_add is None else B.binop(pend_add, sum_, t)
 
@@ -782,7 +791,7 @@ def reverse_fold_parse(tokens, B):
         while True:
             tok = tokens[i]; i += 1; k = tok.kind
             if k == PLUS or k == MINUS:
-                v = fold(cur)
+                v = cur if len(seg) == seg_base else fold(cur)
                 term = v if pend_mul is None else B.binop(pend_mul, term, v)
                 sum_ = term if pend_add is None else B.binop(pend_add, sum_, term)
                 pend_add = BIN_CHAR[k]; pend_mul = None
@@ -790,11 +799,14 @@ def reverse_fold_parse(tokens, B):
             if k == RPAREN:
                 if not frames:
                     raise ValueError(f"mismatched parenthesis at position {tok.pos}")
-                cur = close(cur)
+                # close(), inlined: a call costs more than the body here
+                v = cur if len(seg) == seg_base else fold(cur)
+                if pend_mul is not None: v = B.binop(pend_mul, term, v)
+                cur = v if pend_add is None else B.binop(pend_add, sum_, v)
                 term, sum_, seg_base, pend_mul, pend_add = frames.pop()
                 continue
             if k == STAR or k == SLASH:
-                v = fold(cur)
+                v = cur if len(seg) == seg_base else fold(cur)
                 term = v if pend_mul is None else B.binop(pend_mul, term, v)
                 pend_mul = BIN_CHAR[k]
                 break
@@ -1027,7 +1039,7 @@ def _multipass(t, v):       B = TupleBuilder(v); return B.result(_MP(t, False).p
 def _multipass_arena(t, v): B = ArenaBuilder(v); return B.result(_MP(t, False).parse(B))
 def _multipass_bfs(t, v):   B = ArenaBuilder(v); return B.result(_MP(t, True).parse(B))
 def _multipass_reverse(t, v): B = ArenaBuilder(v); return B.result(reverse_mp_parse(t, B))
-def _reverse_fold(t, v):       B = ArenaBuilder(v); return B.result(reverse_fold_parse(t, B))
+def _reverse_fold(t, v):       B = TupleBuilder(v); return B.result(reverse_fold_parse(t, B))
 def _direct_reverse(t, v):     B = DirectBuilder(v); return B.result(reverse_fold_parse(t, B))
 def _direct_mp(t, v):       B = DirectBuilder(v); return B.result(_MP(t, False).parse(B))
 def _direct_rd(t, v):       B = DirectBuilder(v); return B.result(rd_parse(t, B))

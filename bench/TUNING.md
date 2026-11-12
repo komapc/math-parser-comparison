@@ -43,10 +43,35 @@ strategy faster). Run IDs are `ab` workflow runs.
 | Haskell | pending level as (kind, operand) arguments, not `Maybe (Op, r)`; sign and `^ leaf` fast paths | fold (tree + direct) | relative to controls: tree powchain +4 %, but sumchain −2.6 % and nestchain −3.9 % | no | 43180075680 |
 | Haskell | sign and `^ leaf` fast paths only (old `Maybe` pending) | fold (tree + direct) | relative to controls: tree powchain +4 %, sumchain −2.1 %, nestchain −2.0 %; direct form flat | no | 43181187054 |
 
+### Second pass on the fused form only (2026-11-12)
+
+A pass aimed only at our own algorithm, under the same rules. Every
+candidate, kept or not:
+
+| Lang | Technique | Applied to | Result | Kept? | Runs |
+|---|---|---|---|---|---|
+| Python | test for an empty segment before calling `fold()`; `close()` inlined on `)` | fold (tree + direct) | fold +1…+3 % on the corpus (all sizes), nestchain +2…+6 %; direct-reverse +1…+3.5 %; no cell below the controls; reproduced in a second run | yes | 43219850832, 43222282097 |
+| Python | tree built with `TupleBuilder` (nested tuples, as `ast-pratt`/`ast-rd`) instead of `ArenaBuilder` — a representation change, made with the author's approval | fold (tree form) | +5…+9 % on the corpus at n ≤ 1000, +0…+3 % at n=10000, +3…+14 % on the shapes; controls within ±1 % | yes | 43224528039 |
+| Python | the same guard before `close_seg()` (lone-operand segment) | buffered `multipass-reverse` | within the controls | no | 43222282097 |
+| Python | (rivals) the same guard | SY, bytecode | not applicable: their hot path already has no such call | — | — |
+| Rust | stacks pre-sized to the source length and indexed by local tops (safe, bounds-checked) instead of `push`/`pop`/`len` | fold (tree + direct) | direct nestchain +7…+9 %, tree powchain +2…+7 %; the corpus gain (+3…+5 %) is matched by untouched `direct-rd` and `ast-arena` in the same jobs (binary layout); direct powchain −1.4…−2.0 % in every 9V74/7763 job | no | 43219336881, 43219932773 |
+| Rust | the same, with the segment folded as one reversed slice (one range check) | fold (tree + direct) | the same picture; direct powchain −1.5 % on 9V74 | no | 43222196667 |
+| Haskell | strict `Pend` / `Frame` constructors instead of `Maybe (Op, r)` and tuples | fold (tree + direct) | relative to controls: tree corpus +2.1 / +2.6 % (two runs), direct corpus +0.6 / +1.3 %, direct powchain −1.8 / −1.1 %; absolute numbers of all strategies moved by up to 25 % between builds | no (not separable from noise; a worse cell) | 43219343072, 43220540360 |
+| Haskell | `Pend` plus the sign fast path | fold (tree + direct) | tree powchain −2.6 %, direct corpus −1.6 % | no | 43219349474 |
+
+The Python tree form's gap to `ast-pratt` was mostly the arena
+representation, not the scan: a list of tuples indexed by int buys nothing
+in CPython (`ast-arena` trails `ast-rd` by the same margin). With tuples the
+fold is now on the classics' representation in Python, and only there; it
+stays an arena in C++, Rust and Haskell. Haskell's gap, where every arena
+form trails the pointer classics, is untouched.
+
 ## What it changed
 
-Only rivals' changes survived in Rust and Haskell. The one change to ours
-that was kept is the Python `^ leaf` fast path (powchain only). C++ is
+Only rivals' changes survived in Rust and Haskell. The changes to ours
+that were kept are the Python `^ leaf` fast path (powchain only) and, in
+the second pass, the Python empty-segment guard and the switch of the
+Python tree form to tuples. C++ is
 unchanged. In Haskell all fifteen strategies moved a few percent between
 builds, untouched ones included, so the Haskell numbers above are taken
 relative to the median of five untouched strategies in the same job. The published tables are regenerated from a fresh 3× EPYC 9V74
@@ -79,3 +104,24 @@ Six went for it, and none comes from the fold getting faster:
   is run-to-run noise.
 - **Haskell, no-tree form:** sumchain, loses → tie.
 
+
+### After the fold-only pass
+
+The tables were then regenerated from runs 43227113612, 43227138258 and
+43231342538 (2026-11-12, EPYC 9V74), which include the two kept Python
+changes. Against the batch above, 11 of the 72 labels changed:
+
+- **Python, from the code change:** tree form at n=1000, n=10000 and
+  nestchain (loses → tie, all against `ast-pratt`); no-tree form at
+  n=1000, n=10000 and sumchain (tie or loses → narrowly ahead of
+  `direct-rd`).
+- **Unchanged code, batch-to-batch movement:** Rust tree form on the
+  corpus at both sizes and on powchain (narrowly ahead → tie, against
+  `ast-arena`; this batch alone gives the same labels); C++ tree form on
+  towerchain (best → narrowly ahead, +3…+14 % across runs); Haskell
+  no-tree form on powchain (loses → tie).
+
+Three went against the fused form, all in code that did not change. The
+pooling depth per column (`POOL_DEPTH` in `tables.py`) now lists which
+earlier batches still share both sides' code with this one; see
+[results/README.md](results/README.md).
