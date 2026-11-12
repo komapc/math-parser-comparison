@@ -168,8 +168,8 @@ The same goes for hand tuning: in 2026-11 every implementation, ours
 included, was offered the same optimisations (inlining, two-mode scans,
 level-aware builders, fast paths), each measured in an interleaved CI A/B
 against untouched controls. The rivals kept 5–10 % gains in Python and
-Rust and a few per cent in Haskell; of the fold's own candidates only one
-Python fast path survived. Every attempt, kept or not, is in
+Rust and a few per cent in Haskell; of the fold's own candidates only two
+small Python changes survived (a fast path and a skipped call, 1–5 %). Every attempt, kept or not, is in
 [bench/TUNING.md](bench/TUNING.md).
 
 ## Scope

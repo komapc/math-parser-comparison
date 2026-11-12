@@ -43,10 +43,31 @@ strategy faster). Run IDs are `ab` workflow runs.
 | Haskell | pending level as (kind, operand) arguments, not `Maybe (Op, r)`; sign and `^ leaf` fast paths | fold (tree + direct) | relative to controls: tree powchain +4 %, but sumchain −2.6 % and nestchain −3.9 % | no | 43180075680 |
 | Haskell | sign and `^ leaf` fast paths only (old `Maybe` pending) | fold (tree + direct) | relative to controls: tree powchain +4 %, sumchain −2.1 %, nestchain −2.0 %; direct form flat | no | 43181187054 |
 
+### Second pass on the fused form only (2026-11-12)
+
+A pass aimed only at our own algorithm, under the same rules. Every
+candidate, kept or not:
+
+| Lang | Technique | Applied to | Result | Kept? | Runs |
+|---|---|---|---|---|---|
+| Python | test for an empty segment before calling `fold()`; `close()` inlined on `)` | fold (tree + direct) | fold +1…+3 % on the corpus (all sizes), nestchain +2…+6 %; direct-reverse +1…+3.5 %; no cell below the controls; reproduced in a second run | yes | 43219850832, 43222282097 |
+| Python | the same guard before `close_seg()` (lone-operand segment) | buffered `multipass-reverse` | within the controls | no | 43222282097 |
+| Python | (rivals) the same guard | SY, bytecode | not applicable: their hot path already has no such call | — | — |
+| Rust | stacks pre-sized to the source length and indexed by local tops (safe, bounds-checked) instead of `push`/`pop`/`len` | fold (tree + direct) | direct nestchain +7…+9 %, tree powchain +2…+7 %; the corpus gain (+3…+5 %) is matched by untouched `direct-rd` and `ast-arena` in the same jobs (binary layout); direct powchain −1.4…−2.0 % in every 9V74/7763 job | no | 43219336881, 43219932773 |
+| Rust | the same, with the segment folded as one reversed slice (one range check) | fold (tree + direct) | the same picture; direct powchain −1.5 % on 9V74 | no | 43222196667 |
+| Haskell | strict `Pend` / `Frame` constructors instead of `Maybe (Op, r)` and tuples | fold (tree + direct) | relative to controls: tree corpus +2.1 / +2.6 % (two runs), direct corpus +0.6 / +1.3 %, direct powchain −1.8 / −1.1 %; absolute numbers of all strategies moved by up to 25 % between builds | no (not separable from noise; a worse cell) | 43219343072, 43220540360 |
+| Haskell | `Pend` plus the sign fast path | fold (tree + direct) | tree powchain −2.6 %, direct corpus −1.6 % | no | 43219349474 |
+
+None of these touches the two large gaps: the Python tree form behind
+`ast-pratt` (mostly the list-of-tuples arena representation it shares with
+`ast-arena`, not the scan) and Haskell, where every arena form trails the
+pointer classics.
+
 ## What it changed
 
-Only rivals' changes survived in Rust and Haskell. The one change to ours
-that was kept is the Python `^ leaf` fast path (powchain only). C++ is
+Only rivals' changes survived in Rust and Haskell. The changes to ours
+that were kept are the Python `^ leaf` fast path (powchain only) and, in
+the second pass, the Python empty-segment guard. C++ is
 unchanged. In Haskell all fifteen strategies moved a few percent between
 builds, untouched ones included, so the Haskell numbers above are taken
 relative to the median of five untouched strategies in the same job. The published tables are regenerated from a fresh 3× EPYC 9V74

@@ -186,7 +186,8 @@ class DirectBuilder:
 # Every Python driver was given the same treatment (2026-11 tuning audit);
 # it was kept where CI measured a gain — RD, Pratt, shunting-yard, bytecode.
 # The fused reducer's and multipass's versions measured no gain and were
-# dropped.
+# dropped; a narrower change to the fused reducer measured later (skip the
+# fold() call on an empty segment, bench/TUNING.md) was kept.
 def rd_parse(tokens, B):
     i = 0
 
