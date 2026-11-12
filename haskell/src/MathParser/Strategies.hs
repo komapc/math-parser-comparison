@@ -631,8 +631,20 @@ reverseFoldParse = operand [] [] NoPend NoPend
       KNum    -> operator (sNum (tVal t)) seg frames tm sm ts
       KVar    -> operator (sVar (round (tVal t))) seg frames tm sm ts
       KLParen -> operand [] (Frame seg tm sm : frames) NoPend NoPend ts
-      k | k == KPlus || k == KMinus -> operand (FUn k : seg) frames tm sm ts
+      k | k == KPlus || k == KMinus -> case ts of
+            -- Fast path, as in the other languages: a sign on a plain leaf
+            -- that is not the base of a ^ ("-16", "-a") applies at once
+            -- instead of going through the segment list.
+            (l : rest@(n : _)) | tKind n /= KCaret, Just lv <- leaf l ->
+              operator (if k == KMinus then sNeg lv else sPos lv) seg frames tm sm rest
+            _ -> operand (FUn k : seg) frames tm sm ts
       _ -> error ("expected operand at position " ++ show (tPos t))
+
+    leaf l = case tKind l of
+      KNum -> Just (sNum (tVal l))
+      KVar -> Just (sVar (round (tVal l)))
+      _    -> Nothing
+    {-# INLINE leaf #-}
 
     -- operator mode: binary op, ')' or end; ')' stays in this mode
     operator _ _ _ _ _ [] = error "unexpected end of input"
