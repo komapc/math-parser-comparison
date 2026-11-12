@@ -51,6 +51,7 @@ candidate, kept or not:
 | Lang | Technique | Applied to | Result | Kept? | Runs |
 |---|---|---|---|---|---|
 | Python | test for an empty segment before calling `fold()`; `close()` inlined on `)` | fold (tree + direct) | fold +1…+3 % on the corpus (all sizes), nestchain +2…+6 %; direct-reverse +1…+3.5 %; no cell below the controls; reproduced in a second run | yes | 43219850832, 43222282097 |
+| Python | tree built with `TupleBuilder` (nested tuples, as `ast-pratt`/`ast-rd`) instead of `ArenaBuilder` — a representation change, made with the author's approval | fold (tree form) | +5…+9 % on the corpus at n ≤ 1000, +0…+3 % at n=10000, +3…+14 % on the shapes; controls within ±1 % | yes | 43224528039 |
 | Python | the same guard before `close_seg()` (lone-operand segment) | buffered `multipass-reverse` | within the controls | no | 43222282097 |
 | Python | (rivals) the same guard | SY, bytecode | not applicable: their hot path already has no such call | — | — |
 | Rust | stacks pre-sized to the source length and indexed by local tops (safe, bounds-checked) instead of `push`/`pop`/`len` | fold (tree + direct) | direct nestchain +7…+9 %, tree powchain +2…+7 %; the corpus gain (+3…+5 %) is matched by untouched `direct-rd` and `ast-arena` in the same jobs (binary layout); direct powchain −1.4…−2.0 % in every 9V74/7763 job | no | 43219336881, 43219932773 |
@@ -58,16 +59,19 @@ candidate, kept or not:
 | Haskell | strict `Pend` / `Frame` constructors instead of `Maybe (Op, r)` and tuples | fold (tree + direct) | relative to controls: tree corpus +2.1 / +2.6 % (two runs), direct corpus +0.6 / +1.3 %, direct powchain −1.8 / −1.1 %; absolute numbers of all strategies moved by up to 25 % between builds | no (not separable from noise; a worse cell) | 43219343072, 43220540360 |
 | Haskell | `Pend` plus the sign fast path | fold (tree + direct) | tree powchain −2.6 %, direct corpus −1.6 % | no | 43219349474 |
 
-None of these touches the two large gaps: the Python tree form behind
-`ast-pratt` (mostly the list-of-tuples arena representation it shares with
-`ast-arena`, not the scan) and Haskell, where every arena form trails the
-pointer classics.
+The Python tree form's gap to `ast-pratt` was mostly the arena
+representation, not the scan: a list of tuples indexed by int buys nothing
+in CPython (`ast-arena` trails `ast-rd` by the same margin). With tuples the
+fold is now on the classics' representation in Python, and only there; it
+stays an arena in C++, Rust and Haskell. Haskell's gap, where every arena
+form trails the pointer classics, is untouched.
 
 ## What it changed
 
 Only rivals' changes survived in Rust and Haskell. The changes to ours
 that were kept are the Python `^ leaf` fast path (powchain only) and, in
-the second pass, the Python empty-segment guard. C++ is
+the second pass, the Python empty-segment guard and the switch of the
+Python tree form to tuples. C++ is
 unchanged. In Haskell all fifteen strategies moved a few percent between
 builds, untouched ones included, so the Haskell numbers above are taken
 relative to the median of five untouched strategies in the same job. The published tables are regenerated from a fresh 3× EPYC 9V74

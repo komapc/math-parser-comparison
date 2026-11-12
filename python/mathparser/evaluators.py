@@ -4,10 +4,15 @@ The axis that actually distinguishes them is *representation* × *parse order*:
 
   representation         builder        used by
   ------------------     -----------    -------------------------------------
-  pointer AST (tuples)   TupleBuilder   ast-*, multipass
+  pointer AST (tuples)   TupleBuilder   ast-*, multipass,
+                                        multipass-reverse-fold (*)
   arena (flat list)      ArenaBuilder   ast-arena, multipass-arena/-bfs,
-                                        multipass-reverse,
-                                        multipass-reverse-fold
+                                        multipass-reverse
+
+  (*) An arena in C++/Rust/Haskell. In Python a list of tuples indexed by
+      int is no closer to the hardware than nested tuples, only slower
+      (A/B 43224528039: +5…9 % on the corpus with tuples), so here the
+      fold builds the same tree as ast-pratt — see bench/TUNING.md.
   none (inline float)    DirectBuilder  direct-* (except direct-scannerless,
                                         which has no separate builder)
 
@@ -1034,7 +1039,7 @@ def _multipass(t, v):       B = TupleBuilder(v); return B.result(_MP(t, False).p
 def _multipass_arena(t, v): B = ArenaBuilder(v); return B.result(_MP(t, False).parse(B))
 def _multipass_bfs(t, v):   B = ArenaBuilder(v); return B.result(_MP(t, True).parse(B))
 def _multipass_reverse(t, v): B = ArenaBuilder(v); return B.result(reverse_mp_parse(t, B))
-def _reverse_fold(t, v):       B = ArenaBuilder(v); return B.result(reverse_fold_parse(t, B))
+def _reverse_fold(t, v):       B = TupleBuilder(v); return B.result(reverse_fold_parse(t, B))
 def _direct_reverse(t, v):     B = DirectBuilder(v); return B.result(reverse_fold_parse(t, B))
 def _direct_mp(t, v):       B = DirectBuilder(v); return B.result(_MP(t, False).parse(B))
 def _direct_rd(t, v):       B = DirectBuilder(v); return B.result(rd_parse(t, B))
