@@ -623,14 +623,14 @@ reverseMpParse toks = reduceRange 0 (n - 1)
 data FItem r = FUn !Kind | FPow r
 
 reverseFoldParse :: Sym r => [Tok] -> r
-reverseFoldParse = operand [] [] Nothing Nothing
+reverseFoldParse = operand [] [] NoPend NoPend
   where
     -- operand mode: number, variable, '(' or a prefix sign
     operand _ _ _ _ [] = error "unexpected end of input"
     operand seg frames tm sm (t : ts) = case tKind t of
       KNum    -> operator (sNum (tVal t)) seg frames tm sm ts
       KVar    -> operator (sVar (round (tVal t))) seg frames tm sm ts
-      KLParen -> operand [] ((seg, tm, sm) : frames) Nothing Nothing ts
+      KLParen -> operand [] (Frame seg tm sm : frames) NoPend NoPend ts
       k | k == KPlus || k == KMinus -> operand (FUn k : seg) frames tm sm ts
       _ -> error ("expected operand at position " ++ show (tPos t))
 
@@ -639,29 +639,34 @@ reverseFoldParse = operand [] [] Nothing Nothing
     operator cur seg frames tm sm (t : ts) = case tKind t of
       k | k == KPlus || k == KMinus ->
             let !v  = foldSeg seg cur
-                !tv = closeMul tm v
-                !sv = closeAdd sm tv
-            in operand [] frames Nothing (Just (opOf k, sv)) ts
+                !tv = closePend tm v
+                !sv = closePend sm tv
+            in operand [] frames NoPend (Pend (opOf k) sv) ts
         | k == KStar || k == KSlash ->
             let !v  = foldSeg seg cur
-                !tv = closeMul tm v
-            in operand [] frames (Just (opOf k, tv)) sm ts
+                !tv = closePend tm v
+            in operand [] frames (Pend (opOf k) tv) sm ts
       KCaret  -> operand (FPow cur : seg) frames tm sm ts
       KRParen -> case frames of
-        []                       -> error ("mismatched parenthesis at position " ++ show (tPos t))
-        ((seg0, tm0, sm0) : fs)  -> operator (closeRange cur seg tm sm) seg0 fs tm0 sm0 ts
+        []                      -> error ("mismatched parenthesis at position " ++ show (tPos t))
+        (Frame seg0 tm0 sm0 : fs) -> operator (closeRange cur seg tm sm) seg0 fs tm0 sm0 ts
       KEnd | null frames -> closeRange cur seg tm sm
            | otherwise   -> error "missing ')'"
       _ -> error ("expected operator at position " ++ show (tPos t))
 
+    foldSeg [] cur = cur
     foldSeg seg cur = foldl' step cur seg
       where step acc (FUn k)  = if k == KMinus then sNeg acc else sPos acc
             step acc (FPow b) = sBin Pow b acc
-    closeMul Nothing        v = v
-    closeMul (Just (op, l)) v = sBin op l v
-    closeAdd Nothing        v = v
-    closeAdd (Just (op, l)) v = sBin op l v
-    closeRange cur seg tm sm = closeAdd sm (closeMul tm (foldSeg seg cur))
+    closePend NoPend      v = v
+    closePend (Pend op l) v = sBin op l v
+    closeRange cur seg tm sm = closePend sm (closePend tm (foldSeg seg cur))
+
+-- A pending left operand of one binary level, unpacked: one constructor per
+-- operator instead of Just + a tuple.
+data Pend r = NoPend | Pend !Op !r
+-- A '(' frame: the enclosing segment and the two pending levels.
+data FoldFrame r = Frame ![FItem r] !(Pend r) !(Pend r)
 
 -- Reduce one REVERSED ^/unary segment — (un* opd (^ un* opd)*) read backwards —
 -- by folding right-to-left: right-assoc ^ and the ^-binds-tighter-than-unary
