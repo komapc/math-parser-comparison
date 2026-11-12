@@ -52,6 +52,11 @@ def bin_prec(kind: int) -> int:
     return -1
 
 
+# bin_prec as a table indexed by token kind: a list index, not a call, in the
+# drivers' hot loops (the kinds are 0..9, see lexer.py).
+PREC = [bin_prec(k) for k in range(END + 1)]
+
+
 # ---- IEEE-faithful arithmetic (match C++ double: no exceptions, nan/inf) -----
 def _odd_int(e: float) -> bool:
     return e == int(e) and int(e) % 2 != 0
@@ -175,56 +180,62 @@ class DirectBuilder:
 
 
 # ---- driver: recursive descent ----------------------------------------------
+# Hand-tuned the way a compiler would tune it: power and primary are inlined
+# into unary (they are not recursive on their own), and each rule reads the
+# current token once. CPython inlines nothing; in C++ the compiler does this.
+# Every Python driver was given the same treatment (2026-11 tuning audit);
+# it was kept where CI measured a gain — RD, Pratt, shunting-yard, bytecode.
+# The fused reducer's and multipass's versions measured no gain and were
+# dropped.
 def rd_parse(tokens, B):
     i = 0
 
     def expr():
         nonlocal i
         left = term()
-        while tokens[i].kind in (PLUS, MINUS):
-            op = BIN_CHAR[tokens[i].kind]; i += 1
-            left = B.binop(op, left, term())
+        k = tokens[i].kind
+        while k == PLUS or k == MINUS:
+            i += 1
+            left = B.binop("+" if k == PLUS else "-", left, term())
+            k = tokens[i].kind
         return left
 
     def term():
         nonlocal i
         left = unary()
-        while tokens[i].kind in (STAR, SLASH):
-            op = BIN_CHAR[tokens[i].kind]; i += 1
-            left = B.binop(op, left, unary())
+        k = tokens[i].kind
+        while k == STAR or k == SLASH:
+            i += 1
+            left = B.binop("*" if k == STAR else "/", left, unary())
+            k = tokens[i].kind
         return left
 
+    # unary   := ('+'|'-') unary | power
+    # power   := primary ('^' unary)?
+    # primary := NUM | IDENT | '(' expr ')'
     def unary():
         nonlocal i
-        k = tokens[i].kind
-        if k in (PLUS, MINUS):
+        tok = tokens[i]; k = tok.kind
+        if k == PLUS or k == MINUS:
             i += 1
             c = unary()
             return B.neg(c) if k == MINUS else B.pos(c)
-        return power()
-
-    def power():
-        nonlocal i
-        base = primary()
+        if k == NUM:
+            i += 1; base = B.num(tok.value)
+        elif k == IDENT:
+            i += 1; base = B.var(int(tok.value))
+        elif k == LPAREN:
+            i += 1
+            base = expr()
+            if tokens[i].kind != RPAREN:
+                raise ValueError(f"expected ')' at position {tokens[i].pos}")
+            i += 1
+        else:
+            raise ValueError(f"expected number or '(' at position {tok.pos}")
         if tokens[i].kind == CARET:
             i += 1
             return B.binop("^", base, unary())
         return base
-
-    def primary():
-        nonlocal i
-        tok = tokens[i]
-        if tok.kind == NUM:
-            i += 1; return B.num(tok.value)
-        if tok.kind == IDENT:
-            i += 1; return B.var(int(tok.value))
-        if tok.kind == LPAREN:
-            i += 1
-            e = expr()
-            if tokens[i].kind != RPAREN:
-                raise ValueError(f"expected ')' at position {tokens[i].pos}")
-            i += 1; return e
-        raise ValueError(f"expected number or '(' at position {tok.pos}")
 
     root = expr()
     if tokens[i].kind != END:
@@ -233,41 +244,38 @@ def rd_parse(tokens, B):
 
 
 # ---- driver: Pratt / precedence climbing ------------------------------------
+# nud is inlined into parse and the binding power is a table lookup (same
+# hand-inlining as rd_parse).
 def pratt_parse(tokens, B):
     i = 0
 
     def parse(rbp):
         nonlocal i
         tok = tokens[i]; i += 1
-        left = nud(tok)
-        while True:
-            k = tokens[i].kind
-            lb = bin_prec(k)  # -1 for a non-operator, and rbp >= 0: stops
-            if lb <= rbp:
-                break
-            i += 1
-            ra = (k == CARET)
-            right = parse(lb - 1 if ra else lb)
-            left = B.binop(BIN_CHAR[k], left, right)
-        return left
-
-    def nud(tok):
-        nonlocal i
         k = tok.kind
         if k == NUM:
-            return B.num(tok.value)
-        if k == IDENT:
-            return B.var(int(tok.value))
-        if k in (PLUS, MINUS):
+            left = B.num(tok.value)
+        elif k == IDENT:
+            left = B.var(int(tok.value))
+        elif k == PLUS or k == MINUS:
             operand = parse(UNARY_PREC)  # rbp 3 < ^ lbp 4, so prefix grabs a power
-            return B.neg(operand) if k == MINUS else B.pos(operand)
-        if k == LPAREN:
-            e = parse(0)
+            left = B.neg(operand) if k == MINUS else B.pos(operand)
+        elif k == LPAREN:
+            left = parse(0)
             if tokens[i].kind != RPAREN:
                 raise ValueError(f"expected ')' at position {tokens[i].pos}")
             i += 1
-            return e
-        raise ValueError(f"unexpected token at position {tok.pos}")
+        else:
+            raise ValueError(f"unexpected token at position {tok.pos}")
+        while True:
+            k = tokens[i].kind
+            lb = PREC[k]  # -1 for a non-operator, and rbp >= 0: stops
+            if lb <= rbp:
+                break
+            i += 1
+            right = parse(lb - 1 if k == CARET else lb)
+            left = B.binop(BIN_CHAR[k], left, right)
+        return left
 
     root = parse(0)
     if tokens[i].kind != END:
@@ -277,11 +285,14 @@ def pratt_parse(tokens, B):
 
 # ---- driver: shunting-yard --------------------------------------------------
 # Operator stack entries: (kind, prec, right_assoc, unary, lparen).
+# Two-mode scan (operand / operator) like the fused reducer, emit inlined, and
+# the precedence a table lookup.
 def sy_parse(tokens, B):
     out = []
     ops = []
+    i = 0
 
-    def emit(op):
+    def emit(op):  # cold path: ')' and the final drain
         kind, _prec, _ra, unary, lparen = op
         if lparen:
             raise ValueError("mismatched parenthesis")
@@ -292,49 +303,61 @@ def sy_parse(tokens, B):
             r = out.pop(); l = out.pop()
             out.append(B.binop(BIN_CHAR[kind], l, r))
 
-    expect_operand = True
-    for tok in tokens:
-        k = tok.kind
-        if k == NUM:
-            if not expect_operand:
-                raise ValueError("unexpected number")
-            out.append(B.num(tok.value)); expect_operand = False
-        elif k == IDENT:
-            if not expect_operand:
-                raise ValueError("unexpected variable")
-            out.append(B.var(int(tok.value))); expect_operand = False
-        elif k == LPAREN:
-            if not expect_operand:
-                raise ValueError("unexpected '('")
-            ops.append((LPAREN, 0, False, False, True)); expect_operand = True
-        elif k == RPAREN:
-            if expect_operand:
-                raise ValueError("empty parentheses")
-            while ops and not ops[-1][4]:
-                emit(ops.pop())
-            if not ops:
-                raise ValueError("mismatched parenthesis")
-            ops.pop(); expect_operand = False
-        elif k in (PLUS, MINUS, STAR, SLASH, CARET):
-            if expect_operand:
-                if k not in (PLUS, MINUS):
-                    raise ValueError("unexpected operator")
-                ops.append((k, UNARY_PREC, True, True, False))
-            else:
-                prec = bin_prec(k); ra = (k == CARET)
-                while (ops and not ops[-1][4] and
-                       (ops[-1][1] > prec or (ops[-1][1] == prec and not ra))):
-                    emit(ops.pop())
-                ops.append((k, prec, ra, False, False))
-                expect_operand = True
-        elif k == END:
-            if expect_operand:
+    while True:
+        # -- operand mode: number, variable, '(' or a prefix sign
+        while True:
+            tok = tokens[i]; i += 1; k = tok.kind
+            if k == NUM:
+                out.append(B.num(tok.value)); break
+            if k == LPAREN:
+                ops.append((LPAREN, 0, False, False, True)); continue
+            if k == PLUS or k == MINUS:
+                ops.append((k, UNARY_PREC, True, True, False)); continue
+            if k == IDENT:
+                out.append(B.var(int(tok.value))); break
+            if k == END:
                 raise ValueError("unexpected end of input")
-    while ops:
-        emit(ops.pop())
-    if len(out) != 1:
-        raise ValueError("invalid expression")
-    return out[-1]
+            if k == RPAREN:
+                raise ValueError("empty parentheses")
+            raise ValueError("unexpected operator")
+        # -- operator mode: binary op, ')' or end; ')' stays in this mode
+        while True:
+            tok = tokens[i]; i += 1; k = tok.kind
+            prec = PREC[k]
+            if prec > 0:
+                ra = (k == CARET)
+                while ops:
+                    top = ops[-1]
+                    tp = top[1]
+                    if top[4] or not (tp > prec or (tp == prec and not ra)):
+                        break
+                    ops.pop()
+                    if top[3]:
+                        x = out.pop()
+                        out.append(B.neg(x) if top[0] == MINUS else B.pos(x))
+                    else:
+                        r = out.pop(); l = out.pop()
+                        out.append(B.binop(BIN_CHAR[top[0]], l, r))
+                ops.append((k, prec, ra, False, False))
+                break
+            if k == RPAREN:
+                while ops and not ops[-1][4]:
+                    emit(ops.pop())
+                if not ops:
+                    raise ValueError("mismatched parenthesis")
+                ops.pop()
+                continue
+            if k == END:
+                while ops:
+                    emit(ops.pop())
+                if len(out) != 1:
+                    raise ValueError("invalid expression")
+                return out[-1]
+            if k == NUM:
+                raise ValueError("unexpected number")
+            if k == IDENT:
+                raise ValueError("unexpected variable")
+            raise ValueError("unexpected '('")
 
 
 # ---- driver: divide & conquer (multipass family) ----------------------------
@@ -776,6 +799,13 @@ def reverse_fold_parse(tokens, B):
                 pend_mul = BIN_CHAR[k]
                 break
             if k == CARET:
+                # Fast path, the twin of the sign one: "x ^ leaf" where the leaf
+                # is not itself a base ("2^3 * ...") folds straight into the
+                # register; a pending sign or base below it still sees one value.
+                nxt = tokens[i]; nk = nxt.kind
+                if (nk == NUM or nk == IDENT) and tokens[i + 1].kind != CARET:
+                    cur = B.binop("^", cur, B.num(nxt.value) if nk == NUM else B.var(int(nxt.value)))
+                    i += 1; continue
                 seg.append((1, cur)); break
             if k == END:
                 if frames:
@@ -801,49 +831,60 @@ def compile_bytecode(tokens):
         else:
             code.append(("bin", BIN_CHAR[kind]))
 
-    expect_operand = True
-    for tok in tokens:
-        k = tok.kind
-        if k == NUM:
-            if not expect_operand:
-                raise ValueError("unexpected number")
-            code.append(("push", tok.value)); expect_operand = False
-        elif k == IDENT:
-            if not expect_operand:
-                raise ValueError("unexpected variable")
-            code.append(("load", int(tok.value))); expect_operand = False
-        elif k == LPAREN:
-            if not expect_operand:
-                raise ValueError("unexpected '('")
-            ops.append((LPAREN, 0, False, False, True)); expect_operand = True
-        elif k == RPAREN:
-            if expect_operand:
-                raise ValueError("empty parentheses")
-            while ops and not ops[-1][4]:
-                emit(ops.pop())
-            if not ops:
-                raise ValueError("mismatched parenthesis")
-            ops.pop(); expect_operand = False
-        elif k in (PLUS, MINUS, STAR, SLASH, CARET):
-            if expect_operand:
-                if k not in (PLUS, MINUS):
-                    raise ValueError("unexpected operator")
-                ops.append((k, UNARY_PREC, True, True, False))
-            else:
-                prec = bin_prec(k); ra = (k == CARET)
-                while (ops and not ops[-1][4] and
-                       (ops[-1][1] > prec or (ops[-1][1] == prec and not ra))):
-                    emit(ops.pop())
-                ops.append((k, prec, ra, False, False))
-                expect_operand = True
-        elif k == END:
-            if expect_operand:
+    # Two-mode scan with inlined binary emit, as in sy_parse.
+    i = 0
+    while True:
+        while True:
+            tok = tokens[i]; i += 1; k = tok.kind
+            if k == NUM:
+                code.append(("push", tok.value)); break
+            if k == LPAREN:
+                ops.append((LPAREN, 0, False, False, True)); continue
+            if k == PLUS or k == MINUS:
+                ops.append((k, UNARY_PREC, True, True, False)); continue
+            if k == IDENT:
+                code.append(("load", int(tok.value))); break
+            if k == END:
                 raise ValueError("unexpected end of input")
-    while ops:
-        emit(ops.pop())
-    if not code:
-        raise ValueError("invalid expression")
-    return code
+            if k == RPAREN:
+                raise ValueError("empty parentheses")
+            raise ValueError("unexpected operator")
+        while True:
+            tok = tokens[i]; i += 1; k = tok.kind
+            prec = PREC[k]
+            if prec > 0:
+                ra = (k == CARET)
+                while ops:
+                    top = ops[-1]
+                    tp = top[1]
+                    if top[4] or not (tp > prec or (tp == prec and not ra)):
+                        break
+                    ops.pop()
+                    if top[3]:
+                        if top[0] == MINUS:
+                            code.append(("neg",))
+                    else:
+                        code.append(("bin", BIN_CHAR[top[0]]))
+                ops.append((k, prec, ra, False, False))
+                break
+            if k == RPAREN:
+                while ops and not ops[-1][4]:
+                    emit(ops.pop())
+                if not ops:
+                    raise ValueError("mismatched parenthesis")
+                ops.pop()
+                continue
+            if k == END:
+                while ops:
+                    emit(ops.pop())
+                if not code:
+                    raise ValueError("invalid expression")
+                return code
+            if k == NUM:
+                raise ValueError("unexpected number")
+            if k == IDENT:
+                raise ValueError("unexpected variable")
+            raise ValueError("unexpected '('")
 
 
 def run_bytecode(code, vars):
