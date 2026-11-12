@@ -1,0 +1,27 @@
+# TEMPORARY (tuning A/B; removed before merge): builds origin/main as `base`
+# and this branch as `var`, runs both benches interleaved.
+name: ab
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      only: { description: "cpp-adv = C++ adversarial only, 10 jobs x 5 rounds; rust|haskell = that job only", default: "" }
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: { rep: [1, 2, 3, 4, 5, 6] }
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - run: python3 bench/gen_corpus.py
+      - name: run
+        run: |
+          git worktree add ../basewt origin/main
+          cp -r bench/corpus ../basewt/bench/
+          grep -m1 "model name" /proc/cpuinfo
+          for i in 1 2; do for b in $([ $((i % 2)) = 1 ] && echo base var || echo var base); do
+            d=$([ $b = base ] && echo ../basewt || echo .)
+            echo "### $b corpus"; (cd $d && python3 python/bench.py)
+            echo "### $b adversarial"; (cd $d && python3 python/adversarial.py)
+          done; done
