@@ -139,44 +139,41 @@ rdParse ts = case pExpr ts of
             | otherwise -> error "unexpected token"
 
 pExpr :: Sym r => [Tok] -> (r, [Tok])
-pExpr ts = loop l0 r0
+pExpr ts = case pTerm ts of (l0, r0) -> loop l0 r0
   where
-    (l0, r0) = pTerm ts
     loop l (t : rest)
-      | tKind t == KPlus  = let (rt, r2) = pTerm rest in loop (sBin Add l rt) r2
-      | tKind t == KMinus = let (rt, r2) = pTerm rest in loop (sBin Sub l rt) r2
+      | tKind t == KPlus  = case pTerm rest of (rt, r2) -> loop (sBin Add l rt) r2
+      | tKind t == KMinus = case pTerm rest of (rt, r2) -> loop (sBin Sub l rt) r2
     loop l toks = (l, toks)
 
 pTerm :: Sym r => [Tok] -> (r, [Tok])
-pTerm ts = loop l0 r0
+pTerm ts = case pUnary ts of (l0, r0) -> loop l0 r0
   where
-    (l0, r0) = pUnary ts
     loop l (t : rest)
-      | tKind t == KStar  = let (rt, r2) = pUnary rest in loop (sBin Mul l rt) r2
-      | tKind t == KSlash = let (rt, r2) = pUnary rest in loop (sBin Div l rt) r2
+      | tKind t == KStar  = case pUnary rest of (rt, r2) -> loop (sBin Mul l rt) r2
+      | tKind t == KSlash = case pUnary rest of (rt, r2) -> loop (sBin Div l rt) r2
     loop l toks = (l, toks)
 
 pUnary :: Sym r => [Tok] -> (r, [Tok])
 pUnary (t : rest)
-  | tKind t == KPlus  = let (c, r) = pUnary rest in (sPos c, r)
-  | tKind t == KMinus = let (c, r) = pUnary rest in (sNeg c, r)
+  | tKind t == KPlus  = case pUnary rest of (c, r) -> (sPos c, r)
+  | tKind t == KMinus = case pUnary rest of (c, r) -> (sNeg c, r)
 pUnary ts = pPower ts
 
 pPower :: Sym r => [Tok] -> (r, [Tok])
-pPower ts =
-  let (base, r) = pPrimary ts
-  in case r of
-       (t : rest) | tKind t == KCaret -> let (e, r2) = pUnary rest in (sBin Pow base e, r2)
-       _ -> (base, r)
+pPower ts = case pPrimary ts of
+  (base, r) -> case r of
+    (t : rest) | tKind t == KCaret -> case pUnary rest of (e, r2) -> (sBin Pow base e, r2)
+    _ -> (base, r)
 
 pPrimary :: Sym r => [Tok] -> (r, [Tok])
 pPrimary (t : rest) = case tKind t of
   KNum    -> (sNum (tVal t), rest)
   KVar    -> (sVar (round (tVal t)), rest)
-  KLParen -> let (e, r) = pExpr rest
-             in case r of
+  KLParen -> case pExpr rest of { (e, r) ->
+             case r of
                   (t2 : r2) | tKind t2 == KRParen -> (e, r2)
-                  _ -> error "expected ')'"
+                  _ -> error "expected ')'" }
   _ -> error "expected number or '('"
 pPrimary [] = error "unexpected end of input"
 
@@ -196,41 +193,38 @@ skipWs :: String -> String
 skipWs = dropWhile isSpace
 
 sExpr :: Sym r => String -> (r, String)
-sExpr s0 = loop l0 r0
+sExpr s0 = case sTerm s0 of (l0, r0) -> loop l0 r0
   where
-    (l0, r0) = sTerm s0
-    loop l ('+' : rest) = let (rt, r2) = sTerm (skipWs rest) in loop (sBin Add l rt) r2
-    loop l ('-' : rest) = let (rt, r2) = sTerm (skipWs rest) in loop (sBin Sub l rt) r2
+    loop l ('+' : rest) = case sTerm (skipWs rest) of (rt, r2) -> loop (sBin Add l rt) r2
+    loop l ('-' : rest) = case sTerm (skipWs rest) of (rt, r2) -> loop (sBin Sub l rt) r2
     loop l s = (l, s)
 
 sTerm :: Sym r => String -> (r, String)
-sTerm s0 = loop l0 r0
+sTerm s0 = case sUnary s0 of (l0, r0) -> loop l0 r0
   where
-    (l0, r0) = sUnary s0
-    loop l ('*' : rest) = let (rt, r2) = sUnary (skipWs rest) in loop (sBin Mul l rt) r2
-    loop l ('/' : rest) = let (rt, r2) = sUnary (skipWs rest) in loop (sBin Div l rt) r2
+    loop l ('*' : rest) = case sUnary (skipWs rest) of (rt, r2) -> loop (sBin Mul l rt) r2
+    loop l ('/' : rest) = case sUnary (skipWs rest) of (rt, r2) -> loop (sBin Div l rt) r2
     loop l s = (l, s)
 
 sUnary :: Sym r => String -> (r, String)
-sUnary ('+' : rest) = let (c, r) = sUnary (skipWs rest) in (sPos c, r)
-sUnary ('-' : rest) = let (c, r) = sUnary (skipWs rest) in (sNeg c, r)
+sUnary ('+' : rest) = case sUnary (skipWs rest) of (c, r) -> (sPos c, r)
+sUnary ('-' : rest) = case sUnary (skipWs rest) of (c, r) -> (sNeg c, r)
 sUnary s = sPower s
 
 sPower :: Sym r => String -> (r, String)
-sPower s =
-  let (base, r) = sPrimary s
-  in case r of
-       ('^' : rest) -> let (e, r2) = sUnary (skipWs rest) in (sBin Pow base e, r2)
-       _            -> (base, r)
+sPower s = case sPrimary s of
+  (base, r) -> case r of
+    ('^' : rest) -> case sUnary (skipWs rest) of (e, r2) -> (sBin Pow base e, r2)
+    _            -> (base, r)
 
 sPrimary :: Sym r => String -> (r, String)
 sPrimary s@(c : rest)
-  | c == '(' = let (e, r) = sExpr (skipWs rest)
-               in case r of
+  | c == '(' = case sExpr (skipWs rest) of { (e, r) ->
+               case r of
                     (')' : r2) -> (e, skipWs r2)
-                    _          -> error "expected ')'"
+                    _          -> error "expected ')'" }
   | isDigit c || c == '.' =
-      let (lexeme, r) = spanNumber s in (sNum (readNum lexeme (-1)), skipWs r)
+      case spanNumber s of (lexeme, r) -> (sNum (readNum lexeme (-1)), skipWs r)
   | isAlpha c || c == '_' =
       let (word, r) = span (\x -> isAlphaNum x || x == '_') s
       in if length word /= 1 || c == '_'
@@ -248,9 +242,8 @@ lbp :: Kind -> Int
 lbp k = let p = binPrec k in if p > 0 then p else 0
 
 pp :: Sym r => Int -> [Tok] -> (r, [Tok])
-pp rbp (t : ts) = loop left ts1
+pp rbp (t : ts) = case nud t ts of (left, ts1) -> loop left ts1
   where
-    (left, ts1) = nud t ts
     loop l toks@(o : rest)
       | lb <= rbp = (l, toks)
       | otherwise = let (right, ts2) = pp (if ra then lb - 1 else lb) rest
@@ -263,12 +256,12 @@ nud :: Sym r => Tok -> [Tok] -> (r, [Tok])
 nud t ts = case tKind t of
   KNum    -> (sNum (tVal t), ts)
   KVar    -> (sVar (round (tVal t)), ts)
-  KPlus   -> let (o, r) = pp 3 ts in (sPos o, r)   -- rbp 3 < ^ lbp 4: prefix grabs a power
-  KMinus  -> let (o, r) = pp 3 ts in (sNeg o, r)
-  KLParen -> let (e, r) = pp 0 ts
-             in case r of
+  KPlus   -> case pp 3 ts of (o, r) -> (sPos o, r)   -- rbp 3 < ^ lbp 4: prefix grabs a power
+  KMinus  -> case pp 3 ts of (o, r) -> (sNeg o, r)
+  KLParen -> case pp 0 ts of { (e, r) ->
+             case r of
                   (t2 : r2) | tKind t2 == KRParen -> (e, r2)
-                  _ -> error "expected ')'"
+                  _ -> error "expected ')'" }
   _ -> error "unexpected token"
 
 -- ---- driver: shunting-yard -------------------------------------------------
@@ -313,7 +306,7 @@ syParse toks = finish (go toks [] [] True)
               | otherwise -> let (out1, ops1) = popUntilLP out ops in go ts out1 ops1 False
       KEnd | expect    -> error "unexpected end of input"
            | otherwise -> (out, ops)
-      k | k `elem` [KPlus, KMinus, KStar, KSlash, KCaret] ->
+      k | k == KPlus || k == KMinus || k == KStar || k == KSlash || k == KCaret ->
             if expect
               then if k == KPlus || k == KMinus
                      then go ts out (OpE k 3 True True False : ops) True
@@ -738,7 +731,7 @@ bcCompile toks = compile toks [] [] True
               | otherwise -> let (c1, ops1) = popUntilLP code ops in compile ts c1 ops1 False
       KEnd | expect    -> error "unexpected end of input"
            | otherwise -> reverse (foldl' (flip applyE) code ops)
-      k | k `elem` [KPlus, KMinus, KStar, KSlash, KCaret] ->
+      k | k == KPlus || k == KMinus || k == KStar || k == KSlash || k == KCaret ->
             if expect
               then if k == KPlus || k == KMinus
                      then compile ts code (OpE k 3 True True False : ops) True
