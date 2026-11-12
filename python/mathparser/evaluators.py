@@ -695,7 +695,8 @@ def reverse_mp_parse(tokens, B):
                 elif k == CARET:
                     seg.append(("op", k)); i += 1; expect = True
                 else:  # barrier: close the segment
-                    flat.append(close_seg(seg)); flat.append(("op", k))
+                    flat.append(seg[0] if len(seg) == 1 and seg[0][0] == "opd" else close_seg(seg))
+                    flat.append(("op", k))
                     seg = []; i += 1; expect = True
             else:
                 raise ValueError("syntax error")
