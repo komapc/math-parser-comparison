@@ -20,6 +20,9 @@ on:
 
 # Run bundled JS actions (checkout, upload-artifact) on Node 24, silencing the
 # Node 20 deprecation notice.
+permissions:
+  contents: read
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
@@ -88,7 +91,7 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       # ---- Haskell ----
-      - uses: haskell-actions/setup@v2
+      - uses: haskell-actions/setup@0f8e8c99d88aeb3fbfd523f1ef2c6f762d10d64d # v2.12.1
         with:
           ghc-version: '9.6.7'
           cabal-version: '3.10.3.0'
