@@ -22,9 +22,9 @@ jobs:
           - compiler: gcc-14
             cpp: g++-14
             package: g++-14
-          - compiler: clang-18
-            cpp: clang++-18
-            package: clang-18
+          - compiler: clang-20
+            cpp: clang++-20
+            package: clang-20
 
     steps:
       - uses: actions/checkout@v4
@@ -140,4 +140,4 @@ jobs:
         run: |
           python3 bench/gen_fuzz.py
           python3 bench/xlang_compare.py bench/fuzz/well_formed.txt bench/fuzz/mutated.txt -- \
-            xlang-cpp-gcc-14.txt xlang-cpp-clang-18.txt xlang-rust.txt xlang-python.txt xlang-haskell.txt
+            xlang-cpp-gcc-14.txt xlang-cpp-clang-20.txt xlang-rust.txt xlang-python.txt xlang-haskell.txt

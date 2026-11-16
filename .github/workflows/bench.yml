@@ -47,7 +47,7 @@ jobs:
       - name: Generate shared corpora
         run: python3 bench/gen_corpus.py
 
-      # GCC only, deliberately: ci.yml's build matrix already covers clang-18
+      # GCC only, deliberately: ci.yml's build matrix already covers clang-20
       # for correctness, but mixing compilers here would add cross-compiler
       # noise to numbers that are meant to isolate cross-language/algorithm
       # differences.

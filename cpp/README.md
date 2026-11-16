@@ -107,7 +107,7 @@ ctest --test-dir build --output-on-failure   # 630 checks + 6300-input different
 ./build/adversarial_bench                     # 4 structured shapes: top-down worst cases (now O(n log n)), nestchain (bottom-up's), vs reverse Θ(n)
 ```
 
-Requires GCC 14 (also builds with Clang 17+; CI tests clang-18) + CMake ≥ 3.20.
+Requires GCC 14 (also builds with Clang 17+; CI tests clang-20) + CMake ≥ 3.20.
 No external dependencies. `corpus_bench` reads `bench/corpus/` — run
 `python3 bench/gen_corpus.py` first; `adversarial_bench` generates its own
 structured chains and needs no corpus.
