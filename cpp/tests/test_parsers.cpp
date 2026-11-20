@@ -131,6 +131,27 @@ int main() {
         for (const auto& e : errs)  checkError(*ev, e);
     }
 
+    // The two bottom-up strategies match parentheses up front, so an unclosed
+    // '(' must be reported as such, not as a downstream "empty sub-expression".
+    for (auto& ev : evs) {
+        const std::string_view name = ev->name();
+        if (name != "multipass-reverse" && name != "multipass-reverse-fold") continue;
+        for (const std::string_view expr : {"((a", "a + (b"}) {
+            ++g_checks;
+            try {
+                (void)ev->eval(expr, vars);
+                std::println("FAIL [{:<26}] \"{}\" should have thrown", name, expr);
+                ++g_failures;
+            } catch (const std::exception& e) {
+                if (std::string_view(e.what()) != "missing ')'") {
+                    std::println("FAIL [{:<26}] \"{}\" threw \"{}\", expected \"missing ')'\"",
+                                 name, expr, e.what());
+                    ++g_failures;
+                }
+            }
+        }
+    }
+
     // Regression: bytecode-vm desynchronised its constant pool when no
     // variable table was passed, so a variable after the first constant
     // read the wrong slot ("1 + a + 2" -> 1 instead of 3). Every evaluator
