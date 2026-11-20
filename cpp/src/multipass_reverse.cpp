@@ -95,6 +95,9 @@ private:
                 parenMatch_[i]    = open;
             }
         }
+        // An unclosed '(' would otherwise surface later as "empty sub-expression";
+        // name the real fault, as multipass-reverse-fold does.
+        if (!stack.empty()) throw std::runtime_error("missing ')'");
     }
 
     // Reduce items_[segStart..end) — one ^/unary segment — to a single operand
